@@ -153,7 +153,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         miuiLauncherOpenBreakGeneration = 0L;
         acceptedInputToken.set(null);
         miuiHomeAcceptedInputIdentity.set(null);
-        systemUiReturnHomeCommitIdentity.set(null);
+        clearSystemUiReturnHomeCommitIdentity(null, 0L, "hotReload");
         unregisterMiuiOverviewStateReceiver();
         unregisterMiuiHomeOpenBreakCommandReceiver();
         unregisterMiuiHomeInputArbiterReceiver();
@@ -332,6 +332,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             if (!oldHookIds.contains("systemui_status_bar_transient_appearance")) {
                 hookStatusBarTransientAppearance(hotReloadClassLoader);
             }
+            if (!oldHookIds.contains("systemui_navigation_bar_gesture_insets")) {
+                hookNavigationBarGestureInsets(hotReloadClassLoader);
+            }
             if (!oldHookIds.contains("systemui_navigation_bar_controller_create")) {
                 hookNavigationBarControllerCreate(hotReloadClassLoader);
             }
@@ -494,13 +497,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     }
                 }
                 hookMiuiHomeStartTransactionApply(oldHookIds);
-                if (!oldHookIds.contains("miui_home_return_home_cancel_surface")
-                        || !oldHookIds.contains("miui_home_return_home_set_to_old")) {
-                    hookMiuiHomeReturnHomeCloseInterruption(
-                            hotReloadClassLoader,
-                            !oldHookIds.contains("miui_home_return_home_cancel_surface"),
-                            !oldHookIds.contains("miui_home_return_home_set_to_old"));
-                }
                 if (!oldHookIds.contains("miui_home_return_home_same_icon_parallel")) {
                     hookMiuiHomeReturnHomeSameIconParallel(hotReloadClassLoader);
                 }
@@ -557,6 +553,8 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::preserveTransientBarAppearance;
             case "systemui_navigation_bar_show_transient":
                 return this::preserveTransientBarAutoHide;
+            case "systemui_navigation_bar_gesture_insets":
+                return this::restoreNavigationBarGestureInsets;
             case "systemui_navigation_bar_controller_create":
                 return this::reconcileAfterNavigationBarCreate;
             case "systemui_navigation_bar_controller_remove":
@@ -605,16 +603,12 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::armMiuiHomeTransitionStartGeometry;
             case "miui_home_permission_activity_merge":
                 return this::preserveMiuiHomeOpenAcrossPermissionMerge;
-            case "miui_home_return_home_cancel_surface":
-                return this::captureMiuiHomeReturnHomeCloseInterruption;
             case "miui_home_return_home_same_icon_parallel":
                 return this::routeMiuiHomeReturnHomeSameIconParallel;
             case "miui_home_return_home_fresh_open":
                 return this::forceMiuiHomeReturnHomeFreshOpen;
             case "miui_home_return_home_cancel_direct":
                 return this::wrapMiuiHomeReturnHomeDirectCancel;
-            case "miui_home_return_home_set_to_old":
-                return this::finishMiuiHomeReturnHomeCloseInterruption;
             case "miui_home_drawer_state":
                 return this::mirrorMiuiHomeDrawerState;
             case "miui_home_editing_state":
@@ -884,7 +878,6 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             }
             hookMiuiHomeStartTransactionApply(
                     Collections.emptySet());
-            hookMiuiHomeReturnHomeCloseInterruption(classLoader, true, true);
             hookMiuiHomeReturnHomeSameIconParallel(classLoader);
             hookMiuiHomeReturnHomeFreshOpen(classLoader);
             hookMiuiHomeReturnHomeDirectCancel(classLoader);
