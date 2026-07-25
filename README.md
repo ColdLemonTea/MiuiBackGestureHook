@@ -41,8 +41,14 @@ Current scopes:
 
 ```text
 com.android.systemui
+com.miui.home
 system
 ```
+
+## Compatibility
+
+The MiuiHome integration is best matched with Xiaomi System Launcher
+version `7.50.xx`.
 
 ## Hot Reload
 
