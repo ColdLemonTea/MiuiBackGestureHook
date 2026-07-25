@@ -1,13 +1,17 @@
 <resources>
     <string name="predictive_back_title">启用预测性返回</string>
+    <string name="predictive_back_apps_title">选择应用</string>
+    <string name="predictive_back_apps_entry_title">应用列表</string>
+    <string name="predictive_back_apps_entry_summary">选择需要启用完整预测性返回协议的应用</string>
+    <string name="predictive_back_compatibility_entry">查看兼容性说明</string>
     <string name="predictive_back_search">搜索应用</string>
     <string name="predictive_back_warning_title">兼容性说明</string>
     <string name="predictive_back_warning_body">此设置会为所选应用启用完整的预测性返回协议。单 Activity、WebView、Compose Navigation 或自建路由应用可能无法正确处理应用内返回，直接回到桌面。建议仅为已经真机验证的应用启用。</string>
     <string name="predictive_back_restart_note">更改会在目标应用完全重启后生效，本模块不会 hook 目标应用。已在应用级声明支持预测性返回的应用不会出现在列表中。</string>
     <string name="predictive_back_service_loading">正在连接 LSPosed…</string>
-    <string name="predictive_back_service_unavailable">无法连接 LSPosed 服务，当前无法读取或修改选择；运行中的 hook 会继续使用最后一次有效配置。</string>
-    <string name="predictive_back_config_error">无法读取 LSPosed 配置，当前列表只读；运行中的 hook 会继续使用最后一次有效配置。</string>
-    <string name="predictive_back_save_error">无法保存选择，原配置保持不变。</string>
+    <string name="predictive_back_service_unavailable">无法连接 LSPosed 服务，当前无法读取或修改设置；运行中的 hook 会继续使用最后一次有效配置。</string>
+    <string name="predictive_back_config_error">无法读取 LSPosed 配置，当前设置只读；运行中的 hook 会继续使用最后一次有效配置。</string>
+    <string name="predictive_back_save_error">无法保存更改，原配置保持不变。</string>
     <string name="predictive_back_apps_error">无法加载已安装应用列表。</string>
     <string name="predictive_back_loading_apps">正在加载应用…</string>
     <string name="predictive_back_no_apps">没有符合条件的应用</string>
@@ -21,6 +25,7 @@
     <string name="hyperos_slide_animation_title">HyperOS 侧滑返回动画</string>
     <string name="hyperos_slide_animation_summary">以全宽侧滑替代 AOSP 预测性返回</string>
     <string name="back">返回</string>
+    <string name="close">关闭</string>
     <string name="more_options">更多选项</string>
     <string name="toggle_dropdown">展开或收起下拉菜单</string>
     <string name="pull_to_refresh_hint1">下拉触发刷新</string>

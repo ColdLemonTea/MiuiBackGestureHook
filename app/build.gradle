@@ -58,7 +58,7 @@ android {
         minSdk 36
         targetSdk 36
         versionCode gitVersionCode.get()
-        versionName "0.7.0"
+        versionName "0.8.0"
     }
 
     signingConfigs {
@@ -105,5 +105,6 @@ dependencies {
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
     implementation "top.yukonga.miuix.kmp:miuix-blur-android:0.9.3"
     implementation "top.yukonga.miuix.kmp:miuix-icons-android:0.9.3"
+    implementation "top.yukonga.miuix.kmp:miuix-preference-android:0.9.3"
     implementation "top.yukonga.miuix.kmp:miuix-ui-android:0.9.3"
 }

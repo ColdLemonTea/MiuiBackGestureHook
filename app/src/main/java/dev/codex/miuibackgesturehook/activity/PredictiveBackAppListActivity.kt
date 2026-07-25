@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // UI structure adapted with permission from InstallerX Revived's MiuixApplyPage.
 // Copyright (C) 2025-2026 InstallerX Revived contributors.
-package dev.codex.miuibackgesturehook
+package dev.codex.miuibackgesturehook.activity
 
 import android.annotation.SuppressLint
 import android.content.ComponentName
@@ -53,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -83,6 +84,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.drawable.toBitmap
+import dev.codex.miuibackgesturehook.ModuleApplication
+import dev.codex.miuibackgesturehook.PredictiveBackPreferences
+import dev.codex.miuibackgesturehook.R
 import io.github.libxposed.service.XposedService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -106,6 +110,7 @@ import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurColors
@@ -115,8 +120,10 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
-import top.yukonga.miuix.kmp.icon.extended.Close
+import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.More
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
@@ -125,7 +132,7 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.window.WindowListPopup
 import kotlin.time.Duration.Companion.milliseconds
 
-class PredictiveBackSettingsActivity :
+class PredictiveBackAppListActivity :
     ComponentActivity(),
     ModuleApplication.ServiceStateListener {
     private var xposedService: XposedService? by mutableStateOf(null)
@@ -137,7 +144,7 @@ class PredictiveBackSettingsActivity :
         setContent {
             val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
             MiuixTheme(colors = colors) {
-                PredictiveBackSettingsScreen(
+                PredictiveBackAppListScreen(
                     service = xposedService,
                     serviceStateObserved = serviceStateObserved,
                     onClose = { finish() },
@@ -176,12 +183,12 @@ private data class AppLoadResult(
     val applicationOptInPackages: Set<String>,
 )
 
-private data class StatusCardMessage(
+private data class AppListStatusCardMessage(
     val text: String,
-    val severity: CardSeverity,
+    val severity: AppListCardSeverity,
 )
 
-private enum class CardSeverity {
+private enum class AppListCardSeverity {
     Info,
     Error,
 }
@@ -208,7 +215,7 @@ private val applicationPrivateFlagsExtField by lazy(LazyThreadSafetyMode.PUBLICA
 
 @Composable
 @SuppressLint("ApplySharedPref")
-private fun PredictiveBackSettingsScreen(
+private fun PredictiveBackAppListScreen(
     service: XposedService?,
     serviceStateObserved: Boolean,
     onClose: () -> Unit,
@@ -218,6 +225,9 @@ private fun PredictiveBackSettingsScreen(
     val appsErrorMessage = stringResource(R.string.predictive_back_apps_error)
     val configurationErrorMessage = stringResource(R.string.predictive_back_config_error)
     val saveErrorMessage = stringResource(R.string.predictive_back_save_error)
+    val serviceLoadingMessage = stringResource(R.string.predictive_back_service_loading)
+    val serviceUnavailableMessage =
+        stringResource(R.string.predictive_back_service_unavailable)
     val scope = rememberCoroutineScope()
     val uiPreferences = remember(context) {
         context.getSharedPreferences(UI_PREFERENCES_GROUP, Context.MODE_PRIVATE)
@@ -229,6 +239,7 @@ private fun PredictiveBackSettingsScreen(
         }
     }
     var query by rememberSaveable { mutableStateOf("") }
+    var showCompatibilityDialog by rememberSaveable { mutableStateOf(false) }
     var orderTypeName by rememberSaveable {
         mutableStateOf(
             uiPreferences.getString(UI_KEY_ORDER_TYPE, AppOrderType.Label.name)
@@ -251,22 +262,14 @@ private fun PredictiveBackSettingsScreen(
     var applicationOptInPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
     var appsLoading by remember { mutableStateOf(true) }
     var appsError by remember { mutableStateOf<String?>(null) }
-    var appLoadGeneration by remember { mutableStateOf(0L) }
+    var appLoadGeneration by remember { mutableLongStateOf(0L) }
     var preferences by remember { mutableStateOf<SharedPreferences?>(null) }
     var selectedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
     var configurationLoading by remember { mutableStateOf(true) }
     var configurationError by remember { mutableStateOf<String?>(null) }
     var saveError by remember { mutableStateOf<String?>(null) }
-    var localWriteGeneration by remember { mutableStateOf(0L) }
-    var confirmedPackages by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var hyperOsIndicator by remember { mutableStateOf(false) }
-    var confirmedHyperOsIndicator by remember { mutableStateOf(false) }
-    var hyperOsHaptics by remember { mutableStateOf(false) }
-    var confirmedHyperOsHaptics by remember { mutableStateOf(false) }
-    var hyperOsHapticsEnhanced by remember { mutableStateOf(false) }
-    var confirmedHyperOsHapticsEnhanced by remember { mutableStateOf(false) }
-    var hyperOsSlideAnimation by remember { mutableStateOf(false) }
-    var confirmedHyperOsSlideAnimation by remember { mutableStateOf(false) }
+    var localWriteGeneration by remember { mutableLongStateOf(0L) }
     val writeMutex = remember(preferences) { Mutex() }
     val lazyListState = rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
@@ -308,18 +311,10 @@ private fun PredictiveBackSettingsScreen(
     LaunchedEffect(service, serviceStateObserved, configurationErrorMessage) {
         preferences = null
         selectedPackages = emptySet()
+        confirmedPackages = emptySet()
         configurationError = null
         saveError = null
         localWriteGeneration = 0L
-        confirmedPackages = emptySet()
-        hyperOsIndicator = false
-        confirmedHyperOsIndicator = false
-        hyperOsHaptics = false
-        confirmedHyperOsHaptics = false
-        hyperOsHapticsEnhanced = false
-        confirmedHyperOsHapticsEnhanced = false
-        hyperOsSlideAnimation = false
-        confirmedHyperOsSlideAnimation = false
         if (!serviceStateObserved) {
             configurationLoading = true
             return@LaunchedEffect
@@ -331,42 +326,18 @@ private fun PredictiveBackSettingsScreen(
         configurationLoading = true
         try {
             val loaded = withContext(Dispatchers.IO) {
-                val remotePreferences = service.getRemotePreferences(PredictiveBackPreferences.GROUP)
+                val remotePreferences =
+                    service.getRemotePreferences(PredictiveBackPreferences.GROUP)
                 val packages = remotePreferences
                     .getStringSet(PredictiveBackPreferences.KEY_PACKAGES, emptySet())
                     .orEmpty()
                     .filterTo(HashSet()) { it.isNotBlank() }
-                val hyperOsFlags = booleanArrayOf(
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_HYPEROS_INDICATOR,
-                        PredictiveBackPreferences.DEFAULT_HYPEROS_INDICATOR,
-                    ),
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_HYPEROS_HAPTICS,
-                        PredictiveBackPreferences.DEFAULT_HYPEROS_HAPTICS,
-                    ),
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_HYPEROS_HAPTICS_ENHANCED,
-                        PredictiveBackPreferences.DEFAULT_HYPEROS_HAPTICS_ENHANCED,
-                    ),
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_HYPEROS_SLIDE_ANIMATION,
-                        PredictiveBackPreferences.DEFAULT_HYPEROS_SLIDE_ANIMATION,
-                    ),
-                )
-                Triple(remotePreferences, packages.toSet(), hyperOsFlags)
+                    .toSet()
+                remotePreferences to packages
             }
             preferences = loaded.first
             selectedPackages = loaded.second
             confirmedPackages = loaded.second
-            hyperOsIndicator = loaded.third[0]
-            confirmedHyperOsIndicator = loaded.third[0]
-            hyperOsHaptics = loaded.third[1]
-            confirmedHyperOsHaptics = loaded.third[1]
-            hyperOsHapticsEnhanced = loaded.third[2]
-            confirmedHyperOsHapticsEnhanced = loaded.third[2]
-            hyperOsSlideAnimation = loaded.third[3]
-            confirmedHyperOsSlideAnimation = loaded.third[3]
         } catch (_: Throwable) {
             configurationError = configurationErrorMessage
         } finally {
@@ -395,20 +366,19 @@ private fun PredictiveBackSettingsScreen(
             }
         }
         selectedPackages.forEach { packageName ->
-            if (packageName in applicationOptInPackages) {
-                return@forEach
+            if (packageName !in applicationOptInPackages) {
+                entriesByPackage.putIfAbsent(
+                    packageName,
+                    AppEntry(
+                        packageName = packageName,
+                        label = packageName,
+                        launcherActivity = null,
+                        firstInstallTime = 0L,
+                        isSystem = false,
+                        isAvailable = false,
+                    ),
+                )
             }
-            entriesByPackage.putIfAbsent(
-                packageName,
-                AppEntry(
-                    packageName = packageName,
-                    label = packageName,
-                    launcherActivity = null,
-                    firstInstallTime = 0L,
-                    isSystem = false,
-                    isAvailable = false,
-                ),
-            )
         }
         val filteredApps = entriesByPackage.values
             .asSequence()
@@ -442,33 +412,6 @@ private fun PredictiveBackSettingsScreen(
         filteredApps.sortedWith(comparator)
     }
 
-    val configurationEnabled = preferences != null
-    val serviceLoadingMessage = stringResource(R.string.predictive_back_service_loading)
-    val serviceUnavailableMessage =
-        stringResource(R.string.predictive_back_service_unavailable)
-    val statusMessage = when {
-        configurationLoading -> StatusCardMessage(
-            text = serviceLoadingMessage,
-            severity = CardSeverity.Info,
-        )
-
-        configurationError != null -> StatusCardMessage(
-            text = configurationError.orEmpty(),
-            severity = CardSeverity.Error,
-        )
-
-        saveError != null -> StatusCardMessage(
-            text = saveError.orEmpty(),
-            severity = CardSeverity.Error,
-        )
-
-        serviceStateObserved && service == null -> StatusCardMessage(
-            text = serviceUnavailableMessage,
-            severity = CardSeverity.Error,
-        )
-
-        else -> null
-    }
     val persistSelection: (Set<String>) -> Unit = { requestedPackages ->
         val activePreferences = preferences
         if (activePreferences != null) {
@@ -504,9 +447,7 @@ private fun PredictiveBackSettingsScreen(
                                     )
                                     .commit()
                             } catch (_: Throwable) {
-                                // RemotePreferences updates its local map before the Binder call,
-                                // so the compensation restores the cached value even when its
-                                // own remote commit fails as well.
+                                // Restore the RemotePreferences cache where possible.
                             }
                         }
                         succeeded
@@ -516,101 +457,18 @@ private fun PredictiveBackSettingsScreen(
                     }
                     commitSucceeded
                 }
-                if (preferences === activePreferences) {
-                    if (writeGeneration == localWriteGeneration) {
-                        if (saved) {
-                            selectedPackages = nextPackages
-                        } else {
-                            selectedPackages = confirmedPackages
-                            saveError = saveErrorMessage
-                        }
+                if (preferences === activePreferences &&
+                    writeGeneration == localWriteGeneration
+                ) {
+                    if (saved) {
+                        selectedPackages = nextPackages
+                    } else {
+                        selectedPackages = confirmedPackages
+                        saveError = saveErrorMessage
                     }
                 }
             }
         }
-    }
-
-    val persistBooleanPreference: (
-        String,
-        Boolean,
-        (Boolean) -> Unit,
-        () -> Boolean,
-        (Boolean) -> Unit,
-    ) -> Unit = { key, requestedEnabled, setLocal, getConfirmed, setConfirmed ->
-        val activePreferences = preferences
-        if (activePreferences != null) {
-            setLocal(requestedEnabled)
-            saveError = null
-            scope.launch {
-                val saved = writeMutex.withLock {
-                    val fallbackEnabled = getConfirmed()
-                    val commitSucceeded = withContext(Dispatchers.IO) {
-                        val succeeded = try {
-                            activePreferences.edit()
-                                .putBoolean(key, requestedEnabled)
-                                .commit()
-                        } catch (_: Throwable) {
-                            false
-                        }
-                        if (!succeeded) {
-                            try {
-                                activePreferences.edit()
-                                    .putBoolean(key, fallbackEnabled)
-                                    .commit()
-                            } catch (_: Throwable) {
-                                // Same compensation as persistSelection: restore the cached
-                                // value even when the remote commit fails as well.
-                            }
-                        }
-                        succeeded
-                    }
-                    if (preferences === activePreferences && commitSucceeded) {
-                        setConfirmed(requestedEnabled)
-                    }
-                    commitSucceeded
-                }
-                if (preferences === activePreferences && !saved) {
-                    setLocal(getConfirmed())
-                    saveError = saveErrorMessage
-                }
-            }
-        }
-    }
-    val persistHyperOsIndicator: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_HYPEROS_INDICATOR,
-            requestedEnabled,
-            { hyperOsIndicator = it },
-            { confirmedHyperOsIndicator },
-            { confirmedHyperOsIndicator = it },
-        )
-    }
-    val persistHyperOsHaptics: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_HYPEROS_HAPTICS,
-            requestedEnabled,
-            { hyperOsHaptics = it },
-            { confirmedHyperOsHaptics },
-            { confirmedHyperOsHaptics = it },
-        )
-    }
-    val persistHyperOsHapticsEnhanced: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_HYPEROS_HAPTICS_ENHANCED,
-            requestedEnabled,
-            { hyperOsHapticsEnhanced = it },
-            { confirmedHyperOsHapticsEnhanced },
-            { confirmedHyperOsHapticsEnhanced = it },
-        )
-    }
-    val persistHyperOsSlideAnimation: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_HYPEROS_SLIDE_ANIMATION,
-            requestedEnabled,
-            { hyperOsSlideAnimation = it },
-            { confirmedHyperOsSlideAnimation },
-            { confirmedHyperOsSlideAnimation = it },
-        )
     }
 
     LaunchedEffect(preferences, applicationOptInPackages) {
@@ -622,21 +480,46 @@ private fun PredictiveBackSettingsScreen(
         }
     }
 
+    val configurationEnabled = preferences != null
+    val statusMessage = when {
+        configurationLoading -> AppListStatusCardMessage(
+            text = serviceLoadingMessage,
+            severity = AppListCardSeverity.Info,
+        )
+
+        configurationError != null -> AppListStatusCardMessage(
+            text = configurationError.orEmpty(),
+            severity = AppListCardSeverity.Error,
+        )
+
+        saveError != null -> AppListStatusCardMessage(
+            text = saveError.orEmpty(),
+            severity = AppListCardSeverity.Error,
+        )
+
+        serviceStateObserved && service == null -> AppListStatusCardMessage(
+            text = serviceUnavailableMessage,
+            severity = AppListCardSeverity.Error,
+        )
+
+        else -> null
+    }
+
     Scaffold(
         topBar = {
             Column(
                 modifier = Modifier
-                    .installerMiuixBlurEffect(topBarBackdrop)
+                    .miuixBlurEffect(topBarBackdrop)
                     .background(Color.Transparent),
             ) {
                 TopAppBar(
                     color = Color.Transparent,
                     scrollBehavior = scrollBehavior,
-                    title = stringResource(R.string.predictive_back_title),
+                    title = stringResource(R.string.predictive_back_apps_title),
                     navigationIcon = {
                         IconButton(onClick = onClose) {
                             Icon(
-                                imageVector = MiuixIcons.Regular.Close,
+                                imageVector = MiuixIcons.Regular.Back,
                                 contentDescription = stringResource(R.string.back),
                             )
                         }
@@ -694,6 +577,26 @@ private fun PredictiveBackSettingsScreen(
                         .padding(bottom = 8.dp),
                     label = stringResource(R.string.predictive_back_search),
                 )
+                Card(
+                    modifier = Modifier
+                        .padding(
+                            start = 12.dp + horizontalSafeInsets.calculateStartPadding(
+                                layoutDirection,
+                            ),
+                            end = 12.dp + horizontalSafeInsets.calculateEndPadding(
+                                layoutDirection,
+                            ),
+                        )
+                        .padding(bottom = 8.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    ArrowPreference(
+                        title = stringResource(
+                            R.string.predictive_back_compatibility_entry,
+                        ),
+                        onClick = { showCompatibilityDialog = true },
+                    )
+                }
 
                 data class OrderData(val labelResId: Int, val type: AppOrderType)
 
@@ -709,6 +612,7 @@ private fun PredictiveBackSettingsScreen(
                     .coerceAtLeast(0)
                 Box(
                     modifier = Modifier
+                        .fillMaxWidth()
                         .padding(
                             start = 6.dp + horizontalSafeInsets.calculateStartPadding(
                                 layoutDirection,
@@ -758,205 +662,168 @@ private fun PredictiveBackSettingsScreen(
             }
         },
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize()) {
-            when {
-                appsLoading && apps.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            InfiniteProgressIndicator()
-                            Text(
-                                text = stringResource(R.string.predictive_back_loading_apps),
-                                style = MiuixTheme.textStyles.main,
+        OverlayDialog(
+            show = showCompatibilityDialog,
+            title = stringResource(R.string.predictive_back_warning_title),
+            onDismissRequest = { showCompatibilityDialog = false },
+        ) {
+            Column {
+                Text(
+                    text = stringResource(R.string.predictive_back_warning_body),
+                    style = MiuixTheme.textStyles.body2,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.predictive_back_restart_note),
+                    style = MiuixTheme.textStyles.body2,
+                )
+                Spacer(Modifier.height(16.dp))
+                TextButton(
+                    text = stringResource(R.string.close),
+                    onClick = { showCompatibilityDialog = false },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        if (appsLoading && apps.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    InfiniteProgressIndicator()
+                    Text(
+                        text = stringResource(R.string.predictive_back_loading_apps),
+                        style = MiuixTheme.textStyles.main,
+                    )
+                }
+            }
+        } else {
+            PullToRefresh(
+                isRefreshing = appsLoading,
+                onRefresh = {
+                    if (!appsLoading) {
+                        appsLoading = true
+                        appLoadGeneration += 1L
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                topAppBarScrollBehavior = scrollBehavior,
+                contentPadding = paddingValues,
+                refreshTexts = listOf(
+                    stringResource(R.string.pull_to_refresh_hint1),
+                    stringResource(R.string.pull_to_refresh_hint2),
+                    stringResource(R.string.pull_to_refresh_hint3),
+                    stringResource(R.string.pull_to_refresh_hint4),
+                ),
+            ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(topBarBackdrop)
+                        .scrollEndHaptic()
+                        .overScrollVertical()
+                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    state = lazyListState,
+                    contentPadding = PaddingValues(
+                        start = horizontalSafeInsets.calculateStartPadding(layoutDirection),
+                        top = paddingValues.calculateTopPadding() + 8.dp,
+                        end = horizontalSafeInsets.calculateEndPadding(layoutDirection),
+                        bottom = paddingValues.calculateBottomPadding(),
+                    ),
+                    overscrollEffect = null,
+                ) {
+                    if (statusMessage != null) {
+                        item(key = "configuration_status") {
+                            StatusCard(
+                                message = statusMessage.text,
+                                severity = statusMessage.severity,
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .padding(bottom = 8.dp),
                             )
                         }
                     }
-                }
-
-                else -> PullToRefresh(
-                    isRefreshing = appsLoading,
-                    onRefresh = {
-                        if (!appsLoading) {
-                            appsLoading = true
-                            appLoadGeneration += 1L
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    topAppBarScrollBehavior = scrollBehavior,
-                    contentPadding = paddingValues,
-                    refreshTexts = listOf(
-                        stringResource(R.string.pull_to_refresh_hint1),
-                        stringResource(R.string.pull_to_refresh_hint2),
-                        stringResource(R.string.pull_to_refresh_hint3),
-                        stringResource(R.string.pull_to_refresh_hint4),
-                    ),
-                ) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .layerBackdrop(topBarBackdrop)
-                            .scrollEndHaptic()
-                            .overScrollVertical()
-                            .nestedScroll(scrollBehavior.nestedScrollConnection),
-                        state = lazyListState,
-                        contentPadding = PaddingValues(
-                            start = horizontalSafeInsets.calculateStartPadding(layoutDirection),
-                            top = paddingValues.calculateTopPadding() + 8.dp,
-                            end = horizontalSafeInsets.calculateEndPadding(layoutDirection),
-                            bottom = paddingValues.calculateBottomPadding(),
-                        ),
-                        overscrollEffect = null,
-                    ) {
-                        item(key = "compatibility_warning") {
-                            WarningCard(
+                    if (appsError != null) {
+                        item(key = "apps_error") {
+                            StatusCard(
+                                message = appsError.orEmpty(),
+                                severity = AppListCardSeverity.Error,
                                 modifier = Modifier
                                     .padding(horizontal = 12.dp)
                                     .padding(bottom = 8.dp),
                             )
                         }
-                        item(key = "hyperos_indicator") {
-                            HyperOsSwitchCard(
-                                titleRes = R.string.hyperos_indicator_title,
-                                summaryRes = R.string.hyperos_indicator_summary,
-                                checked = hyperOsIndicator,
-                                enabled = configurationEnabled,
-                                onToggle = persistHyperOsIndicator,
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .padding(bottom = 8.dp),
-                            )
+                    }
+                    if (visibleApps.isEmpty()) {
+                        item(key = "empty") {
+                            EmptyRow()
                         }
-                        item(key = "hyperos_haptics") {
-                            HyperOsSwitchCard(
-                                titleRes = R.string.hyperos_haptics_title,
-                                summaryRes = R.string.hyperos_haptics_summary,
-                                checked = hyperOsHaptics,
-                                enabled = configurationEnabled && hyperOsIndicator,
-                                onToggle = persistHyperOsHaptics,
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .padding(bottom = 8.dp),
-                            )
-                        }
-                        item(key = "hyperos_haptics_enhanced") {
-                            HyperOsSwitchCard(
-                                titleRes = R.string.hyperos_haptics_enhanced_title,
-                                summaryRes = R.string.hyperos_haptics_enhanced_summary,
-                                checked = hyperOsHapticsEnhanced,
-                                enabled = configurationEnabled && hyperOsIndicator &&
-                                        hyperOsHaptics,
-                                onToggle = persistHyperOsHapticsEnhanced,
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .padding(bottom = 8.dp),
-                            )
-                        }
-                        item(key = "hyperos_slide_animation") {
-                            HyperOsSwitchCard(
-                                titleRes = R.string.hyperos_slide_animation_title,
-                                summaryRes = R.string.hyperos_slide_animation_summary,
-                                checked = hyperOsSlideAnimation,
-                                enabled = configurationEnabled,
-                                onToggle = persistHyperOsSlideAnimation,
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .padding(bottom = 8.dp),
-                            )
-                        }
-                        if (statusMessage != null) {
-                            item(key = "configuration_status") {
-                                StatusCard(
-                                    message = statusMessage.text,
-                                    severity = statusMessage.severity,
-                                    modifier = Modifier
-                                        .padding(horizontal = 12.dp)
-                                        .padding(bottom = 8.dp),
+                    } else {
+                        itemsIndexed(
+                            items = visibleApps,
+                            key = { _, app -> app.packageName },
+                            contentType = { _, _ -> "app_item" },
+                        ) { index, app ->
+                            val cardRadius = CardDefaults.CornerRadius
+                            val shape = when {
+                                visibleApps.size == 1 -> RoundedCornerShape(cardRadius)
+                                index == 0 -> RoundedCornerShape(
+                                    topStart = cardRadius,
+                                    topEnd = cardRadius,
+                                    bottomStart = 0.dp,
+                                    bottomEnd = 0.dp,
                                 )
-                            }
-                        }
-                        if (appsError != null) {
-                            item(key = "apps_error") {
-                                StatusCard(
-                                    message = appsError.orEmpty(),
-                                    severity = CardSeverity.Error,
-                                    modifier = Modifier
-                                        .padding(horizontal = 12.dp)
-                                        .padding(bottom = 8.dp),
+
+                                index == visibleApps.lastIndex -> RoundedCornerShape(
+                                    topStart = 0.dp,
+                                    topEnd = 0.dp,
+                                    bottomStart = cardRadius,
+                                    bottomEnd = cardRadius,
                                 )
-                            }
-                        }
-                        if (visibleApps.isEmpty()) {
-                            item(key = "empty") {
-                                EmptyRow()
-                            }
-                        } else {
-                            itemsIndexed(
-                                items = visibleApps,
-                                key = { _, app -> app.packageName },
-                                contentType = { _, _ -> "app_item" },
-                            ) { index, app ->
-                                val cardRadius = CardDefaults.CornerRadius
-                                val shape = when {
-                                    visibleApps.size == 1 -> RoundedCornerShape(cardRadius)
-                                    index == 0 -> RoundedCornerShape(
-                                        topStart = cardRadius,
-                                        topEnd = cardRadius,
-                                        bottomStart = 0.dp,
-                                        bottomEnd = 0.dp,
-                                    )
 
-                                    index == visibleApps.lastIndex -> RoundedCornerShape(
-                                        topStart = 0.dp,
-                                        topEnd = 0.dp,
-                                        bottomStart = cardRadius,
-                                        bottomEnd = cardRadius,
-                                    )
-
-                                    else -> RoundedCornerShape(0.dp)
-                                }
-                                val checked = app.packageName in selectedPackages
-                                MiuixAppItem(
-                                    modifier = Modifier
-                                        .padding(horizontal = 12.dp)
-                                        .zIndex(-index.toFloat())
-                                        .animateItem(
-                                            fadeInSpec = null,
-                                            fadeOutSpec = null,
-                                            placementSpec = spring(
-                                                stiffness = Spring.StiffnessMediumLow,
-                                                visibilityThreshold =
-                                                    IntOffset.VisibilityThreshold,
-                                            ),
+                                else -> RoundedCornerShape(0.dp)
+                            }
+                            val checked = app.packageName in selectedPackages
+                            MiuixAppItem(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .zIndex(-index.toFloat())
+                                    .animateItem(
+                                        fadeInSpec = null,
+                                        fadeOutSpec = null,
+                                        placementSpec = spring(
+                                            stiffness = Spring.StiffnessMediumLow,
+                                            visibilityThreshold =
+                                                IntOffset.VisibilityThreshold,
                                         ),
-                                    app = app,
-                                    iconCache = iconCache,
-                                    iconSize = iconSize,
-                                    checked = checked,
-                                    enabled = configurationEnabled,
-                                    shape = shape,
-                                    showPackageName = showPackageName,
-                                    onToggle = { isChecked ->
-                                        persistSelection(
-                                            if (isChecked) {
-                                                selectedPackages + app.packageName
-                                            } else {
-                                                selectedPackages - app.packageName
-                                            },
-                                        )
-                                    },
-                                )
-                            }
+                                    ),
+                                app = app,
+                                iconCache = iconCache,
+                                iconSize = iconSize,
+                                checked = checked,
+                                enabled = configurationEnabled,
+                                shape = shape,
+                                showPackageName = showPackageName,
+                                onToggle = { isChecked ->
+                                    persistSelection(
+                                        if (isChecked) {
+                                            selectedPackages + app.packageName
+                                        } else {
+                                            selectedPackages - app.packageName
+                                        },
+                                    )
+                                },
+                            )
                         }
-                        item(key = "navigation_bar_spacer") {
-                            Spacer(modifier = Modifier.navigationBarsPadding())
-                        }
+                    }
+                    item(key = "navigation_bar_spacer") {
+                        Spacer(modifier = Modifier.navigationBarsPadding())
                     }
                 }
             }
@@ -965,40 +832,15 @@ private fun PredictiveBackSettingsScreen(
 }
 
 @Composable
-private fun WarningCard(modifier: Modifier = Modifier) {
-    val infoColor = cardAccentColor(CardSeverity.Info)
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(16.dp),
-        colors = CardDefaults.defaultColors(
-            color = infoColor.copy(alpha = 0.2f),
-            contentColor = infoColor,
-        ),
-    ) {
-        Text(
-            text = stringResource(R.string.predictive_back_warning_title),
-            style = MiuixTheme.textStyles.title4,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.predictive_back_warning_body),
-            style = MiuixTheme.textStyles.body2,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.predictive_back_restart_note),
-            style = MiuixTheme.textStyles.footnote1,
-        )
-    }
-}
-
-@Composable
 private fun StatusCard(
     message: String,
-    severity: CardSeverity,
+    severity: AppListCardSeverity,
     modifier: Modifier = Modifier,
 ) {
-    val accentColor = cardAccentColor(severity)
+    val accentColor = when (severity) {
+        AppListCardSeverity.Info -> MiuixTheme.colorScheme.primary
+        AppListCardSeverity.Error -> MiuixTheme.colorScheme.error
+    }
     Card(
         modifier = modifier.fillMaxWidth(),
         insideMargin = PaddingValues(16.dp),
@@ -1012,12 +854,6 @@ private fun StatusCard(
             style = MiuixTheme.textStyles.body2,
         )
     }
-}
-
-@Composable
-private fun cardAccentColor(severity: CardSeverity): Color = when (severity) {
-    CardSeverity.Info -> MiuixTheme.colorScheme.primary
-    CardSeverity.Error -> MiuixTheme.colorScheme.error
 }
 
 @Composable
@@ -1101,6 +937,7 @@ private fun MiuixDropdown(
     Box(modifier = modifier) {
         Row(
             modifier = Modifier
+                .fillMaxWidth()
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -1171,7 +1008,7 @@ private fun rememberMiuixBlurBackdrop(): LayerBackdrop {
 }
 
 @Composable
-private fun Modifier.installerMiuixBlurEffect(
+private fun Modifier.miuixBlurEffect(
     backdrop: LayerBackdrop,
 ): Modifier {
     val blendColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.8f)
@@ -1227,56 +1064,6 @@ private fun EmptyRow() {
 }
 
 @Composable
-private fun HyperOsSwitchCard(
-    titleRes: Int,
-    summaryRes: Int,
-    checked: Boolean,
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(CardDefaults.CornerRadius))
-            .background(CardDefaults.defaultColors().color),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(
-                    enabled = enabled,
-                    onClick = { onToggle(!checked) },
-                )
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.CenterVertically)
-                    .weight(1f),
-            ) {
-                Text(
-                    text = stringResource(titleRes),
-                    style = MiuixTheme.textStyles.title4,
-                )
-                Text(
-                    text = stringResource(summaryRes),
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    style = MiuixTheme.textStyles.subtitle,
-                )
-            }
-            Switch(
-                modifier = Modifier.align(Alignment.CenterVertically),
-                checked = checked,
-                onCheckedChange = onToggle,
-                enabled = enabled,
-            )
-        }
-    }
-}
-
-@Composable
 private fun MiuixAppItem(
     modifier: Modifier = Modifier,
     app: AppEntry,
@@ -1324,8 +1111,8 @@ private fun MiuixAppItem(
                 AnimatedVisibility(showPackageName) {
                     Text(
                         text = app.packageName,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantActions,
-                        style = MiuixTheme.textStyles.subtitle,
+                        fontSize = MiuixTheme.textStyles.body2.fontSize,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantActions
                     )
                 }
                 if (!app.isAvailable) {
