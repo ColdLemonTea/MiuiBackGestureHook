@@ -3,88 +3,27 @@ package dev.codex.miuibackgesturehook.hooks.systemserver;
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences;
 import dev.codex.miuibackgesturehook.hooks.miuihome.MiuiHomeHookRuntime;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ValueAnimator;
-import android.annotation.SuppressLint;
-import android.app.ActivityManager;
-import android.app.BroadcastOptions;
-import android.content.BroadcastReceiver;
-import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
-import android.graphics.Matrix;
 import android.graphics.Rect;
-import android.graphics.RectF;
-import android.graphics.Region;
-import android.hardware.input.InputManager;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
-import android.os.IBinder;
-import android.os.IInterface;
-import android.os.Looper;
-import android.os.Parcel;
-import android.os.Parcelable;
-import android.os.Process;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.Pair;
-import android.util.SparseArray;
-import android.view.Choreographer;
-import android.view.InputChannel;
-import android.view.InputEvent;
-import android.view.InputEventReceiver;
-import android.view.InputMonitor;
-import android.view.MotionEvent;
 import android.view.SurfaceControl;
-import android.view.View;
-import android.view.WindowInsets;
-import android.view.WindowManager;
-import android.view.animation.DecelerateInterpolator;
-import android.view.animation.PathInterpolator;
-import android.window.BackMotionEvent;
-import android.window.BackNavigationInfo;
-import android.window.BackProgressAnimator;
-import android.window.BackTouchTracker;
 
-import java.lang.reflect.Array;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
-import java.lang.ref.WeakReference;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
-import java.util.WeakHashMap;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import io.github.libxposed.api.XposedInterface;
-import io.github.libxposed.api.XposedModule;
-import io.github.libxposed.api.XposedModuleInterface;
 
 public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
 
@@ -245,23 +184,41 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
     }
 
     protected void hookSecuritySidebarTransientBars(ClassLoader classLoader) {
+        hookSecuritySidebarTransientBars(classLoader, Collections.emptySet());
+    }
+
+    protected void hookSecuritySidebarTransientBars(ClassLoader classLoader,
+            Set<String> existingHookIds) {
         try {
             Class<?> policyClass = Class.forName(DISPLAY_POLICY, false, classLoader);
             int hooked = 0;
+            int installed = 0;
             for (Method method : policyClass.getDeclaredMethods()) {
                 if (!"requestTransientBars".equals(method.getName())) {
                     continue;
                 }
-                method.setAccessible(true);
                 int overload = hooked++;
-                recordHookHandle(hook(method)
-                        .setId("server_security_sidebar_transient_bars_" + overload)
-                        .intercept(this::interceptSecuritySidebarTransientBars));
+                String hookId = "server_security_sidebar_transient_bars_" + overload;
+                if (existingHookIds.contains(hookId)) {
+                    continue;
+                }
+                try {
+                    method.setAccessible(true);
+                    recordHookHandle(hook(method)
+                            .setId(hookId)
+                            .intercept(this::interceptSecuritySidebarTransientBars));
+                    installed++;
+                } catch (Throwable throwable) {
+                    log(Log.ERROR, TAG,
+                            "Failed to hook security-sidebar transient bars " + hookId,
+                            throwable);
+                }
             }
             if (hooked == 0) {
                 log(Log.WARN, TAG, "DisplayPolicy.requestTransientBars not found");
             } else {
-                log(Log.INFO, TAG, "Hooked DisplayPolicy transient-bars overloads=" + hooked);
+                log(Log.INFO, TAG, "Hooked DisplayPolicy transient-bars overloads="
+                        + hooked + ", installed=" + installed);
             }
         } catch (Throwable throwable) {
             log(Log.ERROR, TAG, "Failed to hook security-sidebar transient bars", throwable);
@@ -468,22 +425,35 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
         }
         Object controller = chain.getThisObject();
         try {
-            Object handler = readField(controller, "mAnimationHandler");
-            if (!Boolean.TRUE.equals(readField(handler, "mComposed"))) {
-                return result;
+            Object windowManagerService = readField(
+                    controller, "mWindowManagerService");
+            Object globalLock = readField(windowManagerService, "mGlobalLock");
+            invokeAnyMethod(windowManagerService,
+                    "boostPriorityForLockedSection", new Object[0]);
+            try {
+                synchronized (globalLock) {
+                    Object handler = readField(controller, "mAnimationHandler");
+                    if (!Boolean.TRUE.equals(readField(handler, "mComposed"))) {
+                        return result;
+                    }
+                    Object prepareClose = readField(handler, "mPrepareCloseTransition");
+                    Object openAdaptor = readField(handler, "mOpenAnimAdaptor");
+                    Object prepareOpen = openAdaptor == null ? null
+                            : readField(openAdaptor, "mPreparedOpenTransition");
+                    if (prepareClose != null || prepareOpen != null) {
+                        log(Log.INFO, TAG,
+                                "Kept composed predictive-back animation for transition cleanup"
+                                        + ", prepareOpen=" + shortObject(prepareOpen)
+                                        + ", prepareClose=" + shortObject(prepareClose));
+                        return result;
+                    }
+                    invokeAnyMethod(controller, "clearBackAnimations",
+                            new Object[]{Boolean.FALSE});
+                }
+            } finally {
+                invokeAnyMethod(windowManagerService,
+                        "resetPriorityAfterLockedSection", new Object[0]);
             }
-            Object prepareClose = readField(handler, "mPrepareCloseTransition");
-            Object openAdaptor = readField(handler, "mOpenAnimAdaptor");
-            Object prepareOpen = openAdaptor == null ? null
-                    : readField(openAdaptor, "mPreparedOpenTransition");
-            if (prepareClose != null || prepareOpen != null) {
-                log(Log.INFO, TAG, "Kept composed predictive-back animation for transition cleanup"
-                        + ", prepareOpen=" + shortObject(prepareOpen)
-                        + ", prepareClose=" + shortObject(prepareClose));
-                return result;
-            }
-            invokeAnyMethod(controller, "clearBackAnimations",
-                    new Object[]{Boolean.FALSE});
             log(Log.INFO, TAG, "Cleared committed remote-only predictive-back animation"
                     + " after skipped prepare transition");
         } catch (Throwable throwable) {

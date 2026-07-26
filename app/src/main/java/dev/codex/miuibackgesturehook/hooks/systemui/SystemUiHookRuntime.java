@@ -55,7 +55,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             hookNavigationBarTransientAppearance(classLoader);
             hookStatusBarTransientAppearance(classLoader);
             hookNavigationBarGestureInsets(classLoader);
-            hookEdgeBackGestureHandler(classLoader);
+            hookEdgeBackGestureHandler(classLoader, true, true, true);
             hookNavigationBarControllerCreate(classLoader);
             hookNavigationBarControllerRemove(classLoader);
             hookNavigationBarControllerMode(classLoader);
@@ -1447,31 +1447,61 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
     }
 
-    protected void hookEdgeBackGestureHandler(ClassLoader classLoader) {
+    protected void hookEdgeBackGestureHandler(ClassLoader classLoader,
+            boolean hookUpdateIsEnabled, boolean hookNavigationModeChanged,
+            boolean hookSetBackAnimation) {
+        Class<?> handlerClass;
         try {
-            Class<?> handlerClass = Class.forName(EDGE_BACK_GESTURE_HANDLER, false, classLoader);
-            Method updateIsEnabled = handlerClass.getDeclaredMethod("updateIsEnabled");
-            updateIsEnabled.setAccessible(true);
-            recordHookHandle(hook(updateIsEnabled)
-                    .setId("systemui_edge_back_updateIsEnabled")
-                    .intercept(this::onEdgeBackUpdateIsEnabled));
-            Method navigationModeChanged = handlerClass.getDeclaredMethod(
-                    "onNavigationModeChanged", int.class);
-            navigationModeChanged.setAccessible(true);
-            recordHookHandle(hook(navigationModeChanged)
-                    .setId("systemui_edge_back_onNavigationModeChanged")
-                    .intercept(this::onEdgeBackNavigationModeChanged));
-            Method setBackAnimation = handlerClass.getDeclaredMethod("setBackAnimation",
-                    Class.forName(BACK_ANIMATION_CONTROLLER + "$BackAnimationImpl",
-                            false, classLoader));
-            setBackAnimation.setAccessible(true);
-            recordHookHandle(hook(setBackAnimation)
-                    .setId("systemui_edge_back_setBackAnimation")
-                    .intercept(this::onEdgeBackSetBackAnimation));
-            log(Log.INFO, TAG, "Hooked EdgeBackGestureHandler AOSP path");
+            handlerClass = Class.forName(EDGE_BACK_GESTURE_HANDLER, false, classLoader);
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook EdgeBackGestureHandler", throwable);
+            log(Log.ERROR, TAG, "Failed to resolve EdgeBackGestureHandler", throwable);
+            return;
         }
+        int installed = 0;
+        if (hookUpdateIsEnabled) {
+            try {
+                Method updateIsEnabled = handlerClass.getDeclaredMethod("updateIsEnabled");
+                updateIsEnabled.setAccessible(true);
+                recordHookHandle(hook(updateIsEnabled)
+                        .setId("systemui_edge_back_updateIsEnabled")
+                        .intercept(this::onEdgeBackUpdateIsEnabled));
+                installed++;
+            } catch (Throwable throwable) {
+                log(Log.ERROR, TAG, "Failed to hook EdgeBackGestureHandler.updateIsEnabled",
+                        throwable);
+            }
+        }
+        if (hookNavigationModeChanged) {
+            try {
+                Method navigationModeChanged = handlerClass.getDeclaredMethod(
+                        "onNavigationModeChanged", int.class);
+                navigationModeChanged.setAccessible(true);
+                recordHookHandle(hook(navigationModeChanged)
+                        .setId("systemui_edge_back_onNavigationModeChanged")
+                        .intercept(this::onEdgeBackNavigationModeChanged));
+                installed++;
+            } catch (Throwable throwable) {
+                log(Log.ERROR, TAG,
+                        "Failed to hook EdgeBackGestureHandler.onNavigationModeChanged",
+                        throwable);
+            }
+        }
+        if (hookSetBackAnimation) {
+            try {
+                Method setBackAnimation = handlerClass.getDeclaredMethod("setBackAnimation",
+                        Class.forName(BACK_ANIMATION_CONTROLLER + "$BackAnimationImpl",
+                                false, classLoader));
+                setBackAnimation.setAccessible(true);
+                recordHookHandle(hook(setBackAnimation)
+                        .setId("systemui_edge_back_setBackAnimation")
+                        .intercept(this::onEdgeBackSetBackAnimation));
+                installed++;
+            } catch (Throwable throwable) {
+                log(Log.ERROR, TAG, "Failed to hook EdgeBackGestureHandler.setBackAnimation",
+                        throwable);
+            }
+        }
+        log(Log.INFO, TAG, "Hooked EdgeBackGestureHandler AOSP path, installed=" + installed);
     }
 
     protected Object onEdgeBackUpdateIsEnabled(XposedInterface.Chain chain) throws Throwable {
@@ -2186,81 +2216,15 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             if (composition == null) {
                 return result;
             }
-            int closingTaskId = composition.closingTaskId;
-            int openingTaskId = composition.openingTaskId;
-            Object changesObject = invokeAnyMethod(info, "getChanges", new Object[0]);
-            if (!(changesObject instanceof List<?>)) {
-                return result;
-            }
-            List<?> changes = (List<?>) changesObject;
-            int changeCount = changes.size();
-            if (changeCount != 2 && changeCount != 3) {
-                return result;
-            }
-            int expectedWallpaperMatchCount = changeCount - 2;
-            Object matchingChange = null;
-            int matchingMode = -1;
-            int closingMatchCount = 0;
-            int homeMatchCount = 0;
-            int wallpaperMatchCount = 0;
-            boolean unexpectedChange = false;
-            for (Object change : changes) {
-                Object taskInfo = invokeAnyMethod(
-                        change, "getTaskInfo", new Object[0]);
-                int taskId = readIntFieldOrDefault(taskInfo, "taskId", -1);
-                Object modeObject = invokeAnyMethod(
-                        change, "getMode", new Object[0]);
-                int mode = modeObject instanceof Number
-                        ? ((Number) modeObject).intValue() : -1;
-                boolean hasBackFlag = Boolean.TRUE.equals(invokeAnyMethod(
-                        change, "hasFlags", new Object[]{Integer.valueOf(
-                                FLAG_BACK_GESTURE_ANIMATED)}));
-                boolean wallpaper = Boolean.TRUE.equals(invokeAnyMethod(
-                        change, "hasFlags",
-                        new Object[]{Integer.valueOf(FLAG_IS_WALLPAPER)}));
-                if (taskId == closingTaskId) {
-                    closingMatchCount++;
-                    matchingMode = mode;
-                    if (mode == TRANSIT_TO_FRONT && hasBackFlag
-                            && !wallpaper) {
-                        matchingChange = change;
-                    } else {
-                        unexpectedChange = true;
-                    }
-                    continue;
-                }
-                if (taskId == openingTaskId) {
-                    homeMatchCount++;
-                    if (mode != TRANSIT_TO_FRONT || !hasBackFlag
-                            || wallpaper) {
-                        unexpectedChange = true;
-                    }
-                    continue;
-                }
-                if (taskId < 0 && mode == TRANSIT_TO_FRONT
-                        && wallpaper && !hasBackFlag) {
-                    wallpaperMatchCount++;
-                } else {
-                    unexpectedChange = true;
-                }
-            }
-            if (matchingChange == null || closingMatchCount != 1
-                    || homeMatchCount != 1
-                    || wallpaperMatchCount != expectedWallpaperMatchCount
-                    || unexpectedChange) {
-                return result;
-            }
-            Object changeLeashObject = invokeAnyMethod(
-                    matchingChange, "getLeash", new Object[0]);
+            PreparedReturnHomeShape preparedShape =
+                    resolvePreparedReturnHomeShape(
+                            info, composition, TRANSIT_TO_FRONT);
             Object startTransaction = chain.getArg(2);
-            if (!(changeLeashObject instanceof SurfaceControl)
-                    || !((SurfaceControl) changeLeashObject).isValid()
-                    || surfacesAreSame((SurfaceControl) changeLeashObject,
-                    composition.closingLeash)
+            if (preparedShape == null
                     || !(startTransaction instanceof SurfaceControl.Transaction)) {
                 return result;
             }
-            SurfaceControl changeLeash = (SurfaceControl) changeLeashObject;
+            SurfaceControl changeLeash = preparedShape.appLeash;
             // The stock body already accepted and retained this prepare info, but Xiaomi's
             // TO_FRONT role made it treat the departing task as another opening surface. Repair
             // the physical parent first, then normalize only the retained semantic role to the
@@ -2274,10 +2238,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 throw new IllegalStateException(
                         "prepared return-home ownership changed after reparent");
             }
-            invokeAnyMethod(matchingChange, "setMode",
+            invokeAnyMethod(preparedShape.appChange, "setMode",
                     new Object[]{Integer.valueOf(TRANSIT_CHANGE)});
             Object normalizedModeObject = invokeAnyMethod(
-                    matchingChange, "getMode", new Object[0]);
+                    preparedShape.appChange, "getMode", new Object[0]);
             int normalizedMode = normalizedModeObject instanceof Number
                     ? ((Number) normalizedModeObject).intValue() : -1;
             if (normalizedMode != TRANSIT_CHANGE) {
@@ -2287,10 +2251,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             }
             log(Log.INFO, TAG,
                     "Corrected Xiaomi predictive return-home prepare role"
-                            + ", taskId=" + closingTaskId
-                            + ", mode=" + matchingMode + "->" + normalizedMode
+                            + ", taskId=" + composition.closingTaskId
+                            + ", mode=" + TRANSIT_TO_FRONT + "->" + normalizedMode
                             + ", wallpaperPresent="
-                            + (wallpaperMatchCount == 1));
+                            + (preparedShape.wallpaperLeash != null));
         } catch (Throwable throwable) {
             log(Log.WARN, TAG,
                     "Failed Xiaomi predictive return-home prepare role correction",
@@ -2367,6 +2331,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 returnHomeFinishTransferCandidate.remove();
             }
         }
+        if (finishTransferArmed
+                && finishTransfer.transferAttempted.get() == 2) {
+            publishStandardReturnHomeCommit(
+                    finishTransfer.composition.closingTaskId,
+                    finishTransfer.transitionDebugId,
+                    finishTransfer.controller,
+                    finishTransfer.preparedFinishCallback, true);
+        }
         if (candidate == null) {
             return result;
         }
@@ -2414,21 +2386,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 boolean composedInStartTransaction =
                         candidate.acceptedBoundaryComposition.get() == 2;
                 if (!composedInStartTransaction) {
-                    // Preserve the established correction if the exact accepted callback
-                    // boundary cannot be wrapped on a future Shell build. This fallback is
-                    // intentionally diagnostic: two applies can be presented in different
-                    // frames, so the supported path above must report atomic composition.
-                    try (SurfaceControl.Transaction transaction =
-                                 new SurfaceControl.Transaction()) {
-                        transaction.reparent(candidate.changeLeash,
-                                composition.closingLeash);
-                        transaction.apply();
-                    }
-                    log(Log.WARN, TAG,
-                            "Fell back to post-apply return-home commit composition"
+                    log(Log.ERROR, TAG,
+                            "Rejected non-atomic return-home commit composition"
                                     + ", taskId=" + composition.closingTaskId
                                     + ", boundaryPhase="
                                     + candidate.acceptedBoundaryComposition.get());
+                    return result;
                 }
                 log(Log.INFO, TAG,
                         "Corrected accepted predictive return-home commit composition"
@@ -2439,12 +2402,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                                 + ", changeLeash=" + candidate.changeLeash
                                 + ", closingLeash="
                                 + composition.closingLeash
-                                + ", atomicStartTransaction="
-                                + composedInStartTransaction);
+                                + ", atomicStartTransaction=true");
                 publishStandardReturnHomeCommit(
                         composition.closingTaskId,
                         readTransitionDebugId(candidate.transitionInfo),
-                        candidate.controller);
+                        candidate.controller, null, false);
             }
         } catch (Throwable throwable) {
             log(Log.WARN, TAG,
@@ -2597,6 +2559,15 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             + "non-standard targets");
             return null;
         }
+        PreparedReturnHomeShape preparedShape =
+                resolvePreparedReturnHomeShape(
+                        preparedOpenInfo, composition, TRANSIT_CHANGE);
+        if (preparedShape == null) {
+            log(Log.INFO, TAG,
+                    "Skipped predictive return-home commit composition: "
+                            + "non-standard prepared transition");
+            return null;
+        }
         Object transitionTypeObject = invokeAnyMethod(
                 info, "getType", new Object[0]);
         int transitionType = transitionTypeObject instanceof Number
@@ -2662,7 +2633,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 || surfacesAreSame((SurfaceControl) changeLeashObject,
                 composition.closingLeash)
                 || surfacesAreSame((SurfaceControl) changeLeashObject,
-                composition.openingLeash)) {
+                composition.openingLeash)
+                || !surfacesAreSame((SurfaceControl) changeLeashObject,
+                preparedShape.appLeash)) {
             log(Log.INFO, TAG,
                     "Skipped predictive return-home commit composition: "
                             + "invalid or aliased change leash"
@@ -2795,13 +2768,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 != composition.closingTaskId) {
             return null;
         }
-        Rect closingBounds = resolveExactRemoteTargetTransitionBounds(
-                composition.closingTarget);
-        Rect openingBounds = resolveExactRemoteTargetTransitionBounds(
-                composition.openingTarget);
-        if (!closingBounds.equals(openingBounds)) {
+        PreparedReturnHomeShape preparedShape =
+                resolvePreparedReturnHomeShape(
+                        preparedOpenInfo, composition, TRANSIT_CHANGE);
+        if (preparedShape == null) {
             return null;
         }
+        Rect closingBounds = preparedShape.closingBounds;
+        Rect openingBounds = preparedShape.openingBounds;
 
         Object changesObject = invokeAnyMethod(
                 info, "getChanges", new Object[0]);
@@ -2936,25 +2910,89 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             return null;
         }
 
-        Object preparedChangesObject = invokeAnyMethod(
-                preparedOpenInfo, "getChanges", new Object[0]);
-        if (!(preparedChangesObject instanceof List<?>)) {
+        if (!surfacesAreSame(preparedShape.appLeash, appLeash)
+                || !surfacesAreSame(preparedShape.homeLeash, homeLeash)
+                || (preparedShape.wallpaperLeash != null
+                && surfacesAreSame(
+                preparedShape.wallpaperLeash, elementLeash))) {
             return null;
         }
-        List<?> preparedChanges = (List<?>) preparedChangesObject;
-        int preparedChangeCount = preparedChanges.size();
-        if (preparedChangeCount != 2 && preparedChangeCount != 3) {
+
+        return new ReturnHomeFinishTransferCandidate(
+                handler, controller, ownerThread, transitions,
+                remoteTransitionHandler, composition,
+                transitionToken, info,
+                mergeTarget,
+                (SurfaceControl.Transaction) startTransactionObject,
+                preparedOpenInfo,
+                (SurfaceControl.Transaction) preparedFinishTransactionObject,
+                preparedFinishCallback, elementChange, appChange,
+                homeLeash, elementLeash, appLeash, closingBounds,
+                elementEndBounds, incomingType, capturedAppFlags,
+                elementStartDisplayId,
+                elementEndDisplayId, transitionDebugId, preparedDebugId);
+    }
+
+    protected static final class PreparedReturnHomeShape {
+        public final Object appChange;
+        public final SurfaceControl appLeash;
+        public final SurfaceControl homeLeash;
+        public final SurfaceControl wallpaperLeash;
+        public final Rect closingBounds;
+        public final Rect openingBounds;
+
+        PreparedReturnHomeShape(
+                Object appChange, SurfaceControl appLeash,
+                SurfaceControl homeLeash, SurfaceControl wallpaperLeash,
+                Rect closingBounds, Rect openingBounds) {
+            this.appChange = appChange;
+            this.appLeash = appLeash;
+            this.homeLeash = homeLeash;
+            this.wallpaperLeash = wallpaperLeash;
+            this.closingBounds = closingBounds;
+            this.openingBounds = openingBounds;
+        }
+    }
+
+    protected PreparedReturnHomeShape resolvePreparedReturnHomeShape(
+            Object info, ReturnHomeComposition composition,
+            int expectedAppMode) throws Exception {
+        Object typeObject = invokeAnyMethod(
+                info, "getType", new Object[0]);
+        if (!(typeObject instanceof Number)
+                || ((Number) typeObject).intValue()
+                != TRANSIT_PREDICTIVE_BACK
+                || (expectedAppMode != TRANSIT_TO_FRONT
+                && expectedAppMode != TRANSIT_CHANGE)) {
             return null;
         }
-        boolean preparedWallpaperExpected = preparedChangeCount == 3;
+        Rect closingBounds = resolveExactRemoteTargetTransitionBounds(
+                composition.closingTarget);
+        Rect openingBounds = resolveExactRemoteTargetTransitionBounds(
+                composition.openingTarget);
+        if (!closingBounds.equals(openingBounds)) {
+            return null;
+        }
+        Object changesObject = invokeAnyMethod(
+                info, "getChanges", new Object[0]);
+        if (!(changesObject instanceof List<?>)) {
+            return null;
+        }
+        List<?> changes = (List<?>) changesObject;
+        int changeCount = changes.size();
+        if (changeCount != 2 && changeCount != 3) {
+            return null;
+        }
+        boolean wallpaperExpected = changeCount == 3;
         // The exact two-change prepared shape omits SHOW_WALLPAPER on Home.
-        int expectedPreparedHomeFlags = preparedWallpaperExpected
+        int expectedHomeFlags = wallpaperExpected
                 ? XIAOMI_PREPARED_HOME_CHANGE_FLAGS
                 : XIAOMI_PREPARED_HOME_NO_WALLPAPER_CHANGE_FLAGS;
-        SurfaceControl preparedAppLeash = null;
-        SurfaceControl preparedHomeLeash = null;
-        SurfaceControl preparedWallpaperLeash = null;
-        for (Object change : preparedChanges) {
+        Object appChange = null;
+        SurfaceControl appLeash = null;
+        SurfaceControl homeLeash = null;
+        SurfaceControl wallpaperLeash = null;
+        for (Object change : changes) {
             Object modeObject = invokeAnyMethod(
                     change, "getMode", new Object[0]);
             Object flagsObject = invokeAnyMethod(
@@ -2989,12 +3027,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             Rect startBounds = (Rect) startBoundsObject;
             Rect endBounds = (Rect) endBoundsObject;
             if (taskId == composition.closingTaskId
-                    && preparedAppLeash == null) {
+                    && appLeash == null) {
                 boolean appFlags = flags
                         == FLAG_BACK_GESTURE_ANIMATED
                         || flags == (FLAG_BACK_GESTURE_ANIMATED
                         | FLAG_DISPLAY_CHANGE);
-                if (mode != TRANSIT_CHANGE || !appFlags
+                if (mode != expectedAppMode || !appFlags
                         || resolveTaskInfoActivityType(taskInfo)
                         != ACTIVITY_TYPE_STANDARD
                         || resolveTaskInfoWindowingMode(taskInfo)
@@ -3008,13 +3046,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         || !endBounds.equals(closingBounds)) {
                     return null;
                 }
-                preparedAppLeash = (SurfaceControl) leashObject;
+                appChange = change;
+                appLeash = (SurfaceControl) leashObject;
                 continue;
             }
             if (taskId == composition.openingTaskId
-                    && preparedHomeLeash == null) {
+                    && homeLeash == null) {
                 if (mode != TRANSIT_TO_FRONT
-                        || flags != expectedPreparedHomeFlags
+                        || flags != expectedHomeFlags
                         || resolveTaskInfoActivityType(taskInfo)
                         != ACTIVITY_TYPE_HOME
                         || resolveTaskInfoWindowingMode(taskInfo)
@@ -3028,45 +3067,41 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         || !endBounds.equals(openingBounds)) {
                     return null;
                 }
-                preparedHomeLeash = (SurfaceControl) leashObject;
+                homeLeash = (SurfaceControl) leashObject;
                 continue;
             }
-            if (taskInfo == null && preparedWallpaperLeash == null
+            if (taskInfo == null && wallpaperLeash == null
                     && mode == TRANSIT_TO_FRONT
                     && flags == FLAG_IS_WALLPAPER
                     && startBounds.equals(closingBounds)
                     && endBounds.equals(closingBounds)) {
-                preparedWallpaperLeash = (SurfaceControl) leashObject;
+                wallpaperLeash = (SurfaceControl) leashObject;
                 continue;
             }
             return null;
         }
-        boolean preparedWallpaperMatches = preparedWallpaperExpected
-                ? preparedWallpaperLeash != null
-                  && !surfacesAreSame(preparedWallpaperLeash, appLeash)
-                  && !surfacesAreSame(preparedWallpaperLeash, homeLeash)
-                  && !surfacesAreSame(preparedWallpaperLeash, elementLeash)
-                : preparedWallpaperLeash == null;
-        if (preparedAppLeash == null || preparedHomeLeash == null
-                || !preparedWallpaperMatches
-                || !surfacesAreSame(preparedAppLeash, appLeash)
-                || !surfacesAreSame(preparedHomeLeash, homeLeash)) {
+        boolean wallpaperMatches = wallpaperExpected
+                ? wallpaperLeash != null
+                && !surfacesAreSame(wallpaperLeash, appLeash)
+                && !surfacesAreSame(wallpaperLeash, homeLeash)
+                : wallpaperLeash == null;
+        if (appChange == null || appLeash == null || homeLeash == null
+                || !wallpaperMatches
+                || surfacesAreSame(appLeash, homeLeash)
+                || surfacesAreSame(appLeash, composition.closingLeash)
+                || surfacesAreSame(appLeash, composition.openingLeash)
+                || surfacesAreSame(homeLeash, composition.closingLeash)
+                || surfacesAreSame(homeLeash, composition.openingLeash)
+                || (wallpaperLeash != null
+                && (surfacesAreSame(
+                wallpaperLeash, composition.closingLeash)
+                || surfacesAreSame(
+                wallpaperLeash, composition.openingLeash)))) {
             return null;
         }
-
-        return new ReturnHomeFinishTransferCandidate(
-                handler, controller, ownerThread, transitions,
-                remoteTransitionHandler, composition,
-                transitionToken, info,
-                mergeTarget,
-                (SurfaceControl.Transaction) startTransactionObject,
-                preparedOpenInfo,
-                (SurfaceControl.Transaction) preparedFinishTransactionObject,
-                preparedFinishCallback, elementChange, appChange,
-                homeLeash, elementLeash, appLeash, closingBounds,
-                elementEndBounds, incomingType, capturedAppFlags,
-                elementStartDisplayId,
-                elementEndDisplayId, transitionDebugId, preparedDebugId);
+        return new PreparedReturnHomeShape(
+                appChange, appLeash, homeLeash, wallpaperLeash,
+                new Rect(closingBounds), new Rect(openingBounds));
     }
 
     protected Rect resolveExactRemoteTargetTransitionBounds(Object target)
@@ -3203,6 +3238,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             return chain.proceed();
         }
         boolean exact = false;
+        boolean transferred = false;
         try {
             Object handler = chain.getThisObject();
             Object navigationInfo = readField(
@@ -3287,6 +3323,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             // gap without changing either native animation's surfaces or geometry.
             candidate.startTransaction.merge(
                     candidate.preparedFinishTransaction);
+            transferred = true;
             log(Log.INFO, TAG,
                     "Transferred prepared finish into Xiaomi native start transaction"
                             + ", transitionDebugId="
@@ -3308,7 +3345,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             + candidate.preparedDebugId,
                     throwable);
         }
-        return chain.proceed();
+        Object result = chain.proceed();
+        if (transferred) {
+            candidate.transferAttempted.compareAndSet(1, 2);
+        }
+        return result;
     }
 
     protected void hookBackFinishOpenAtomicTransfer(ClassLoader classLoader) {
@@ -3608,36 +3649,46 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             + ", uid=" + senderUid
                             + ", package=" + senderPackage);
                 }
-                if (intent.hasExtra(EXTRA_LAUNCHER_OPEN_BREAK_AVAILABLE)) {
+                if (intent.hasExtra(EXTRA_LAUNCHER_OPEN_BREAK_AVAILABLE)
+                        && intent.hasExtra(EXTRA_LAUNCHER_OPEN_ACTIVE)) {
                     long generation = intent.getLongExtra(
                             EXTRA_LAUNCHER_OPEN_BREAK_GENERATION, 0L);
+                    boolean active = intent.getBooleanExtra(
+                            EXTRA_LAUNCHER_OPEN_ACTIVE, false);
                     boolean available = intent.getBooleanExtra(
                             EXTRA_LAUNCHER_OPEN_BREAK_AVAILABLE, false);
                     if (generation == 0L
                             || generation < miuiLauncherOpenBreakGeneration) {
                         log(Log.WARN, TAG, "Ignored stale MiuiHome launcher OPEN break state"
+                                + ", active=" + active
                                 + ", available=" + available
                                 + ", generation=" + generation
                                 + ", currentGeneration="
                                 + miuiLauncherOpenBreakGeneration);
                     } else {
                         long previousGeneration = miuiLauncherOpenBreakGeneration;
-                        boolean previousAvailable = miuiLauncherOpenBreakAvailable;
+                        boolean previousActive = miuiLauncherOpenActive;
                         miuiLauncherOpenBreakGeneration = generation;
+                        miuiLauncherOpenActive = active;
                         miuiLauncherOpenBreakAvailable = available;
                         log(Log.INFO, TAG, "MiuiHome launcher OPEN break state changed"
+                                + ", active=" + active
                                 + ", available=" + available
                                 + ", generation=" + generation
                                 + ", uid=" + senderUid
                                 + ", package=" + senderPackage);
-                        if (!available && previousAvailable
+                        if (!active && previousActive
                                 && previousGeneration == generation) {
                             for (NativeBackInputMonitor monitor
                                     : new ArrayList<>(nativeInputMonitors.values())) {
-                                monitor.driver.onLauncherOpenBreakUnavailable(generation);
+                                monitor.driver.onLauncherOpenEnded(generation);
                             }
                         }
                     }
+                } else if (intent.hasExtra(
+                        EXTRA_LAUNCHER_OPEN_BREAK_AVAILABLE)) {
+                    log(Log.WARN, TAG,
+                            "Ignored launcher OPEN state without active lifecycle");
                 }
                 String state = intent == null ? null : intent.getStringExtra("state");
                 boolean overviewVisible;
