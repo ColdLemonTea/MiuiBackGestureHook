@@ -21,6 +21,17 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
 
     @Override
     public boolean onHotReloading(XposedModuleInterface.HotReloadingParam param) {
+        PreparedBackTransitionHold heldTransition =
+                preparedBackTransitionHold.get();
+        if (heldTransition != null) {
+            log(Log.WARN, TAG,
+                    "Deferred hot reload while a prepared-back transition is held"
+                            + ", process=" + processName
+                            + ", "
+                            + describePreparedBackTransitionHold(
+                            heldTransition));
+            return false;
+        }
         for (NativeBackInputMonitor monitor
                 : new ArrayList<>(nativeInputMonitors.values())) {
             if (monitor.blocksHotReload()) {
@@ -67,6 +78,12 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 detachMiuiHomeReturnHome("hotReload", true);
         miuiHomePendingNativeGeometry.remove();
         returnHomeFinishTransferCandidate.remove();
+        preparedBackTargetArrival.set(null);
+        preparedBackTargetArrivalHookReady = false;
+        preparedBackTerminalHookReady = false;
+        preparedBackStartAnimationInvoker = null;
+        freeformColorRootCandidate.set(null);
+        freeformColorRootAnimation = null;
         backCommitCompositionHookReady = false;
         backFinishOpenAtomicHookReady = false;
         backFinishOpenCallerDeoptimized = false;
@@ -154,6 +171,11 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                         // Try the next old system-server hook executable.
                     }
                 }
+                boolean freeformRoleNormalizer =
+                        "server_freeform_prepare_role_normalization".equals(oldHookId);
+                if (freeformRoleNormalizer) {
+                    initializeFreeformPrepareRoleReflection(oldExecutableClassLoader);
+                }
                 XposedInterface.Hooker replacement = createHotReloadHooker(oldHandle.getId());
                 if (replacement != null) {
                     XposedInterface.HookHandle replacementHandle =
@@ -167,6 +189,17 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     } else if ("systemui_back_finish_open_atomic".equals(
                             oldHookId)) {
                         backFinishOpenAtomicHookReady = true;
+                    } else if ("systemui_back_prepared_target_arrival".equals(
+                            oldHookId)) {
+                        preparedBackTargetArrivalHookReady = true;
+                    } else if ("systemui_back_prepared_terminal".equals(
+                            oldHookId)) {
+                        preparedBackTerminalHookReady = true;
+                    } else if ("systemui_back_prepared_transition_decision".equals(
+                            oldHookId)
+                            && oldHandle.getExecutable() instanceof java.lang.reflect.Method) {
+                        preparePreparedBackStartAnimationInvoker(
+                                (java.lang.reflect.Method) oldHandle.getExecutable());
                     }
                     replaced++;
                 } else {
@@ -188,13 +221,12 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             ClassLoader serverClassLoader = findSystemServerClassLoader(
                     preferredServerClassLoader);
             if (serverClassLoader != null) {
-                if (!oldHookIds.contains(
-                        "server_back_promote_to_tf_if_needed")) {
-                    hookTaskFragmentPromotionCompatibility(
-                            serverClassLoader);
-                }
                 if (!oldHookIds.contains("server_back_window_start_animation")) {
                     hookBackWindowStartAnimation(serverClassLoader);
+                }
+                if (!oldHookIds.contains(
+                        "server_freeform_prepare_role_normalization")) {
+                    hookFreeformCrossActivityPrepareRole(serverClassLoader);
                 }
                 if (!oldHookIds.contains("server_schedule_animation_prepare_transition")) {
                     hookScheduleAnimationPrepareTransition(serverClassLoader);
@@ -217,7 +249,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             if (!oldHookIds.contains("shell_back_onBackAnimationFinished")
                     || !oldHookIds.contains("shell_back_finishBackAnimation")
                     || !oldHookIds.contains(
-                    "shell_back_onBackNavigationInfoReceived")) {
+                    "shell_back_onBackNavigationInfoReceived")
+                    || !oldHookIds.contains(
+                    "systemui_back_prepared_terminal")) {
                 try {
                     hotReloadBackControllerClass = Class.forName(
                             BACK_ANIMATION_CONTROLLER, false,
@@ -265,6 +299,11 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                             "Failed to backfill Shell navigation-info hook",
                             throwable);
                 }
+            }
+            if (hotReloadBackControllerClass != null
+                    && !oldHookIds.contains(
+                    "systemui_back_prepared_terminal")) {
+                hookPreparedBackTerminal(hotReloadBackControllerClass);
             }
             if (!oldHookIds.contains(
                     "systemui_block_miui_gesture_line_progress")) {
@@ -315,17 +354,30 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             if (!oldHookIds.contains("systemui_back_prepare_reparent")) {
                 hookBackPrepareTransitionReparent(hotReloadClassLoader);
             }
+            if (!oldHookIds.contains("systemui_back_prepared_target_arrival")) {
+                hookPreparedBackTargetArrival(hotReloadClassLoader);
+            }
+            if (!oldHookIds.contains(
+                    "systemui_back_prepared_transition_decision")) {
+                hookPreparedBackTransitionDecision(hotReloadClassLoader);
+            }
+            if (!oldHookIds.contains(
+                    "systemui_back_color_root_scrim_creation")) {
+                hookFreeformCrossActivityScrimCreation();
+            }
             if (!oldHookIds.contains("systemui_back_slide_start")
                     || !oldHookIds.contains("systemui_back_slide_progress")
                     || !oldHookIds.contains("systemui_back_slide_post_commit")
                     || !oldHookIds.contains("systemui_back_slide_duration")
-                    || !oldHookIds.contains("systemui_back_slide_finish")) {
+                    || !oldHookIds.contains("systemui_back_slide_finish")
+                    || !oldHookIds.contains("systemui_back_color_root_apply")) {
                 hookCrossActivitySlideAnimation(hotReloadClassLoader,
                         !oldHookIds.contains("systemui_back_slide_start"),
                         !oldHookIds.contains("systemui_back_slide_progress"),
                         !oldHookIds.contains("systemui_back_slide_post_commit"),
                         !oldHookIds.contains("systemui_back_slide_duration"),
-                        !oldHookIds.contains("systemui_back_slide_finish"));
+                        !oldHookIds.contains("systemui_back_slide_finish"),
+                        !oldHookIds.contains("systemui_back_color_root_apply"));
             }
             if (!oldHookIds.contains("systemui_cross_task_background")) {
                 hookCrossTaskBackground(hotReloadClassLoader);
@@ -470,6 +522,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 if (!oldHookIds.contains("miui_home_drawer_state")) {
                     hookMiuiHomeDrawerState(hotReloadClassLoader);
                 }
+                if (!oldHookIds.contains("miui_home_freeform_back_touchability")) {
+                    hookMiuiHomeFreeformBackTouchability(hotReloadClassLoader);
+                }
                 if (!oldHookIds.contains("miui_home_editing_state")) {
                     hookMiuiHomeEditingState(hotReloadClassLoader);
                 }
@@ -572,6 +627,8 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::wrapMiuiHomeReturnHomeDirectCancel;
             case "miui_home_drawer_state":
                 return this::mirrorMiuiHomeDrawerState;
+            case "miui_home_freeform_back_touchability":
+                return this::restoreMiuiHomeFreeformBackTouchability;
             case "miui_home_editing_state":
                 return this::mirrorMiuiHomeEditingState;
             case "miui_home_return_home_initialize":
@@ -582,10 +639,10 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::observeMiuiHomeReturnHomeWallpaperSet;
             case "miui_home_return_home_wallpaper_anim":
                 return this::observeMiuiHomeReturnHomeWallpaperAnim;
-            case "server_back_promote_to_tf_if_needed":
-                return this::interceptPromoteToTaskFragmentIfNeeded;
             case "server_back_window_start_animation":
                 return this::prepareOpeningTaskFragment;
+            case "server_freeform_prepare_role_normalization":
+                return this::normalizeFreeformCrossActivityTransitionInfo;
             case "server_schedule_animation_prepare_transition":
                 return this::interceptScheduleAnimationPrepareTransition;
             case "server_back_navigation_done_cleanup":
@@ -611,10 +668,20 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::onCrossActivitySlideDuration;
             case "systemui_back_slide_finish":
                 return this::onCrossActivitySlideFinish;
+            case "systemui_back_color_root_apply":
+                return this::onCrossActivityColorRootApply;
+            case "systemui_back_color_root_scrim_creation":
+                return this::keepFreeformScrimHiddenUntilFirstApply;
             case "systemui_cross_task_background":
                 return this::tintCrossTaskBackground;
             case "systemui_back_prepare_reparent":
                 return this::correctPredictiveBackPrepareReparent;
+            case "systemui_back_prepared_target_arrival":
+                return this::onPreparedBackTargetArrival;
+            case "systemui_back_prepared_terminal":
+                return this::onPreparedBackTerminal;
+            case "systemui_back_prepared_transition_decision":
+                return this::holdPreparedBackTransitionUntilTargets;
             case "systemui_back_commit_composition":
                 return this::correctPredictiveBackCommitComposition;
             case "systemui_back_finish_open_atomic":
@@ -632,6 +699,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             case "shell_back_finishBackAnimation":
                 return this::onShellAnimationFinished;
             case "systemui_navigation_bar_view_insets":
+            case "server_back_promote_to_tf_if_needed":
             case "systemui_navigation_bar_window_state":
             case "systemui_navigation_bar_abort_transient":
             case "systemui_navigation_bar_auto_hide":
@@ -845,6 +913,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             hookMiuiHomeReturnHomeFreshOpen(classLoader);
             hookMiuiHomeReturnHomeDirectCancel(classLoader);
             hookMiuiHomeDrawerState(classLoader);
+            hookMiuiHomeFreeformBackTouchability(classLoader);
             hookMiuiHomeEditingState(classLoader);
             hookMiuiHomeReturnHomeInitialize(classLoader);
             hookMiuiHomeReturnHomeLocalHandoff(classLoader);
@@ -859,6 +928,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     + ", mirrorsTaskLaunchExit=true"
                     + ", mirrorsAuthenticatedFullscreenState=true"
                     + ", mirrorsDrawerState=true"
+                    + ", preservesSmallWindowBackTouchability=true"
                     + ", mirrorsLauncherEditingState=true"
                     + ", mirrorsLauncherOpenBreakState=true"
                     + ", repairsNonReusableSameIconOpen=true"

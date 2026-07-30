@@ -250,6 +250,14 @@ Remote-animation rules:
 - For prepared remote animations, mark the tracker finished and call or wait for
   `startPostCommitAnimation()` so the runner receives cancel/invoke before navigation
   cleanup. Do not finish an active prepared animation directly from the overlay.
+- When an exact current freeform cross-activity prepared transition reaches
+  `BackTransitionHandler.startAnimation(...)` before its remote targets, defer only that original
+  invocation on the Shell owner. Prove the focused task through `BackNavigationInfo` and
+  `ShellTaskOrganizer`, require one matching prepared root and exactly two taskless Activity
+  changes with the expected roles, flags, bounds, display, and immutable gesture-session owner.
+  Resume the stock handler only after the same adapter publishes matching targets/callback, or
+  through the exact terminal cleanup path if navigation ends first. Any ambiguity or reflection
+  failure proceeds through the stock call; do not poll, delay by timeout, or retain a stale hold.
 - Run the complete release transaction on the Shell executor: synchronize the requested
   trigger, read the active tracker's actual trigger, update focused-task/tracker state,
   inspect the runner, and finish or enter post-commit there. The SystemUI input Looper must
@@ -301,6 +309,16 @@ Remote-animation rules:
   the slide on, cross-task's native color-layer background is repainted pure black by
   overwriting the color in the animation's own pending transaction (its stock hard-coded
   dark tint otherwise clashes with the black slide); the geometry stays native.
+- Independently of that slide switch, adopt the stock cross-activity scrim and
+  `back-animation-background` into the exact current prepared root only for distinct targets in the
+  same non-negative Task when both are freeform and have identical non-empty local bounds. Require
+  one valid root, unchanged transition/apps/target identity, and a non-letterboxed root-local crop
+  matching the animation crop. Keep the scrim hidden until the first apply, then merge the root
+  crop/radius and both layer reparents into the animation's pending transaction. Keep the scrim
+  immediately below the closing leash, preserve its native dim, and set only the redundant
+  background alpha to zero. If exact capture, adoption, or reflection fails, discard the candidate
+  and leave the native layers unchanged; never fall back to suppressing their alpha. Native finish
+  still owns cleanup; preserve fullscreen and every other target shape.
 - Keep SystemUI's native `BackPanelController` as the sole indicator state owner: it
   receives every claimed event and owns thresholds, release state, and haptics. The
   optional HyperOS-style skin (`hyperos_indicator_style` remote preference, default off)
@@ -420,6 +438,12 @@ Return-to-home rules:
 
 System-server compatibility rules:
 
+- Preserve `AnimationHandler.promoteToTFIfNeeded(...)` for every native Activity switch. Distinct
+  embedded TaskFragments must remain promoted before both prepared-transition construction and
+  remote-adaptor creation; the same embedded TaskFragment keeps the native Activity targets. Do
+  not gate promotion on the obsolete migrate flag. Keep the retired
+  `server_back_promote_to_tf_if_needed` hook neutralized across hot reload, but do not normally
+  install or backfill it.
 - Resolve window flags from `com.android.window.flags.Flags` first, Xiaomi's relocated
   `com.android.internal.hidden_from_bootclasspath.com.android.window.flags.Flags` second,
   and `android.window.flags.Flags` only as the legacy fallback. Unreadable migrate/unify
@@ -429,6 +453,23 @@ System-server compatibility rules:
   original `setLaunchBehind()` path; do not blanket-skip transition preparation. Never skip
   the unified `TYPE_RETURN_TO_HOME` prepare path; if `mIsLaunchBehind` or the relevant flag
   cannot be proven, preserve the original platform method.
+- In unified mode, preserve the native prepared transition for the exact single-Task freeform or
+  fullscreen cross-Activity shape only when the two distinct ActivityRecords are in the same
+  standard Task, the opening Activity is still hidden, and the supplied containers exactly match
+  `promoteToTFIfNeeded(...)` (the ActivityRecords themselves or their native embedded-TaskFragment
+  promotion). Xiaomi reports both prepared changes as `TO_FRONT`; after WMS builds that exact
+  prepared `TransitionInfo` and before it is dispatched to Shell, set only the already-visible
+  departing Activity or embedded TaskFragment's final mode to AOSP `CHANGE`. Preserve
+  `FLAG_CHANGE_YES_ANIMATION` only when target calculation adds it to the promoted opening
+  TaskFragment; do not broadly mask other internal `ChangeInfo` flags. Preserve
+  both changes' flags, including the platform and Xiaomi predictive-back flags, and let the stock
+  Shell handler perform the resulting closing/opening leash reparent in its original transaction.
+  Keep the occluded opening Activity, runner targets, and all other state and shapes untouched.
+  Do not gate the exact native prepare on a module-owned readiness bit: if exact-shape inspection
+  is uncertain or the normalizer is unavailable or fails, preserve the platform prepare instead
+  of reviving the old skip fallback. Known non-exact unified non-home shapes retain the existing
+  compatibility skip. Preserve the normalizer hook's replacement, presence, and backfill lifecycle
+  across hot reload without maintaining separate readiness state.
 - Navigation-done cleanup may call `clearBackAnimations(false)` only after a committed
   navigation when the handler is still composed and both prepared-open and prepared-close
   transition fields are null. Leave normal transition-owned cleanup untouched.

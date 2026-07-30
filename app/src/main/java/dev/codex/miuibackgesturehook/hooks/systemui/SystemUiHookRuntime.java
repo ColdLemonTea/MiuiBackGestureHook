@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Insets;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Handler;
@@ -42,6 +43,8 @@ import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.github.libxposed.api.XposedInterface;
 
@@ -1532,11 +1535,15 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             hookShellAnimationFinished(controllerClass, "finishBackAnimation",
                     "shell_back_finishBackAnimation", true);
             hookBackNavigationInfoReceived(controllerClass);
+            hookPreparedBackTargetArrival(classLoader);
+            hookPreparedBackTerminal(controllerClass);
+            hookPreparedBackTransitionDecision(classLoader);
             hookBackPrepareTransitionReparent(classLoader);
             hookBackCommitComposition(classLoader);
             hookBackFinishOpenAtomicTransfer(classLoader);
+            hookFreeformCrossActivityScrimCreation();
             hookCrossActivitySlideAnimation(classLoader,
-                    true, true, true, true, true);
+                    true, true, true, true, true, true);
             hookCrossTaskBackground(classLoader);
             log(Log.INFO, TAG, "Hooked Shell BackAnimationController AOSP path");
         } catch (Throwable throwable) {
@@ -1544,25 +1551,643 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
     }
 
+    protected static final class PreparedBackTargetArrival {
+        final Object controller;
+        final Object transitionToken;
+        final Object apps;
+        final Object finishedCallback;
+
+        PreparedBackTargetArrival(Object controller, Object transitionToken,
+                                  Object apps, Object finishedCallback) {
+            this.controller = controller;
+            this.transitionToken = transitionToken;
+            this.apps = apps;
+            this.finishedCallback = finishedCallback;
+        }
+    }
+
+    protected final class PreparedBackTransitionHold {
+        final NativeBackInputMonitor monitor;
+        final SystemUiBackGestureDriver.ShellGestureSession session;
+        final Handler shellHandler;
+        final XposedInterface.Invoker<?, Method> startAnimationInvoker;
+        final Object handler;
+        final Object controller;
+        final Object transitionToken;
+        final Object transitionInfo;
+        final SurfaceControl.Transaction startTransaction;
+        final SurfaceControl.Transaction finishTransaction;
+        final Object finishCallback;
+        final int transitionDebugId;
+        final AtomicBoolean stockResumeAttempted = new AtomicBoolean();
+
+        PreparedBackTransitionHold(
+                NativeBackInputMonitor monitor,
+                SystemUiBackGestureDriver.ShellGestureSession session,
+                Handler shellHandler,
+                XposedInterface.Invoker<?, Method> startAnimationInvoker,
+                Object handler, Object controller,
+                Object transitionToken, Object transitionInfo,
+                SurfaceControl.Transaction startTransaction,
+                SurfaceControl.Transaction finishTransaction,
+                Object finishCallback) {
+            this.monitor = monitor;
+            this.session = session;
+            this.shellHandler = shellHandler;
+            this.startAnimationInvoker = startAnimationInvoker;
+            this.handler = handler;
+            this.controller = controller;
+            this.transitionToken = transitionToken;
+            this.transitionInfo = transitionInfo;
+            this.startTransaction = startTransaction;
+            this.finishTransaction = finishTransaction;
+            this.finishCallback = finishCallback;
+            this.transitionDebugId = readTransitionDebugId(transitionInfo);
+        }
+    }
+
+    protected final AtomicReference<PreparedBackTransitionHold>
+            preparedBackTransitionHold = new AtomicReference<>();
+    protected final AtomicReference<PreparedBackTargetArrival>
+            preparedBackTargetArrival = new AtomicReference<>();
+    protected volatile XposedInterface.Invoker<?, Method>
+            preparedBackStartAnimationInvoker;
+    protected volatile boolean preparedBackTargetArrivalHookReady;
+    protected volatile boolean preparedBackTerminalHookReady;
+
+    protected void hookPreparedBackTargetArrival(ClassLoader classLoader) {
+        try {
+            Class<?> adapterClass = Class.forName(
+                    BACK_ANIMATION_CONTROLLER + "$3", false, classLoader);
+            Method onAnimationStart = findAnyMethod(
+                    adapterClass, "onAnimationStart", 3);
+            if (onAnimationStart == null) {
+                throw new NoSuchMethodException(
+                        "Back animation adapter onAnimationStart");
+            }
+            onAnimationStart.setAccessible(true);
+            recordHookHandle(hook(onAnimationStart)
+                    .setId("systemui_back_prepared_target_arrival")
+                    .intercept(this::onPreparedBackTargetArrival));
+            preparedBackTargetArrivalHookReady = true;
+            log(Log.INFO, TAG,
+                    "Hooked prepared-back remote-target arrival handoff");
+        } catch (Throwable throwable) {
+            preparedBackTargetArrivalHookReady = false;
+            log(Log.ERROR, TAG,
+                    "Failed to hook prepared-back remote-target arrival handoff",
+                    throwable);
+        }
+    }
+
+    protected void hookPreparedBackTerminal(Class<?> controllerClass) {
+        try {
+            Method finishBackNavigation = controllerClass.getDeclaredMethod(
+                    "finishBackNavigation", boolean.class);
+            finishBackNavigation.setAccessible(true);
+            recordHookHandle(hook(finishBackNavigation)
+                    .setId("systemui_back_prepared_terminal")
+                    .intercept(this::onPreparedBackTerminal));
+            preparedBackTerminalHookReady = true;
+            log(Log.INFO, TAG,
+                    "Hooked prepared-back terminal handoff");
+        } catch (Throwable throwable) {
+            preparedBackTerminalHookReady = false;
+            log(Log.ERROR, TAG,
+                    "Failed to hook prepared-back terminal handoff",
+                    throwable);
+        }
+    }
+
+    protected Object onPreparedBackTargetArrival(XposedInterface.Chain chain)
+            throws Throwable {
+        Object controller = null;
+        Object apps = null;
+        Object token = null;
+        Object finishedCallback = null;
+        try {
+            controller = readField(chain.getThisObject(), "this$0");
+            apps = chain.getArg(0);
+            token = chain.getArg(1);
+            finishedCallback = chain.getArg(2);
+        } catch (Throwable throwable) {
+            log(Log.WARN, TAG,
+                    "Failed to capture prepared-back target arrival",
+                    throwable);
+        }
+        Object result = chain.proceed();
+        if (controller != null && token != null) {
+            PreparedBackTargetArrival arrival = new PreparedBackTargetArrival(
+                    controller, token, apps, finishedCallback);
+            preparedBackTargetArrival.set(arrival);
+            schedulePreparedBackTransitionResume(
+                    preparedBackTransitionHold.get(), arrival, false);
+        }
+        return result;
+    }
+
+    protected Object onPreparedBackTerminal(
+            XposedInterface.Chain chain) throws Throwable {
+        PreparedBackTransitionHold hold = preparedBackTransitionHold.get();
+        boolean exactTerminal = false;
+        try {
+            exactTerminal = hold != null
+                    && hold.controller == chain.getThisObject()
+                    && isExactPreparedBackSession(hold)
+                    && isHeldPreparedBackTransitionUntouched(hold);
+        } catch (Throwable throwable) {
+            log(Log.WARN, TAG,
+                    "Failed to authenticate prepared-back terminal",
+                    throwable);
+        }
+        Object result = chain.proceed();
+        if (exactTerminal) {
+            schedulePreparedBackTransitionResume(hold, null, true);
+        }
+        return result;
+    }
+
+    protected boolean isExactFreeformPreparedBackTransition(
+            Object handler, Object navigation, Object info) throws Exception {
+        Object focusedTaskIdObject = invokeAnyMethod(
+                navigation, "getFocusedTaskId", new Object[0]);
+        int focusedTaskId = focusedTaskIdObject instanceof Number
+                ? ((Number) focusedTaskIdObject).intValue() : -1;
+        if (focusedTaskId < 0) {
+            return false;
+        }
+        Object transitions = readField(handler, "mTransitions");
+        Object organizer = readField(transitions, "mOrganizer");
+        Object taskInfo = invokeAnyMethod(organizer, "getRunningTaskInfo",
+                new Object[]{Integer.valueOf(focusedTaskId)});
+        if (taskInfo == null
+                || readIntFieldOrDefault(taskInfo, "taskId", -1)
+                != focusedTaskId
+                || resolveTaskInfoActivityType(taskInfo)
+                != ACTIVITY_TYPE_STANDARD) {
+            return false;
+        }
+        if (resolveTaskInfoWindowingMode(taskInfo)
+                != WINDOWING_MODE_FREEFORM) {
+            return false;
+        }
+        int displayId = readIntFieldOrDefault(taskInfo, "displayId", -1);
+        Object configuration = readField(taskInfo, "configuration");
+        Object windowConfiguration = readField(
+                configuration, "windowConfiguration");
+        Object taskBoundsObject = invokeAnyMethod(
+                windowConfiguration, "getBounds", new Object[0]);
+        Object changesObject = invokeAnyMethod(
+                info, "getChanges", new Object[0]);
+        Object rootCountObject = invokeAnyMethod(
+                info, "getRootCount", new Object[0]);
+        if (displayId < 0 || !(taskBoundsObject instanceof Rect)
+                || ((Rect) taskBoundsObject).isEmpty()
+                || !(changesObject instanceof List<?>)
+                || ((List<?>) changesObject).size() != 2
+                || !(rootCountObject instanceof Number)
+                || ((Number) rootCountObject).intValue() != 1) {
+            throw new IllegalStateException(
+                    "freeform prepared task geometry unavailable"
+                            + ", taskId=" + focusedTaskId
+                            + ", displayId=" + displayId
+                            + ", bounds=" + shortObject(taskBoundsObject)
+                            + ", changes=" + shortObject(changesObject)
+                            + ", roots=" + shortObject(rootCountObject));
+        }
+        Rect taskBounds = (Rect) taskBoundsObject;
+        Object root = invokeAnyMethod(
+                info, "getRoot", new Object[]{Integer.valueOf(0)});
+        Object rootLeashObject = root == null ? null : invokeAnyMethod(
+                root, "getLeash", new Object[0]);
+        Object rootOffsetObject = root == null ? null : invokeAnyMethod(
+                root, "getOffset", new Object[0]);
+        if (!(rootLeashObject instanceof SurfaceControl)
+                || !((SurfaceControl) rootLeashObject).isValid()
+                || !(rootOffsetObject instanceof Point)
+                || ((Point) rootOffsetObject).x != taskBounds.left
+                || ((Point) rootOffsetObject).y != taskBounds.top) {
+            throw new IllegalStateException(
+                    "freeform prepared root mismatch"
+                            + ", taskId=" + focusedTaskId
+                            + ", bounds=" + taskBounds
+                            + ", root=" + shortObject(rootLeashObject)
+                            + ", offset=" + shortObject(rootOffsetObject));
+        }
+        SurfaceControl rootLeash = (SurfaceControl) rootLeashObject;
+        final int closingFlags = 0x08000000
+                | FLAG_BACK_GESTURE_ANIMATED | FLAG_FILLS_TASK;
+        final int openingFlags = FLAG_BACK_GESTURE_ANIMATED
+                | FLAG_FILLS_TASK | FLAG_IS_OCCLUDED;
+        Object closingComponent = null;
+        Object openingComponent = null;
+        SurfaceControl closingLeash = null;
+        SurfaceControl openingLeash = null;
+        int changeIndex = 0;
+        for (Object change : (List<?>) changesObject) {
+            Object modeObject = invokeAnyMethod(
+                    change, "getMode", new Object[0]);
+            Object flagsObject = invokeAnyMethod(
+                    change, "getFlags", new Object[0]);
+            Object changeTaskInfo = invokeAnyMethod(
+                    change, "getTaskInfo", new Object[0]);
+            Object component = invokeAnyMethod(
+                    change, "getActivityComponent", new Object[0]);
+            Object leashObject = invokeAnyMethod(
+                    change, "getLeash", new Object[0]);
+            Object startBoundsObject = invokeAnyMethod(
+                    change, "getStartAbsBounds", new Object[0]);
+            Object endBoundsObject = invokeAnyMethod(
+                    change, "getEndAbsBounds", new Object[0]);
+            Object startDisplayObject = invokeAnyMethod(
+                    change, "getStartDisplayId", new Object[0]);
+            Object endDisplayObject = invokeAnyMethod(
+                    change, "getEndDisplayId", new Object[0]);
+            int mode = modeObject instanceof Number
+                    ? ((Number) modeObject).intValue() : -1;
+            int flags = flagsObject instanceof Number
+                    ? ((Number) flagsObject).intValue() : -1;
+            if (changeTaskInfo != null || component == null
+                    || !(leashObject instanceof SurfaceControl)
+                    || !((SurfaceControl) leashObject).isValid()
+                    || surfacesAreSame(
+                    (SurfaceControl) leashObject, rootLeash)
+                    || !taskBounds.equals(startBoundsObject)
+                    || !taskBounds.equals(endBoundsObject)
+                    || !(startDisplayObject instanceof Number)
+                    || !(endDisplayObject instanceof Number)
+                    || ((Number) startDisplayObject).intValue() != displayId
+                    || ((Number) endDisplayObject).intValue() != displayId) {
+                throw new IllegalStateException(
+                        "freeform prepared Activity change mismatch"
+                                + ", taskId=" + focusedTaskId
+                                + ", changeIndex=" + changeIndex
+                                + ", mode=" + mode
+                                + ", flags=0x" + Integer.toHexString(flags)
+                                + ", taskInfo=" + shortObject(changeTaskInfo)
+                                + ", component=" + shortObject(component)
+                                + ", leash=" + shortObject(leashObject)
+                                + ", startBounds="
+                                + shortObject(startBoundsObject)
+                                + ", endBounds=" + shortObject(endBoundsObject)
+                                + ", startDisplay="
+                                + shortObject(startDisplayObject)
+                                + ", endDisplay="
+                                + shortObject(endDisplayObject));
+            }
+            if (mode == TRANSIT_CHANGE && flags == closingFlags
+                    && closingComponent == null) {
+                closingComponent = component;
+                closingLeash = (SurfaceControl) leashObject;
+            } else if (mode == TRANSIT_TO_FRONT && flags == openingFlags
+                    && openingComponent == null) {
+                openingComponent = component;
+                openingLeash = (SurfaceControl) leashObject;
+            } else {
+                throw new IllegalStateException(
+                        "freeform prepared Activity role mismatch"
+                                + ", taskId=" + focusedTaskId
+                                + ", changeIndex=" + changeIndex
+                                + ", mode=" + mode
+                                + ", flags=0x" + Integer.toHexString(flags));
+            }
+            changeIndex++;
+        }
+        return closingComponent != null && openingComponent != null
+                && !closingComponent.equals(openingComponent)
+                && !surfacesAreSame(closingLeash, openingLeash);
+    }
+
+    protected void hookPreparedBackTransitionDecision(ClassLoader classLoader) {
+        try {
+            Class<?> handlerClass = Class.forName(
+                    BACK_TRANSITION_HANDLER, false, classLoader);
+            Method startAnimation = requireExactDeclaredMethod(handlerClass,
+                    "startAnimation", "boolean", IBinder.class.getName(),
+                    "android.window.TransitionInfo",
+                    SurfaceControl.Transaction.class.getName(),
+                    SurfaceControl.Transaction.class.getName(),
+                    "com.android.wm.shell.transition.Transitions$TransitionFinishCallback");
+            preparePreparedBackStartAnimationInvoker(startAnimation);
+            recordHookHandle(hook(startAnimation)
+                    .setId("systemui_back_prepared_transition_decision")
+                    .intercept(this::holdPreparedBackTransitionUntilTargets));
+            log(Log.INFO, TAG,
+                    "Hooked prepared-back transition target ordering");
+        } catch (Throwable throwable) {
+            log(Log.ERROR, TAG,
+                    "Failed to hook prepared-back transition target ordering",
+                    throwable);
+        }
+    }
+
+    protected void preparePreparedBackStartAnimationInvoker(Method startAnimation) {
+        XposedInterface.Invoker<?, Method> invoker = getInvoker(startAnimation);
+        invoker.setType(XposedInterface.Invoker.Type.ORIGIN);
+        preparedBackStartAnimationInvoker = invoker;
+    }
+
+    protected Object holdPreparedBackTransitionUntilTargets(
+            XposedInterface.Chain chain) throws Throwable {
+        if (!preparedBackTargetArrivalHookReady
+                || !preparedBackTerminalHookReady
+                || preparedBackStartAnimationInvoker == null) {
+            return chain.proceed();
+        }
+        PreparedBackTransitionHold hold;
+        try {
+            Object info = chain.getArg(1);
+            Object type = invokeAnyMethod(info, "getType", new Object[0]);
+            if (!(type instanceof Number)
+                    || ((Number) type).intValue() != TRANSIT_PREDICTIVE_BACK) {
+                return chain.proceed();
+            }
+            if (!(chain.getArg(2) instanceof SurfaceControl.Transaction)
+                    || !(chain.getArg(3) instanceof SurfaceControl.Transaction)
+                    || chain.getArg(0) == null || chain.getArg(4) == null) {
+                return chain.proceed();
+            }
+            Object handler = chain.getThisObject();
+            Object controller = readField(handler, "this$0");
+            Object transitionToken = chain.getArg(0);
+            if (readField(controller, "mBackTransitionHandler") != handler
+                    || readField(controller, "mApps") != null
+                    || readField(handler, "mPrepareOpenTransition")
+                    != transitionToken
+                    || readField(handler, "mClosePrepareTransition") != null
+                    || readField(handler, "mOpenTransitionInfo") != null
+                    || readField(handler, "mFinishOpenTransaction") != null
+                    || readField(handler, "mFinishOpenTransitionCallback") != null
+                    || readField(handler, "mOnAnimationFinishCallback") != null
+                    || Boolean.TRUE.equals(readField(
+                    handler, "mCloseTransitionRequested"))) {
+                return chain.proceed();
+            }
+            Object navigation = readField(controller, "mBackNavigationInfo");
+            Object navigationType = navigation == null ? null
+                    : invokeAnyMethod(navigation, "getType", new Object[0]);
+            if (!(navigationType instanceof Number)
+                    || ((Number) navigationType).intValue()
+                    != TYPE_CROSS_ACTIVITY) {
+                return chain.proceed();
+            }
+            if (!isExactFreeformPreparedBackTransition(
+                    handler, navigation, info)) {
+                return chain.proceed();
+            }
+            NativeBackInputMonitor exactMonitor = null;
+            SystemUiBackGestureDriver.ShellGestureSession exactSession = null;
+            Object currentTracker = readField(controller, "mCurrentTracker");
+            for (NativeBackInputMonitor monitor
+                    : new ArrayList<>(nativeInputMonitors.values())) {
+                SystemUiBackGestureDriver.ShellGestureSession session =
+                        monitor.driver.activeShellSession;
+                if (session == null || session.controller != controller
+                        || session.navigation != navigation
+                        || session.tracker != currentTracker
+                        || session.completionConsumed.get()
+                        || !monitor.driver.isShellSessionOwnerCurrent(session)) {
+                    continue;
+                }
+                if (exactSession != null) {
+                    return chain.proceed();
+                }
+                exactMonitor = monitor;
+                exactSession = session;
+            }
+            if (exactSession == null) {
+                return chain.proceed();
+            }
+            Object shellExecutor = readField(controller, "mShellExecutor");
+            Object shellHandler = readField(shellExecutor, "mHandler");
+            if (shellExecutor != exactSession.executor
+                    || !(shellHandler instanceof Handler)
+                    || !((Handler) shellHandler).getLooper().isCurrentThread()) {
+                return chain.proceed();
+            }
+            hold = new PreparedBackTransitionHold(
+                    exactMonitor, exactSession, (Handler) shellHandler,
+                    preparedBackStartAnimationInvoker,
+                    handler, controller,
+                    transitionToken, info,
+                    (SurfaceControl.Transaction) chain.getArg(2),
+                    (SurfaceControl.Transaction) chain.getArg(3),
+                    chain.getArg(4));
+        } catch (Throwable throwable) {
+            log(Log.WARN, TAG,
+                    "Failed to qualify prepared-back transition hold",
+                    throwable);
+            return chain.proceed();
+        }
+        if (!preparedBackTransitionHold.compareAndSet(null, hold)) {
+            return chain.proceed();
+        }
+        log(Log.INFO, TAG,
+                "Held prepared-back transition until remote targets"
+                        + ", transitionId=" + hold.transitionDebugId
+                        + ", shellSessionId=" + hold.session.id
+                        + ", token=" + shortObject(hold.transitionToken));
+        schedulePreparedBackTransitionResume(
+                hold, preparedBackTargetArrival.get(), false);
+        return Boolean.TRUE;
+    }
+
+    protected void schedulePreparedBackTransitionResume(
+            PreparedBackTransitionHold hold,
+            PreparedBackTargetArrival arrival, boolean terminal) {
+        if (hold == null || preparedBackTransitionHold.get() != hold
+                || (!terminal && (arrival == null
+                || arrival.controller != hold.controller
+                || arrival.transitionToken != hold.transitionToken))) {
+            return;
+        }
+        try {
+            if (!hold.shellHandler.post(() -> resumePreparedBackTransition(
+                    hold, arrival, terminal))) {
+                throw new IllegalStateException("Shell Handler rejected resume");
+            }
+        } catch (Throwable throwable) {
+            log(Log.ERROR, TAG,
+                    "Failed to queue held prepared-back transition resume"
+                            + ", transitionId=" + hold.transitionDebugId
+                            + ", event=" + (terminal ? "terminal" : "targets"),
+                    throwable);
+        }
+    }
+
+    protected void resumePreparedBackTransition(
+            PreparedBackTransitionHold hold,
+            PreparedBackTargetArrival arrival, boolean terminal) {
+        String event = terminal ? "terminal" : "targets";
+        try {
+            if (preparedBackTransitionHold.get() != hold
+                    || (terminal
+                    ? !isHeldPreparedBackTransitionTerminalReady(hold)
+                    : !isHeldPreparedBackTransitionUntouched(hold))) {
+                return;
+            }
+            Object controllerApps = readField(hold.controller, "mApps");
+            if (!terminal) {
+                PreparedBackTargetArrival latest =
+                        preparedBackTargetArrival.get();
+                if (latest != arrival) {
+                    schedulePreparedBackTransitionResume(
+                            hold, latest, false);
+                    return;
+                }
+                if (controllerApps != arrival.apps
+                        || readField(hold.controller,
+                        "mBackAnimationFinishedCallback")
+                        != arrival.finishedCallback
+                        || !isExactPreparedBackSession(hold)) {
+                    return;
+                }
+            } else if (controllerApps != null
+                    || readField(hold.controller, "mBackNavigationInfo") != null) {
+                return;
+            }
+            if (!hold.stockResumeAttempted.compareAndSet(false, true)) {
+                return;
+            }
+            Object result;
+            try {
+                result = hold.startAnimationInvoker.invoke(
+                        hold.handler, hold.transitionToken,
+                        hold.transitionInfo, hold.startTransaction,
+                        hold.finishTransaction, hold.finishCallback);
+            } catch (InvocationTargetException exception) {
+                Throwable cause = exception.getCause();
+                throw cause == null ? exception : cause;
+            }
+            if (!Boolean.TRUE.equals(result)) {
+                log(Log.ERROR, TAG,
+                        "Stock handler declined held prepared-back transition"
+                                + ", transitionId=" + hold.transitionDebugId
+                                + ", shellSessionId=" + hold.session.id
+                                + ", event=" + event);
+                return;
+            }
+            if (!preparedBackTransitionHold.compareAndSet(hold, null)) {
+                log(Log.ERROR, TAG,
+                        "Lost held prepared-back ownership after stock resume"
+                                + ", transitionId=" + hold.transitionDebugId
+                                + ", shellSessionId=" + hold.session.id);
+                return;
+            }
+            PreparedBackTargetArrival consumedArrival = arrival != null
+                    ? arrival : preparedBackTargetArrival.get();
+            if (consumedArrival != null
+                    && consumedArrival.controller == hold.controller
+                    && consumedArrival.transitionToken == hold.transitionToken) {
+                preparedBackTargetArrival.compareAndSet(
+                        consumedArrival, null);
+            }
+            log(Log.INFO, TAG,
+                    "Resumed held prepared-back transition through stock handler"
+                            + ", transitionId=" + hold.transitionDebugId
+                            + ", shellSessionId=" + hold.session.id
+                            + ", event=" + event
+                            + ", apps=" + shortObject(controllerApps));
+        } catch (Throwable throwable) {
+            log(Log.ERROR, TAG,
+                    "Failed to resume held prepared-back transition"
+                            + ", transitionId=" + hold.transitionDebugId
+                            + ", shellSessionId=" + hold.session.id
+                            + ", event=" + event,
+                    throwable);
+        }
+    }
+
+    protected boolean isExactPreparedBackSession(
+            PreparedBackTransitionHold hold) throws Exception {
+        return hold.monitor.driver.activeShellSession == hold.session
+                && !hold.session.completionConsumed.get()
+                && hold.monitor.driver.isShellSessionOwnerCurrent(hold.session)
+                && readField(hold.controller, "mBackNavigationInfo")
+                == hold.session.navigation
+                && (readField(hold.controller, "mCurrentTracker")
+                == hold.session.tracker
+                || readField(hold.controller, "mQueuedTracker")
+                == hold.session.tracker);
+    }
+
+    protected boolean isHeldPreparedBackTransitionUntouched(
+            PreparedBackTransitionHold hold) throws Exception {
+        return isHeldPreparedBackTransitionBase(hold)
+                && readField(hold.handler, "mClosePrepareTransition") == null
+                && !Boolean.TRUE.equals(readField(
+                hold.handler, "mCloseTransitionRequested"));
+    }
+
+    protected boolean isHeldPreparedBackTransitionTerminalReady(
+            PreparedBackTransitionHold hold) throws Exception {
+        return isHeldPreparedBackTransitionBase(hold);
+    }
+
+    protected boolean isHeldPreparedBackTransitionBase(
+            PreparedBackTransitionHold hold) throws Exception {
+        Object type = invokeAnyMethod(
+                hold.transitionInfo, "getType", new Object[0]);
+        return readField(hold.handler, "this$0") == hold.controller
+                && readField(hold.controller, "mBackTransitionHandler")
+                == hold.handler
+                && type instanceof Number
+                && ((Number) type).intValue() == TRANSIT_PREDICTIVE_BACK
+                && readField(hold.handler, "mPrepareOpenTransition")
+                == hold.transitionToken
+                && readField(hold.handler, "mOpenTransitionInfo") == null
+                && readField(hold.handler, "mFinishOpenTransaction") == null
+                && readField(hold.handler,
+                "mFinishOpenTransitionCallback") == null
+                && readField(hold.handler, "mOnAnimationFinishCallback") == null;
+    }
+
+    protected String describePreparedBackTransitionHold(
+            PreparedBackTransitionHold hold) {
+        return "transitionId=" + hold.transitionDebugId
+                + ", shellSessionId=" + hold.session.id
+                + ", stockResumeAttempted="
+                + hold.stockResumeAttempted.get();
+    }
+
     /**
      * Restyles the native cross-activity predictive-back animation into the miuix slide
      * when the preference is on: the closing surface follows the finger full-width with
      * no scale and no fade, the entering surface parallaxes in from a quarter width
      * behind at alpha 0.9 -> 1 with its dim scrim tracking the drag and its corner
-     * radius cleared, and the commit settles on a cubic ease-out. Only the geometry,
-     * scrim, and entering corner radius are replaced; targets, letterboxes, and the
-     * finish lifecycle stay native. Cross-task and return-to-home are untouched.
+     * radius cleared, and the commit settles on a cubic ease-out. Exact freeform also
+     * puts Xiaomi's fixed task radius on the prepared root and clears the moving page
+     * radius. Targets, letterboxes, and the finish lifecycle stay native. Cross-task
+     * and return-to-home are untouched. The independent apply hook adopts exact
+     * freeform ColorLayers and that fixed clip into their prepared root whether or not
+     * the slide preference is enabled.
      */
+    protected void hookFreeformCrossActivityScrimCreation() {
+        try {
+            Method setHidden = requireExactDeclaredMethod(SurfaceControl.Builder.class,
+                    "setHidden", SurfaceControl.Builder.class.getName(), "boolean");
+            recordHookHandle(hook(setHidden)
+                    .setId("systemui_back_color_root_scrim_creation")
+                    .intercept(this::keepFreeformScrimHiddenUntilFirstApply));
+            log(Log.INFO, TAG,
+                    "Hooked freeform cross-activity scrim creation visibility");
+        } catch (Throwable throwable) {
+            log(Log.ERROR, TAG,
+                    "Failed to hook freeform cross-activity scrim creation",
+                    throwable);
+        }
+    }
+
     protected void hookCrossActivitySlideAnimation(ClassLoader classLoader,
                                                    boolean installStart,
                                                    boolean installProgress,
                                                    boolean installPostCommit,
                                                    boolean installDuration,
-                                                   boolean installFinish) {
+                                                   boolean installFinish,
+                                                   boolean installColorRootApply) {
         Class<?> baseClass;
         Class<?> defaultClass;
         Class<?> backMotionEventClass;
-        Class<?> backEventClass;
         try {
             baseClass = Class.forName(
                     CROSS_ACTIVITY_BACK_ANIMATION, false, classLoader);
@@ -1570,8 +2195,6 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     DEFAULT_CROSS_ACTIVITY_BACK_ANIMATION, false, classLoader);
             backMotionEventClass = Class.forName(
                     "android.window.BackMotionEvent", false, classLoader);
-            backEventClass = Class.forName(
-                    "android.window.BackEvent", false, classLoader);
         } catch (Throwable throwable) {
             log(Log.ERROR, TAG, "Cross-activity animation classes unavailable",
                     throwable);
@@ -1579,6 +2202,19 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         // Each hook installs independently: R8 may rename individual members in
         // Xiaomi's build, and a missing one must only degrade its own stage.
+        if (installColorRootApply) {
+            try {
+                Method apply = resolveSlideMethod(defaultClass, baseClass,
+                        "applyTransaction", void.class);
+                recordHookHandle(hook(apply)
+                        .setId("systemui_back_color_root_apply")
+                        .intercept(this::onCrossActivityColorRootApply));
+                log(Log.INFO, TAG, "Hooked freeform color-layer root adoption");
+            } catch (Throwable throwable) {
+                log(Log.ERROR, TAG,
+                        "Failed to hook freeform color-layer root adoption", throwable);
+            }
+        }
         if (installStart) {
             try {
                 Method start = resolveSlideMethod(defaultClass, baseClass,
@@ -1718,6 +2354,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected Object onCrossActivitySlideFinish(XposedInterface.Chain chain)
             throws Throwable {
         miuixSlideAnimActive = false;
+        freeformColorRootCandidate.set(null);
+        if (freeformColorRootAnimation == chain.getThisObject()) {
+            freeformColorRootAnimation = null;
+        }
         return chain.proceed();
     }
 
@@ -1799,6 +2439,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected boolean miuixSlideRegistrationReentry;
     protected volatile Method crossActivityApplyTransform;
     protected volatile Object crossActivityNoFling;
+    protected volatile Method multiTaskingControllerGetInstance;
+    protected final AtomicReference<FreeformColorRootCandidate>
+            freeformColorRootCandidate = new AtomicReference<>();
+    protected volatile Object freeformColorRootAnimation;
 
     protected static final long MIUIX_SLIDE_SETTLE_DURATION_MS = 400L;
     protected static final float MIUIX_SLIDE_ENTERING_MIN_ALPHA = 0.9f;
@@ -1806,13 +2450,269 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected static final float MIUIX_SLIDE_SCRIM_OMEGA = 12.083f;
     protected static final float MIUIX_SLIDE_SCRIM_MAX_ALPHA = 0.5f;
 
+    protected static final class FreeformColorRootCandidate {
+        final Object handler;
+        final Object transitionToken;
+        final Object transitionInfo;
+        final Object appsIdentity;
+        final Object closingTarget;
+        final Object enteringTarget;
+        final SurfaceControl rootLeash;
+        final SurfaceControl closingLeash;
+        final SurfaceControl enteringLeash;
+        final float rootCornerRadius;
+
+        FreeformColorRootCandidate(Object handler, Object transitionToken,
+                                   Object transitionInfo,
+                                   Object appsIdentity, Object closingTarget,
+                                   Object enteringTarget, SurfaceControl rootLeash,
+                                   SurfaceControl closingLeash,
+                                   SurfaceControl enteringLeash,
+                                   float rootCornerRadius) {
+            this.handler = handler;
+            this.transitionToken = transitionToken;
+            this.transitionInfo = transitionInfo;
+            this.appsIdentity = appsIdentity;
+            this.closingTarget = closingTarget;
+            this.enteringTarget = enteringTarget;
+            this.rootLeash = rootLeash;
+            this.closingLeash = closingLeash;
+            this.enteringLeash = enteringLeash;
+            this.rootCornerRadius = rootCornerRadius;
+        }
+    }
+
+    protected Object keepFreeformScrimHiddenUntilFirstApply(
+            XposedInterface.Chain chain) throws Throwable {
+        FreeformColorRootCandidate candidate = freeformColorRootCandidate.get();
+        Object builder = chain.getThisObject();
+        if (candidate == null
+                || !Boolean.FALSE.equals(chain.getArg(0))
+                || !"Cross-Activity back animation scrim".equals(
+                readFieldOrNull(builder, "mName"))
+                || !"CrossActivityBackAnimation".equals(
+                readFieldOrNull(builder, "mCallsite"))) {
+            return chain.proceed();
+        }
+        log(Log.INFO, TAG,
+                "Kept freeform cross-activity scrim hidden until atomic first apply"
+                        + ", taskId=" + readIntFieldOrDefault(
+                        candidate.closingTarget, "taskId", -1));
+        return chain.proceed(new Object[]{Boolean.TRUE});
+    }
+
+    protected boolean isExactFreeformCrossActivityPair(Object closingTarget,
+                                                        Object enteringTarget)
+            throws Exception {
+        int taskId = readIntFieldOrDefault(closingTarget, "taskId", -1);
+        Object closingBounds = readFieldOrNull(closingTarget, "localBounds");
+        Object enteringBounds = readFieldOrNull(enteringTarget, "localBounds");
+        return closingTarget != null && enteringTarget != null
+                && closingTarget != enteringTarget && taskId >= 0
+                && taskId == readIntFieldOrDefault(enteringTarget, "taskId", -1)
+                && resolveRemoteTargetWindowingMode(closingTarget)
+                == WINDOWING_MODE_FREEFORM
+                && resolveRemoteTargetWindowingMode(enteringTarget)
+                == WINDOWING_MODE_FREEFORM
+                && closingBounds instanceof Rect
+                && !((Rect) closingBounds).isEmpty()
+                && closingBounds.equals(enteringBounds);
+    }
+
+    protected SurfaceControl resolveSingleTransitionRoot(Object info) throws Exception {
+        Object rootCount = invokeAnyMethod(info, "getRootCount", new Object[0]);
+        if (!(rootCount instanceof Number)
+                || ((Number) rootCount).intValue() != 1) {
+            return null;
+        }
+        Object root = invokeAnyMethod(info, "getRoot",
+                new Object[]{Integer.valueOf(0)});
+        Object leash = root == null ? null
+                : invokeAnyMethod(root, "getLeash", new Object[0]);
+        return leash instanceof SurfaceControl ? (SurfaceControl) leash : null;
+    }
+
+    protected float resolveFreeformRootCornerRadius(Object handler, int taskId)
+            throws Exception {
+        ClassLoader classLoader = handler.getClass().getClassLoader();
+        Class<?> controllerClass = Class.forName(
+                "com.android.wm.shell.dagger.MultiTaskingControllerImpl",
+                false, classLoader);
+        Method getInstance = multiTaskingControllerGetInstance;
+        if (getInstance == null
+                || getInstance.getDeclaringClass() != controllerClass) {
+            getInstance = controllerClass.getDeclaredMethod("getInstance");
+            getInstance.setAccessible(true);
+            multiTaskingControllerGetInstance = getInstance;
+        }
+        Object controller = getInstance.invoke(null);
+        Object repository = invokeAnyMethod(controller,
+                "getMultiTaskingTaskRepository", new Object[0]);
+        Object taskInfo = invokeAnyMethod(repository,
+                "getMiuiFreeformTaskInfo", new Object[]{Integer.valueOf(taskId)});
+        Object radiusValue = invokeAnyMethod(taskInfo,
+                "getCornerRadius", new Object[0]);
+        Object scaleValue = invokeAnyMethod(taskInfo,
+                "getFreeformScale", new Object[0]);
+        if (!(radiusValue instanceof Number) || !(scaleValue instanceof Number)) {
+            throw new IllegalStateException("freeform radius or scale unavailable");
+        }
+        float radius = ((Number) radiusValue).floatValue();
+        float scale = ((Number) scaleValue).floatValue();
+        float rootRadius = radius / scale;
+        if (!(radius > 0.0f) || !(scale > 0.0f) || !Float.isFinite(rootRadius)) {
+            throw new IllegalStateException("invalid freeform radius geometry"
+                    + ", radius=" + radius + ", scale=" + scale);
+        }
+        return rootRadius;
+    }
+
+    protected Object onCrossActivityColorRootApply(XposedInterface.Chain chain)
+            throws Throwable {
+        FreeformColorRootCandidate candidate = freeformColorRootCandidate.get();
+        if (candidate == null) {
+            return chain.proceed();
+        }
+        Object adoptedAnimation = null;
+        try {
+            Object animation = chain.getThisObject();
+            if (!matchesFreeformColorRootCandidate(candidate, animation)) {
+                freeformColorRootCandidate.compareAndSet(candidate, null);
+                log(Log.WARN, TAG,
+                        "Rejected stale freeform color-layer root candidate");
+            } else {
+                Object scrim = readFieldOrNull(animation, "scrimLayer");
+                Object backgroundOwner = readFieldOrNull(animation, "background");
+                Object background = readFieldOrNull(
+                        backgroundOwner, "mBackgroundSurface");
+                Object transaction = readFieldOrNull(animation, "transaction");
+                if (!(scrim instanceof SurfaceControl)
+                        || !((SurfaceControl) scrim).isValid()
+                        || !(background instanceof SurfaceControl)
+                        || !((SurfaceControl) background).isValid()
+                        || !(transaction instanceof SurfaceControl.Transaction)) {
+                    throw new IllegalStateException(
+                            "freeform color layers unavailable at first apply");
+                }
+                Object root = invokeAnyMethod(candidate.transitionInfo, "getRoot",
+                        new Object[]{Integer.valueOf(0)});
+                Object rootOffset = invokeAnyMethod(
+                        root, "getOffset", new Object[0]);
+                Object colorBounds = readFieldOrNull(
+                        candidate.closingTarget, "localBounds");
+                Object targetCrop = readFieldOrNull(animation, "cropRect");
+                if (!(rootOffset instanceof Point)
+                        || !(colorBounds instanceof Rect)
+                        || !(targetCrop instanceof Rect)
+                        || !Boolean.FALSE.equals(
+                        readFieldOrNull(animation, "isLetterboxed"))) {
+                    throw new IllegalStateException(
+                            "freeform color-layer crop geometry unavailable");
+                }
+                Rect rootLocalColorCrop = new Rect((Rect) colorBounds);
+                Point offset = (Point) rootOffset;
+                rootLocalColorCrop.offset(-offset.x, -offset.y);
+                if (!rootLocalColorCrop.equals(targetCrop)) {
+                    throw new IllegalStateException(
+                            "freeform color-layer crop does not match prepared root");
+                }
+                if (freeformColorRootCandidate.compareAndSet(candidate, null)) {
+                    SurfaceControl.Transaction surfaceTransaction =
+                            (SurfaceControl.Transaction) transaction;
+                    try (SurfaceControl.Transaction donor =
+                                 new SurfaceControl.Transaction()) {
+                        donor.setCrop(candidate.rootLeash, rootLocalColorCrop);
+                        invokeMethod(donor, "setCornerRadius",
+                                new Class<?>[]{SurfaceControl.class, float.class},
+                                new Object[]{candidate.rootLeash,
+                                        Float.valueOf(candidate.rootCornerRadius)});
+                        donor.reparent((SurfaceControl) background,
+                                candidate.rootLeash)
+                                .setCrop((SurfaceControl) background,
+                                        rootLocalColorCrop)
+                                .setAlpha((SurfaceControl) background, 0.0f)
+                                .setLayer((SurfaceControl) background, -1)
+                                .reparent((SurfaceControl) scrim,
+                                        candidate.rootLeash)
+                                .setCrop((SurfaceControl) scrim,
+                                        rootLocalColorCrop);
+                        invokeMethod(donor, "setRelativeLayer",
+                                new Class<?>[]{SurfaceControl.class,
+                                        SurfaceControl.class, int.class},
+                                new Object[]{scrim, candidate.closingLeash,
+                                        Integer.valueOf(-1)});
+                        surfaceTransaction.merge(donor);
+                    }
+                    adoptedAnimation = animation;
+                }
+            }
+        } catch (Throwable throwable) {
+            freeformColorRootCandidate.compareAndSet(candidate, null);
+            log(Log.WARN, TAG,
+                    "Failed freeform color-layer root adoption; leaving native layers",
+                    throwable);
+        }
+        Object result = chain.proceed();
+        if (adoptedAnimation != null) {
+            freeformColorRootAnimation = adoptedAnimation;
+            log(Log.INFO, TAG,
+                    "Adopted freeform cross-activity color layers into prepared root"
+                            + ", backgroundAlpha=0.0"
+                            + ", rootCornerRadius=" + candidate.rootCornerRadius
+                            + ", taskId=" + readIntFieldOrDefault(
+                            candidate.closingTarget, "taskId", -1));
+        }
+        return result;
+    }
+
+    protected boolean matchesFreeformColorRootCandidate(
+            FreeformColorRootCandidate candidate, Object animation) throws Exception {
+        Object controller = readField(candidate.handler, "this$0");
+        Object navigationInfo = readField(controller, "mBackNavigationInfo");
+        Object navigationType = navigationInfo == null ? null
+                : invokeAnyMethod(navigationInfo, "getType", new Object[0]);
+        Object transitionType = invokeAnyMethod(
+                candidate.transitionInfo, "getType", new Object[0]);
+        if (readField(candidate.handler, "mPrepareOpenTransition")
+                != candidate.transitionToken
+                || readField(candidate.handler, "mOpenTransitionInfo")
+                != candidate.transitionInfo
+                || readField(controller, "mApps")
+                != candidate.appsIdentity
+                || !(navigationType instanceof Number)
+                || ((Number) navigationType).intValue() != TYPE_CROSS_ACTIVITY
+                || !(transitionType instanceof Number)
+                || ((Number) transitionType).intValue() != TRANSIT_PREDICTIVE_BACK) {
+            return false;
+        }
+        SurfaceControl rootLeash = resolveSingleTransitionRoot(
+                candidate.transitionInfo);
+        Object closingTarget = readFieldOrNull(animation, "closingTarget");
+        Object enteringTarget = readFieldOrNull(animation, "enteringTarget");
+        Object closingLeash = readFieldOrNull(closingTarget, "leash");
+        Object enteringLeash = readFieldOrNull(enteringTarget, "leash");
+        if (rootLeash != candidate.rootLeash
+                || closingTarget != candidate.closingTarget
+                || enteringTarget != candidate.enteringTarget
+                || closingLeash != candidate.closingLeash
+                || enteringLeash != candidate.enteringLeash
+                || !isExactFreeformCrossActivityPair(
+                closingTarget, enteringTarget)) {
+            return false;
+        }
+        return candidate.rootLeash.isValid()
+                && candidate.closingLeash.isValid()
+                && candidate.enteringLeash.isValid();
+    }
+
     protected Object onCrossActivitySlideStart(XposedInterface.Chain chain)
             throws Throwable {
         Object result = chain.proceed();
         try {
             Object animation = chain.getThisObject();
             miuixSlideCommitPoseCaptured = false;
-            if (!isHyperOsSlideAnimationEnabled()) {
+            boolean slideEnabled = isHyperOsSlideAnimationEnabled();
+            if (!slideEnabled) {
                 miuixSlideAnimActive = false;
                 return result;
             }
@@ -2068,12 +2968,18 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     .setAlpha((SurfaceControl) scrim,
                             Math.max(0.0f, Math.min(1.0f, scrimAlpha)));
         }
-        // The revealed lower stack is full-screen behind the sliding top page; only the
-        // top card is rounded. Native applyTransform rounds both, so clear the corner
-        // radius the native call just set on the entering leash.
+        Object transaction = readField(animation, "transaction");
+        // Fullscreen keeps the moving top card rounded. In freeform the prepared root is
+        // the fixed rounded frame, so both Activity surfaces are square internal pages.
+        if (freeformColorRootAnimation == animation
+                && closingLeash instanceof SurfaceControl
+                && ((SurfaceControl) closingLeash).isValid()) {
+            invokeMethod(transaction, "setCornerRadius",
+                    new Class<?>[]{SurfaceControl.class, float.class},
+                    new Object[]{closingLeash, Float.valueOf(0.0f)});
+        }
         if (enteringLeash instanceof SurfaceControl
                 && ((SurfaceControl) enteringLeash).isValid()) {
-            Object transaction = readField(animation, "transaction");
             invokeMethod(transaction, "setCornerRadius",
                     new Class<?>[]{SurfaceControl.class, float.class},
                     new Object[]{enteringLeash, Float.valueOf(0.0f)});
@@ -2143,7 +3049,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             .setId("systemui_back_prepare_reparent")
                             .intercept(this::correctPredictiveBackPrepareReparent));
                     log(Log.INFO, TAG,
-                            "Hooked Shell predictive return-home prepare role correction");
+                            "Hooked Shell predictive prepare ownership correction");
                     return;
                 }
             }
@@ -2183,11 +3089,87 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 "com.android.wm.shell.transition.Transitions$TransitionFinishCallback");
     }
 
+    protected void captureFreeformColorRootCandidate(Object handler,
+                                                     Object transitionToken,
+                                                     Object info) throws Exception {
+        Object type = invokeAnyMethod(info, "getType", new Object[0]);
+        if (!(type instanceof Number)
+                || ((Number) type).intValue() != TRANSIT_PREDICTIVE_BACK
+                || readField(handler, "mPrepareOpenTransition") != transitionToken
+                || readField(handler, "mOpenTransitionInfo") != info) {
+            return;
+        }
+        Object controller = readField(handler, "this$0");
+        Object navigationInfo = readField(controller, "mBackNavigationInfo");
+        Object navigationType = navigationInfo == null ? null
+                : invokeAnyMethod(navigationInfo, "getType", new Object[0]);
+        Object apps = readField(controller, "mApps");
+        if (!(navigationType instanceof Number)
+                || ((Number) navigationType).intValue() != TYPE_CROSS_ACTIVITY
+                || apps == null || !apps.getClass().isArray()
+                || Array.getLength(apps) != 2) {
+            return;
+        }
+        Object closingTarget = null;
+        Object enteringTarget = null;
+        for (int index = 0; index < 2; index++) {
+            Object target = Array.get(apps, index);
+            int mode = readIntFieldOrDefault(target, "mode", -1);
+            if (mode == 0 && enteringTarget == null) {
+                enteringTarget = target;
+            } else if (mode == 1 && closingTarget == null) {
+                closingTarget = target;
+            } else {
+                return;
+            }
+        }
+        int taskId = readIntFieldOrDefault(closingTarget, "taskId", -1);
+        if (!isExactFreeformCrossActivityPair(
+                closingTarget, enteringTarget)) {
+            return;
+        }
+        Object closingLeash = readFieldOrNull(closingTarget, "leash");
+        Object enteringLeash = readFieldOrNull(enteringTarget, "leash");
+        if (!(closingLeash instanceof SurfaceControl)
+                || !(enteringLeash instanceof SurfaceControl)
+                || closingLeash == enteringLeash
+                || !((SurfaceControl) closingLeash).isValid()
+                || !((SurfaceControl) enteringLeash).isValid()) {
+            return;
+        }
+        SurfaceControl rootLeash = resolveSingleTransitionRoot(info);
+        if (rootLeash == null
+                || rootLeash == closingLeash || rootLeash == enteringLeash
+                || !rootLeash.isValid()) {
+            return;
+        }
+        float rootCornerRadius = resolveFreeformRootCornerRadius(handler, taskId);
+        freeformColorRootCandidate.set(new FreeformColorRootCandidate(
+                handler, transitionToken, info, apps,
+                closingTarget, enteringTarget, rootLeash,
+                (SurfaceControl) closingLeash, (SurfaceControl) enteringLeash,
+                rootCornerRadius));
+        log(Log.INFO, TAG,
+                "Armed freeform cross-activity color-layer root adoption"
+                        + ", taskId=" + taskId
+                        + ", rootCornerRadius=" + rootCornerRadius);
+    }
+
     protected Object correctPredictiveBackPrepareReparent(
             XposedInterface.Chain chain) throws Throwable {
+        freeformColorRootCandidate.set(null);
+        freeformColorRootAnimation = null;
         Object result = chain.proceed();
         if (!Boolean.TRUE.equals(result)) {
             return result;
+        }
+        try {
+            captureFreeformColorRootCandidate(
+                    chain.getThisObject(), chain.getArg(0), chain.getArg(1));
+        } catch (Throwable throwable) {
+            log(Log.WARN, TAG,
+                    "Failed to capture freeform color-layer root candidate",
+                    throwable);
         }
         try {
             Object handler = chain.getThisObject();
@@ -3539,6 +4521,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     protected Object onShellAnimationFinished(XposedInterface.Chain chain) throws Throwable {
         Object controller = chain.getThisObject();
+        if (preparedBackTransitionHold.get() == null) {
+            preparedBackTargetArrival.set(null);
+        }
         List<Runnable> completions = new ArrayList<>();
         try {
             Object currentTracker = readField(controller, "mCurrentTracker");
