@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import dev.codex.miuibackgesturehook.BuildConfig;
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
@@ -83,7 +84,7 @@ public abstract class HookRuntimeCore extends XposedModule {
 
     protected static final String TAG = "MiuiBackGestureHook";
     protected static final String BUILD_MARK =
-            "systemui-aosp-back-0.7.2-r117-landscape-return-home-cleanup";
+            BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")";
     protected static final String SYSTEM_UI = "com.android.systemui";
     protected static final String MIUI_HOME = "com.miui.home";
     protected static final String WINDOW_ON_BACK_INVOKED_DISPATCHER =
