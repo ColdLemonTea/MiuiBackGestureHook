@@ -299,12 +299,17 @@ Remote-animation rules:
   the container pixels on the runner leashes. The revealed lower layer follows the finger:
   its dim scrim tracks the finger during the drag, then fades on a critically damped
   decay seeded with the release speed (leaving the committed value at the finger's rate,
-  no step and no lurch, decoupled from the geometry's ease-out) and its corner radius is
-  cleared (only the sliding top card is rounded). The dim peaks at a fixed 0.5 to match
+  no step and no lurch, decoupled from the geometry's ease-out). Fullscreen clears that
+  lower layer's radius so only the sliding top card is rounded. For an exact adopted
+  freeform root, both Activity targets instead receive Xiaomi's task-local corner radius.
+  For the stock default and slide geometries, inverse-map the fixed task bounds into each
+  moving target's local crop immediately before the animation transaction applies; keep custom
+  app-transition matrices and crops native.
+  The dim peaks at a fixed 0.5 to match
   DefaultTransitionImpl's standard activity open/close dim, not the native predictive-back
   scrim (0.8 dark / 0.2 light) which is calibrated for the scaled card. Targets, letterboxes, the
-  progress/commit/cancel lifecycle, and `finishAnimation()` stay native; any hook or
-  reflection failure falls back to the stock AOSP animation for that gesture.
+  progress/commit/cancel lifecycle, and `finishAnimation()` stay native; a slide-hook failure
+  preserves the stock AOSP geometry for that gesture.
   `TYPE_CROSS_TASK`, `TYPE_RETURN_TO_HOME`, and `TYPE_CALLBACK` are never restyled. With
   the slide on, cross-task's native color-layer background is repainted pure black by
   overwriting the color in the animation's own pending transaction (its stock hard-coded
@@ -316,9 +321,14 @@ Remote-animation rules:
   matching the animation crop. Keep the scrim hidden until the first apply, then merge the root
   crop/radius and both layer reparents into the animation's pending transaction. Keep the scrim
   immediately below the closing leash, preserve its native dim, and set only the redundant
-  background alpha to zero. If exact capture, adoption, or reflection fails, discard the candidate
-  and leave the native layers unchanged; never fall back to suppressing their alpha. Native finish
-  still owns cleanup; preserve fullscreen and every other target shape.
+  background alpha to zero. Apply the same Xiaomi task-local corner radius to the root and both
+  exact Activity targets before every native animation-frame transaction apply. For the stock
+  default and slide geometries, replace only each target's crop/radius with the inverse-mapped
+  intersection of its current rect and the fixed task frame; retain its matrix, position, alpha,
+  layer, and parent. If initial capture or adoption fails, discard the candidate and leave the
+  native layers unchanged. A later per-frame geometry failure stops target normalization without
+  undoing already-adopted layers; never fall back to suppressing their alpha. Native finish still
+  owns cleanup; preserve fullscreen and every other target shape.
 - Keep SystemUI's native `BackPanelController` as the sole indicator state owner: it
   receives every claimed event and owns thresholds, release state, and haptics. The
   optional HyperOS-style skin (`hyperos_indicator_style` remote preference, default off)
@@ -368,6 +378,18 @@ Return-to-home rules:
   `WindowElement` against only that closing leash; leave the opening Home target, alpha,
   and layer order untouched. Drive Xiaomi preview blur from the same smoothed progress
   rather than a separate or release-time snap.
+- Keep Shell gesture geometry in display coordinates. At the Xiaomi `WindowElement` boundary,
+  claim the unified preview only when the launcher's native WindowManager Home rotation is zero,
+  then convert only the spring start/target rects from its current display rotation to that native
+  Home coordinate space through Xiaomi's `CoordinateTransforms`. Initialize `ClipAnimationHelper`
+  with the launcher's root bounds, and convert the spring rect back through
+  `WindowElement.getSurfaceRotationRect(...)` before deriving display-space handoff geometry.
+  Verify cancel completion against the fullscreen rect in that same native Home coordinate space.
+  For a rotated native CLOSE, take handoff geometry from its real `SurfaceParams`; accept only a
+  non-empty origin-aligned crop contained by the fullscreen source instead of inferring its crop
+  from the Home-coordinate spring rect.
+  A nonzero Home rotation, launcher/closing-target rotation mismatch, or unreadable native geometry
+  fails closed.
 - Correct Xiaomi's prepared/commit composition only for the exact single fullscreen
   standard task-to-Home shape. A valid prepared transition contains exactly the application
   and Home changes, optionally plus one taskless wallpaper change when Shell already represents
@@ -457,13 +479,21 @@ System-server compatibility rules:
   fullscreen cross-Activity shape only when the two distinct ActivityRecords are in the same
   standard Task, the opening Activity is still hidden, and the supplied containers exactly match
   `promoteToTFIfNeeded(...)` (the ActivityRecords themselves or their native embedded-TaskFragment
-  promotion). Xiaomi reports both prepared changes as `TO_FRONT`; after WMS builds that exact
+  promotion). Treat a shape for which the opening Activity's native
+  `DisplayContent.rotationForActivityInDifferentOrientation(...)` returns a concrete rotation as
+  non-exact and retain the compatibility skip; Xiaomi's prepared transition loses its stable roles
+  and close ownership when fixed rotation ends during the gesture. Xiaomi reports both prepared
+  changes as `TO_FRONT`; after WMS builds that exact
   prepared `TransitionInfo` and before it is dispatched to Shell, set only the already-visible
   departing Activity or embedded TaskFragment's final mode to AOSP `CHANGE`. Preserve
   `FLAG_CHANGE_YES_ANIMATION` only when target calculation adds it to the promoted opening
   TaskFragment; do not broadly mask other internal `ChangeInfo` flags. Preserve
-  both changes' flags, including the platform and Xiaomi predictive-back flags, and let the stock
-  Shell handler perform the resulting closing/opening leash reparent in its original transaction.
+  both changes' flags, including the platform and Xiaomi predictive-back flags. After BLAST has
+  merged the exact prepared targets' sync transactions, reassert both captured predictive leashes'
+  native absolute layers in the existing start transaction so Xiaomi's initial parent-relative
+  leash layer cannot win by merge order; do not change their parent, alpha, visibility, or geometry.
+  Let the stock Shell handler perform the resulting closing/opening leash reparent in its original
+  transaction.
   Keep the occluded opening Activity, runner targets, and all other state and shapes untouched.
   Do not gate the exact native prepare on a module-owned readiness bit: if exact-shape inspection
   is uncertain or the normalizer is unavailable or fails, preserve the platform prepare instead
