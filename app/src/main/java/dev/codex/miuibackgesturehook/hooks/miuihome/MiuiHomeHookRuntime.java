@@ -1,6 +1,5 @@
 package dev.codex.miuibackgesturehook.hooks.miuihome;
 
-import android.animation.Animator;
 import android.annotation.SuppressLint;
 import android.app.BroadcastOptions;
 import android.app.KeyguardManager;
@@ -11,7 +10,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Rect;
 import android.graphics.RectF;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -31,7 +29,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-
 import io.github.libxposed.api.XposedInterface;
 
 public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
@@ -47,7 +44,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
     }
 
     protected void hookMiuiHomeGestureInputArbiter(Class<?> processorClass,
-                                                  Class<?> gestureStubClass)
+                                                   Class<?> gestureStubClass)
             throws NoSuchMethodException {
         Method method = processorClass.getDeclaredMethod(
                 "onPointerEvent", MotionEvent.class, gestureStubClass);
@@ -887,8 +884,8 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 miuiHomeReturnHomeController;
         MiuiHomeReturnHomeController.UnifiedNativeFinishDispatchToken token =
                 controller == null
-                ? null : controller.beginUnifiedNativeFinishDispatch(
-                chain.getThisObject());
+                        ? null : controller.beginUnifiedNativeFinishDispatch(
+                        chain.getThisObject());
         if (token != null && !token.allowed) {
             return null;
         }
@@ -1728,7 +1725,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         try {
             routeThroughNativeParallel =
                     controller.shouldRouteSameIconThroughNativeParallel(
-                    chain.getThisObject(), originalArgs);
+                            chain.getThisObject(), originalArgs);
         } catch (Throwable throwable) {
             log(Log.WARN, TAG,
                     "Failed to inspect Xiaomi same-icon parallel routing",
@@ -2615,7 +2612,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
     }
 
     protected synchronized IBinder detachMiuiHomeReturnHome(String reason,
-                                                           boolean clearShell) {
+                                                            boolean clearShell) {
         IBinder binder = miuiHomeReturnHomeBinder;
         MiuiHomeReturnHomeController controller = miuiHomeReturnHomeController;
         miuiHomeReturnHomeController = null;
@@ -2698,7 +2695,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
     }
 
     protected Context resolveMiuiHomeReturnHomeContext(Object overviewProxy,
-                                                      ClassLoader classLoader) {
+                                                       ClassLoader classLoader) {
         if (overviewProxy != null) {
             try {
                 Object service = readField(overviewProxy, "mService");
@@ -3040,7 +3037,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
     }
 
     protected void publishSystemUiInputArbiterState(Context context, boolean ready,
-                                                   String reason) {
+                                                    String reason) {
         if (context == null) {
             return;
         }
@@ -3436,7 +3433,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
     }
 
     protected void restoreMiuiHomeGestureStubOnOwner(Object stubObject, String edge,
-                                                    Runnable completion) {
+                                                     Runnable completion) {
         if (!(stubObject instanceof View)) {
             log(Log.INFO, TAG, "MiuiHome GestureStub absent during hot reload"
                     + ", edge=" + edge);
