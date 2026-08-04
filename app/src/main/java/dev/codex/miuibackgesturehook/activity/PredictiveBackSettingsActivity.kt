@@ -185,15 +185,33 @@ private fun PredictiveBackSettingsScreen(
             val loaded = withContext(Dispatchers.IO) {
                 val remotePreferences =
                     service.getRemotePreferences(PredictiveBackPreferences.GROUP)
+                val storedHyperOsHaptics = remotePreferences.getBoolean(
+                    PredictiveBackPreferences.KEY_HYPEROS_HAPTICS,
+                    PredictiveBackPreferences.DEFAULT_HYPEROS_HAPTICS,
+                )
+                val legacyAospHaptics = remotePreferences.getBoolean(
+                    PredictiveBackPreferences.LEGACY_KEY_AOSP_HYPEROS_HAPTICS,
+                    false,
+                )
+                val unifiedHyperOsHaptics = if (!legacyAospHaptics) {
+                    storedHyperOsHaptics
+                } else {
+                    try {
+                        val migrated = remotePreferences.edit()
+                            .putBoolean(PredictiveBackPreferences.KEY_HYPEROS_HAPTICS, true)
+                            .remove(PredictiveBackPreferences.LEGACY_KEY_AOSP_HYPEROS_HAPTICS)
+                            .commit()
+                        if (migrated) true else storedHyperOsHaptics
+                    } catch (_: Throwable) {
+                        storedHyperOsHaptics
+                    }
+                }
                 val flags = booleanArrayOf(
                     remotePreferences.getBoolean(
                         PredictiveBackPreferences.KEY_HYPEROS_INDICATOR,
                         PredictiveBackPreferences.DEFAULT_HYPEROS_INDICATOR,
                     ),
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_HYPEROS_HAPTICS,
-                        PredictiveBackPreferences.DEFAULT_HYPEROS_HAPTICS,
-                    ),
+                    unifiedHyperOsHaptics,
                     remotePreferences.getBoolean(
                         PredictiveBackPreferences.KEY_HYPEROS_HAPTICS_ENHANCED,
                         PredictiveBackPreferences.DEFAULT_HYPEROS_HAPTICS_ENHANCED,
@@ -461,7 +479,7 @@ private fun HyperOsSwitchGroupCard(
             title = stringResource(R.string.hyperos_haptics_title),
             summary = stringResource(R.string.hyperos_haptics_summary),
             checked = hyperOsHaptics,
-            enabled = configurationEnabled && hyperOsIndicator,
+            enabled = configurationEnabled,
             onCheckedChange = onHyperOsHapticsToggle,
         )
         SwitchPreference(

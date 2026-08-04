@@ -18,7 +18,6 @@ import io.github.libxposed.api.XposedModuleInterface;
 
 public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
 
-
     @Override
     public boolean onHotReloading(XposedModuleInterface.HotReloadingParam param) {
         PreparedBackTransitionHold heldTransition =
@@ -102,6 +101,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         miuiLauncherOpenBreakGeneration = 0L;
         acceptedInputToken.set(null);
         miuiHomeAcceptedInputIdentity.set(null);
+        closeHyperOsBackHapticHelper();
         clearSystemUiReturnHomeCommitIdentity(null, 0L, "hotReload");
         unregisterMiuiOverviewStateReceiver();
         unregisterMiuiHomeOpenBreakCommandReceiver();
@@ -319,6 +319,17 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 hookEdgeBackGestureHandler(hotReloadClassLoader,
                         missingEdgeUpdate, missingEdgeMode,
                         missingEdgeAnimation);
+            }
+            if (!oldHookIds.contains("systemui_back_panel_aosp_haptic")) {
+                hookAospBackPanelHaptic(hotReloadClassLoader);
+            }
+            boolean missingAospViewHaptic = !oldHookIds.contains(
+                    "systemui_back_panel_aosp_view_haptic");
+            boolean missingAospViewHapticFlags = !oldHookIds.contains(
+                    "systemui_back_panel_aosp_view_haptic_flags");
+            if (missingAospViewHaptic || missingAospViewHapticFlags) {
+                hookAospBackPanelViewHaptic(hotReloadClassLoader,
+                        missingAospViewHaptic, missingAospViewHapticFlags);
             }
             if (!oldHookIds.contains("systemui_navigation_bar_show_transient")) {
                 hookNavigationBarTransientAutoHide(hotReloadClassLoader);
@@ -692,6 +703,11 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::onEdgeBackUpdateIsEnabled;
             case "systemui_edge_back_onNavigationModeChanged":
                 return this::onEdgeBackNavigationModeChanged;
+            case "systemui_back_panel_aosp_haptic":
+                return this::replaceAospBackPanelHaptic;
+            case "systemui_back_panel_aosp_view_haptic":
+            case "systemui_back_panel_aosp_view_haptic_flags":
+                return this::replaceAospBackPanelViewHaptic;
             case "shell_back_onBackNavigationInfoReceived":
                 return this::onBackNavigationInfoReceived;
             case "shell_back_onBackAnimationFinished":

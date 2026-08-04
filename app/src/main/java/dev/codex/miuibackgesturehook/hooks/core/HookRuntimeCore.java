@@ -98,6 +98,10 @@ public abstract class HookRuntimeCore extends XposedModule {
 
     protected static final String EDGE_BACK_GESTURE_HANDLER =
             "com.android.systemui.navigationbar.gestural.EdgeBackGestureHandler";
+    protected static final String VIBRATOR_HELPER =
+            "com.android.systemui.statusbar.VibratorHelper";
+    protected static final String BACK_PANEL_VIEW =
+            "com.android.systemui.navigationbar.gestural.BackPanel";
     protected static final String MIUI_OVERVIEW_PROXY =
             "com.android.systemui.recents.MiuiOverviewProxy";
     protected static final String MIUI_HOME_GESTURE_STUB =

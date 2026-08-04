@@ -19,7 +19,7 @@
     <string name="hyperos_indicator_title">HyperOS 返回箭头</string>
     <string name="hyperos_indicator_summary">以 HyperOS 样式指示器替代 AOSP 面板</string>
     <string name="hyperos_haptics_title">HyperOS 手势震动</string>
-    <string name="hyperos_haptics_summary">两段式震动：箭头就绪与提交返回</string>
+    <string name="hyperos_haptics_summary">将 AOSP 或 HyperOS 手势的原生震动替换为 HyperOS 震动效果</string>
     <string name="hyperos_haptics_enhanced_title">增强松手震感</string>
     <string name="hyperos_haptics_enhanced_summary">提交返回必震，并使用独立的松手效果</string>
     <string name="hyperos_slide_animation_title">HyperOS 侧滑返回动画</string>

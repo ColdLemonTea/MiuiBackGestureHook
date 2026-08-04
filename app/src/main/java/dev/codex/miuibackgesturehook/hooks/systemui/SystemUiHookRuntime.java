@@ -19,6 +19,7 @@ import android.os.Process;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.SurfaceControl;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowManager;
@@ -59,6 +60,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             hookStatusBarTransientAppearance(classLoader);
             hookNavigationBarGestureInsets(classLoader);
             hookEdgeBackGestureHandler(classLoader, true, true, true);
+            hookAospBackPanelHaptic(classLoader);
+            hookAospBackPanelViewHaptic(classLoader);
             hookNavigationBarControllerCreate(classLoader);
             hookNavigationBarControllerRemove(classLoader);
             hookNavigationBarControllerMode(classLoader);
@@ -1505,6 +1508,123 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             }
         }
         log(Log.INFO, TAG, "Hooked EdgeBackGestureHandler AOSP path, installed=" + installed);
+    }
+
+    /**
+     * Replaces the AOSP back-panel threshold constants. Hooking the shared helper keeps this
+     * working when R8 inlines BackPanelController's private threshold methods. The panel still
+     * owns all gesture state and visuals; when the optional effect cannot be prepared, the
+     * original AOSP method remains the fallback.
+     */
+    protected void hookAospBackPanelHaptic(ClassLoader classLoader) {
+        try {
+            Class<?> vibratorHelperClass = Class.forName(VIBRATOR_HELPER,
+                    false, classLoader);
+            Method performHapticFeedback = vibratorHelperClass.getDeclaredMethod(
+                    "performHapticFeedback", View.class, int.class);
+            performHapticFeedback.setAccessible(true);
+            recordHookHandle(hook(performHapticFeedback)
+                    .setId("systemui_back_panel_aosp_haptic")
+                    .intercept(this::replaceAospBackPanelHaptic));
+            log(Log.INFO, TAG,
+                    "Hooked AOSP back-panel threshold haptic replacement");
+        } catch (Throwable throwable) {
+            log(Log.WARN, TAG,
+                    "Failed to hook AOSP back-panel activation haptic; native effect remains",
+                    throwable);
+        }
+    }
+
+    protected Object replaceAospBackPanelHaptic(XposedInterface.Chain chain)
+            throws Throwable {
+        Object feedbackConstant = chain.getArg(1);
+        if (isAospBackThresholdHaptic(feedbackConstant)
+                && playHyperOsReplacementHaptic(chain.getArg(0))) {
+            return null;
+        }
+        return chain.proceed();
+    }
+
+    /**
+     * HyperOS removes VibratorHelper.performHapticFeedback(View, int) on some builds and
+     * emits the same AOSP threshold call directly from BackPanel. Hook the actual View
+     * boundary as the compatibility path. Only the BackPanel instance and the two original
+     * AOSP threshold constants are intercepted; both use the same single HyperOS default
+     * effect, without adding another feedback stage.
+     */
+    protected void hookAospBackPanelViewHaptic(ClassLoader classLoader) {
+        hookAospBackPanelViewHaptic(classLoader, true, true);
+    }
+
+    protected void hookAospBackPanelViewHaptic(ClassLoader classLoader,
+                                               boolean hookSingleArgument,
+                                               boolean hookFlagsArgument) {
+        int installed = 0;
+        if (hookSingleArgument) {
+            try {
+                Class<?> viewClass = Class.forName("android.view.View", false, classLoader);
+                Method performHapticFeedback = viewClass.getDeclaredMethod(
+                        "performHapticFeedback", int.class);
+                performHapticFeedback.setAccessible(true);
+                recordHookHandle(hook(performHapticFeedback)
+                        .setId("systemui_back_panel_aosp_view_haptic")
+                        .intercept(this::replaceAospBackPanelViewHaptic));
+                installed++;
+            } catch (Throwable throwable) {
+                log(Log.WARN, TAG,
+                        "Failed to hook View.performHapticFeedback(int) for AOSP back panel",
+                        throwable);
+            }
+        }
+        if (hookFlagsArgument) {
+            try {
+                Class<?> viewClass = Class.forName("android.view.View", false, classLoader);
+                Method performHapticFeedback = viewClass.getDeclaredMethod(
+                        "performHapticFeedback", int.class, int.class);
+                performHapticFeedback.setAccessible(true);
+                recordHookHandle(hook(performHapticFeedback)
+                        .setId("systemui_back_panel_aosp_view_haptic_flags")
+                        .intercept(this::replaceAospBackPanelViewHaptic));
+                installed++;
+            } catch (Throwable throwable) {
+                log(Log.WARN, TAG,
+                        "Failed to hook View.performHapticFeedback(int, int) for AOSP back panel",
+                        throwable);
+            }
+        }
+        if (installed > 0) {
+            log(Log.INFO, TAG,
+                    "Hooked AOSP BackPanel View threshold haptic replacement"
+                            + ", methods=" + installed);
+        }
+    }
+
+    protected Object replaceAospBackPanelViewHaptic(XposedInterface.Chain chain)
+            throws Throwable {
+        Object view = chain.getThisObject();
+        Object feedbackConstant = chain.getArg(0);
+        if (isAospBackPanelView(view)
+                && isAospBackThresholdHaptic(feedbackConstant)
+                && playHyperOsReplacementHaptic(view)) {
+            // View.performHapticFeedback returns boolean. Report that the original
+            // threshold feedback was accepted after replacing its effect.
+            return Boolean.TRUE;
+        }
+        return chain.proceed();
+    }
+
+    protected boolean isAospBackThresholdHaptic(Object feedbackConstant) {
+        if (!(feedbackConstant instanceof Number)) {
+            return false;
+        }
+        int constant = ((Number) feedbackConstant).intValue();
+        return constant == HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+                || constant == HapticFeedbackConstants.GESTURE_THRESHOLD_DEACTIVATE;
+    }
+
+    protected boolean isAospBackPanelView(Object value) {
+        return value instanceof View
+                && BACK_PANEL_VIEW.equals(value.getClass().getName());
     }
 
     protected Object onEdgeBackUpdateIsEnabled(XposedInterface.Chain chain) throws Throwable {

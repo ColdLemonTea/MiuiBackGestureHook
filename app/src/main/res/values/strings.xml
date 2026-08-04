@@ -21,7 +21,7 @@
     <string name="hyperos_indicator_title">HyperOS back arrow</string>
     <string name="hyperos_indicator_summary">Use the HyperOS-style indicator instead of the AOSP panel</string>
     <string name="hyperos_haptics_title">HyperOS gesture haptics</string>
-    <string name="hyperos_haptics_summary">Two-stage haptics: arrow ready and committed release</string>
+    <string name="hyperos_haptics_summary">Replace native AOSP or HyperOS gesture haptics with HyperOS effects</string>
     <string name="hyperos_haptics_enhanced_title">Enhanced release haptic</string>
     <string name="hyperos_haptics_enhanced_summary">Always vibrate on commit, with a distinct release effect</string>
     <string name="hyperos_slide_animation_title">HyperOS slide-back animation</string>

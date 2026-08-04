@@ -66,6 +66,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
 
     protected volatile SharedPreferences hyperOsIndicatorPreferences;
     protected volatile boolean hyperOsIndicatorPreferencesFailureLogged;
+    protected volatile MiuiHapticFeedbackHelper hyperOsBackHapticHelper;
 
     protected boolean isHyperOsIndicatorEnabled() {
         return readHyperOsBooleanPreference(
@@ -116,6 +117,61 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         + ", key=" + key, throwable);
             }
             return false;
+        }
+    }
+
+    /**
+     * Replaces AOSP threshold haptics with HyperOS's default back effect. The
+     * caller must keep the original AOSP method when this returns false.
+     */
+    protected boolean playHyperOsReplacementHaptic(Object panelViewOrController) {
+        // HyperOS indicator mode owns its own two-stage feedback path. In AOSP-panel mode,
+        // this same global switch replaces the panel's original threshold feedback.
+        if (isHyperOsIndicatorEnabled() || !isHyperOsHapticsEnabled()) {
+            return false;
+        }
+        try {
+            MiuiHapticFeedbackHelper helper = hyperOsBackHapticHelper;
+            if (helper == null) {
+                synchronized (this) {
+                    helper = hyperOsBackHapticHelper;
+                    if (helper == null) {
+                        Object panelView = panelViewOrController instanceof View
+                                ? panelViewOrController
+                                : readField(panelViewOrController, "mView");
+                        if (!(panelView instanceof View)) {
+                            return false;
+                        }
+                        Context panelContext = ((View) panelView).getContext();
+                        helper = new MiuiHapticFeedbackHelper(panelContext,
+                                (priority, message, throwable) -> {
+                                    if (throwable == null) {
+                                        log(priority, TAG, message);
+                                    } else {
+                                        log(priority, TAG, message, throwable);
+                                    }
+                                });
+                        hyperOsBackHapticHelper = helper;
+                    }
+                }
+            }
+            if (!helper.isDefaultBackSupported()) {
+                return false;
+            }
+            return helper.performDefaultBack();
+        } catch (Throwable throwable) {
+            log(Log.WARN, TAG,
+                    "Failed to replace native threshold haptic; keeping native feedback",
+                    throwable);
+            return false;
+        }
+    }
+
+    protected void closeHyperOsBackHapticHelper() {
+        MiuiHapticFeedbackHelper helper = hyperOsBackHapticHelper;
+        hyperOsBackHapticHelper = null;
+        if (helper != null) {
+            helper.close();
         }
     }
 

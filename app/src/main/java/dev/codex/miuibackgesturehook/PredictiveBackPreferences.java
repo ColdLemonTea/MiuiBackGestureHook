@@ -7,6 +7,9 @@ public final class PredictiveBackPreferences {
     public static final boolean DEFAULT_HYPEROS_INDICATOR = false;
     public static final String KEY_HYPEROS_HAPTICS = "hyperos_indicator_haptics";
     public static final boolean DEFAULT_HYPEROS_HAPTICS = false;
+    /** Only used to migrate the removed AOSP-specific switch once. */
+    public static final String LEGACY_KEY_AOSP_HYPEROS_HAPTICS =
+            "aosp_gesture_hyperos_haptics";
     public static final String KEY_HYPEROS_HAPTICS_ENHANCED =
             "hyperos_indicator_haptics_enhanced";
     public static final boolean DEFAULT_HYPEROS_HAPTICS_ENHANCED = false;
