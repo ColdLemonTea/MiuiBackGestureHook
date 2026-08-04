@@ -1252,7 +1252,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 // Xiaomi's private helper only forwards to BlurView.setBlurRadius() and
                 // setDimming(); it does not replace params or touch the native spring.
                 invokeAnyMethod(blurElement, "updateTargetParams",
-                        new Object[]{Float.valueOf(radius), Float.valueOf(dimming)});
+                        new Object[]{radius, dimming});
                 int appliedBlur = ((Number) invokeAnyMethod(blurView,
                         "getCurrentBlur", new Object[0])).intValue();
                 float appliedDimming = ((Number) invokeAnyMethod(blurView,

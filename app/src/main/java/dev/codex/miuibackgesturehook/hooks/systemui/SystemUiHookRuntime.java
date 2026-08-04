@@ -701,7 +701,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             wasTransient = Boolean.TRUE.equals(readField(navigationBar, "mTransientShown"));
             Object mode = readField(navigationBar, "mTransitionMode");
             if (mode instanceof Number) {
-                modeBefore = Integer.valueOf(((Number) mode).intValue());
+                modeBefore = ((Number) mode).intValue();
             }
         } catch (Throwable throwable) {
             log(Log.WARN, TAG, "Cannot snapshot transient NavigationBar state", throwable);
@@ -923,7 +923,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             int displayId = ((Number) displayIdValue).intValue();
             int navigationMode = ((Number) navModeValue).intValue();
             Object defaultNavigationBar = invokeAnyMethod(navigationBars, "get",
-                    new Object[]{Integer.valueOf(0)});
+                    new Object[]{0});
             boolean taskbarInitialized = Boolean.TRUE.equals(
                     readField(taskbarDelegate, "mInitialized"));
             boolean fsgMode = Boolean.TRUE.equals(readField(injector, "mIsFsgMode"));
@@ -936,7 +936,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             if (displayId == 0) {
                 Object result = invokeAnyMethod(controller,
                         "shouldCreateNavBarAndTaskBar",
-                        new Object[]{Integer.valueOf(displayId)});
+                        new Object[]{displayId});
                 systemHasNavigationBar = Boolean.TRUE.equals(result);
             }
             boolean headlessDesired = displayId == 0
@@ -995,7 +995,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     invokeMethod(existing.edgeBackGestureHandler,
                             "onNavigationModeChanged",
                             new Class<?>[]{int.class},
-                            new Object[]{Integer.valueOf(navigationMode)});
+                            new Object[]{navigationMode});
                     existing.navigationMode = navigationMode;
                     log(Log.INFO, TAG, "Updated headless EdgeBackGestureHandler mode"
                             + ", mode=" + navigationMode
@@ -1047,7 +1047,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             Object injector = readField(
                     lease.controller, "mNavigationModeControllerInjector");
             Object defaultNavigationBar = invokeAnyMethod(
-                    navigationBars, "get", new Object[]{Integer.valueOf(0)});
+                    navigationBars, "get", new Object[]{0});
             boolean taskbarInitialized = Boolean.TRUE.equals(
                     readField(taskbarDelegate, "mInitialized"));
             boolean fsgMode = Boolean.TRUE.equals(readField(injector, "mIsFsgMode"));
@@ -1116,7 +1116,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 (proxy, method, args) -> headlessUpdaterResult(proxy, method, args));
         try {
             navigationModeChanged.invoke(edgeBackGestureHandler,
-                    Integer.valueOf(navigationMode));
+                    navigationMode);
             registerUpdater.invoke(navBarHelper, updaterProxy);
             Object currentBackAnimation = readField(
                     edgeBackGestureHandler, "mBackAnimation");
@@ -1186,10 +1186,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         if (method.getDeclaringClass() == Object.class) {
             switch (method.getName()) {
                 case "equals":
-                    return Boolean.valueOf(args != null && args.length == 1
-                            && proxy == args[0]);
+                    return args != null && args.length == 1
+                            && proxy == args[0];
                 case "hashCode":
-                    return Integer.valueOf(System.identityHashCode(proxy));
+                    return System.identityHashCode(proxy);
                 case "toString":
                     return "MiuiBackGestureHook.HeadlessNavBarUpdater@"
                             + Integer.toHexString(System.identityHashCode(proxy));
@@ -1208,25 +1208,25 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             return Boolean.FALSE;
         }
         if (type == char.class) {
-            return Character.valueOf('\0');
+            return '\0';
         }
         if (type == byte.class) {
-            return Byte.valueOf((byte) 0);
+            return (byte) 0;
         }
         if (type == short.class) {
-            return Short.valueOf((short) 0);
+            return (short) 0;
         }
         if (type == int.class) {
-            return Integer.valueOf(0);
+            return 0;
         }
         if (type == long.class) {
-            return Long.valueOf(0L);
+            return 0L;
         }
         if (type == float.class) {
-            return Float.valueOf(0.0f);
+            return 0.0f;
         }
         if (type == double.class) {
-            return Double.valueOf(0.0d);
+            return 0.0d;
         }
         return null;
     }
@@ -1839,7 +1839,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         Object transitions = readField(handler, "mTransitions");
         Object organizer = readField(transitions, "mOrganizer");
         Object taskInfo = invokeAnyMethod(organizer, "getRunningTaskInfo",
-                new Object[]{Integer.valueOf(focusedTaskId)});
+                new Object[]{focusedTaskId});
         if (taskInfo == null
                 || readIntFieldOrDefault(taskInfo, "taskId", -1)
                 != focusedTaskId
@@ -1877,7 +1877,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         Rect taskBounds = (Rect) taskBoundsObject;
         Object root = invokeAnyMethod(
-                info, "getRoot", new Object[]{Integer.valueOf(0)});
+                info, "getRoot", new Object[]{0});
         Object rootLeashObject = root == null ? null : invokeAnyMethod(
                 root, "getLeash", new Object[0]);
         Object rootOffsetObject = root == null ? null : invokeAnyMethod(
@@ -2662,7 +2662,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             return null;
         }
         Object root = invokeAnyMethod(info, "getRoot",
-                new Object[]{Integer.valueOf(0)});
+                new Object[]{0});
         Object leash = root == null ? null
                 : invokeAnyMethod(root, "getLeash", new Object[0]);
         return leash instanceof SurfaceControl ? (SurfaceControl) leash : null;
@@ -2685,7 +2685,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         Object repository = invokeAnyMethod(controller,
                 "getMultiTaskingTaskRepository", new Object[0]);
         Object taskInfo = invokeAnyMethod(repository,
-                "getMiuiFreeformTaskInfo", new Object[]{Integer.valueOf(taskId)});
+                "getMiuiFreeformTaskInfo", new Object[]{taskId});
         Object radiusValue = invokeAnyMethod(taskInfo,
                 "getCornerRadius", new Object[0]);
         Object scaleValue = invokeAnyMethod(taskInfo,
@@ -2746,7 +2746,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             "freeform color layers unavailable at first apply");
                 }
                 Object root = invokeAnyMethod(candidate.transitionInfo, "getRoot",
-                        new Object[]{Integer.valueOf(0)});
+                        new Object[]{0});
                 Object rootOffset = invokeAnyMethod(
                         root, "getOffset", new Object[0]);
                 Object colorBounds = readFieldOrNull(
@@ -2776,7 +2776,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         invokeMethod(donor, "setCornerRadius",
                                 new Class<?>[]{SurfaceControl.class, float.class},
                                 new Object[]{candidate.rootLeash,
-                                        Float.valueOf(candidate.rootCornerRadius)});
+                                        candidate.rootCornerRadius});
                         donor.reparent((SurfaceControl) background,
                                 candidate.rootLeash)
                                 .setCrop((SurfaceControl) background,
@@ -2791,15 +2791,15 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                                 new Class<?>[]{SurfaceControl.class,
                                         SurfaceControl.class, int.class},
                                 new Object[]{scrim, candidate.closingLeash,
-                                        Integer.valueOf(-1)});
+                                        -1});
                         invokeMethod(donor, "setCornerRadius",
                                 new Class<?>[]{SurfaceControl.class, float.class},
                                 new Object[]{candidate.closingLeash,
-                                        Float.valueOf(candidate.rootCornerRadius)});
+                                        candidate.rootCornerRadius});
                         invokeMethod(donor, "setCornerRadius",
                                 new Class<?>[]{SurfaceControl.class, float.class},
                                 new Object[]{candidate.enteringLeash,
-                                        Float.valueOf(candidate.rootCornerRadius)});
+                                        candidate.rootCornerRadius});
                         surfaceTransaction.merge(donor);
                     }
                     adopted = new FreeformColorRootAdoption(animation, candidate);
@@ -2899,7 +2899,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             float cornerRadius) throws Exception {
         invokeMethod(transaction, "setCornerRadius",
                 new Class<?>[]{SurfaceControl.class, float.class},
-                new Object[]{leash, Float.valueOf(cornerRadius)});
+                new Object[]{leash, cornerRadius});
     }
 
     protected float resolveFixedFreeformTargetClip(
@@ -3093,7 +3093,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         // it linearly, without the native gesture interpolator, is the miuix slide.
         float progress = Math.max(0.0f, Math.min(1.0f, backEvent.getProgress()));
         trackMiuixSlideProgressVelocity(progress);
-        writeField(animation, "gestureProgress", Float.valueOf(progress));
+        writeField(animation, "gestureProgress", progress);
         applyMiuixSlideFrame(animation, progress,
                 MIUIX_SLIDE_ENTERING_MIN_ALPHA
                         + (1.0f - MIUIX_SLIDE_ENTERING_MIN_ALPHA) * progress);
@@ -3183,7 +3183,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected Object onCrossActivitySlideDuration(XposedInterface.Chain chain)
             throws Throwable {
         if (miuixSlideAnimActive) {
-            return Long.valueOf(MIUIX_SLIDE_SETTLE_DURATION_MS);
+            return MIUIX_SLIDE_SETTLE_DURATION_MS;
         }
         return chain.proceed();
     }
@@ -3254,13 +3254,13 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 && ((SurfaceControl) enteringLeash).isValid()) {
             invokeMethod(transaction, "setCornerRadius",
                     new Class<?>[]{SurfaceControl.class, float.class},
-                    new Object[]{enteringLeash, Float.valueOf(0.0f)});
+                    new Object[]{enteringLeash, 0.0f});
         }
         invokeAnyMethod(animation, "applyTransaction", new Object[0]);
         Object background = readField(animation, "background");
         if (background != null) {
             invokeAnyMethod(background, "customizeStatusBarAppearance",
-                    new Object[]{Integer.valueOf((int) closingRect.top)});
+                    new Object[]{(int) closingRect.top});
         }
     }
 
@@ -3290,7 +3290,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             crossActivityApplyTransform = method;
             crossActivityNoFling = method.getParameterTypes()[4].getEnumConstants()[0];
         }
-        method.invoke(animation, leash, rect, Float.valueOf(alpha), null,
+        method.invoke(animation, leash, rect, alpha, null,
                 crossActivityNoFling);
     }
 
@@ -3493,7 +3493,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         "prepared return-home ownership changed after reparent");
             }
             invokeAnyMethod(preparedShape.appChange, "setMode",
-                    new Object[]{Integer.valueOf(TRANSIT_CHANGE)});
+                    new Object[]{TRANSIT_CHANGE});
             Object normalizedModeObject = invokeAnyMethod(
                     preparedShape.appChange, "getMode", new Object[0]);
             int normalizedMode = normalizedModeObject instanceof Number
@@ -3863,7 +3863,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     ? ((Number) modeObject).intValue() : -1;
             backGestureAnimated = Boolean.TRUE.equals(invokeAnyMethod(
                     change, "hasFlags",
-                    new Object[]{Integer.valueOf(FLAG_BACK_GESTURE_ANIMATED)}));
+                    new Object[]{FLAG_BACK_GESTURE_ANIMATED}));
         }
         if (matchCount != 1 || matchingChange == null
                 || matchingMode != transitionType

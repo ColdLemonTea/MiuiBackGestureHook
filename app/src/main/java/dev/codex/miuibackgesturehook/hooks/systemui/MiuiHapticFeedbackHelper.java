@@ -72,12 +72,12 @@ final class MiuiHapticFeedbackHelper {
                         "isSupportExtHapticFeedback", int.class);
                 perform = utilClass.getMethod("performExtHapticFeedback", int.class);
                 resolvedDefaultSupported = Boolean.TRUE.equals(support.invoke(util,
-                        Integer.valueOf(resolvedV2
+                        resolvedV2
                                 ? EFFECT_GESTURE_BACK_V2
-                                : EFFECT_GESTURE_READY_BACK_LINEAR)));
+                                : EFFECT_GESTURE_READY_BACK_LINEAR));
                 resolvedSupported = resolvedDefaultSupported
                         && Boolean.TRUE.equals(support.invoke(util,
-                        Integer.valueOf(EFFECT_GESTURE_BACK_HAND_UP_LINEAR)));
+                        EFFECT_GESTURE_BACK_HAND_UP_LINEAR));
             }
         } catch (Throwable throwable) {
             logger.log(Log.WARN, "MIUI haptic feedback unavailable"
@@ -141,7 +141,7 @@ final class MiuiHapticFeedbackHelper {
             // synchronous as well so the threshold does not acquire an executor delay and a
             // runtime failure can still fall back to the native AOSP effect.
             performExtHapticFeedback.invoke(hapticFeedbackUtil,
-                    Integer.valueOf(effectId));
+                    effectId);
             return true;
         } catch (Throwable throwable) {
             logger.log(Log.WARN, "Failed to play MIUI default AOSP replacement effect "
@@ -190,7 +190,7 @@ final class MiuiHapticFeedbackHelper {
         executor.execute(() -> {
             try {
                 performExtHapticFeedback.invoke(hapticFeedbackUtil,
-                        Integer.valueOf(effectId));
+                        effectId);
             } catch (Throwable throwable) {
                 logger.log(Log.WARN, "Failed to play MIUI ext haptic effect "
                         + effectId, throwable);
