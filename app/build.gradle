@@ -59,7 +59,7 @@ android {
         minSdk 36
         targetSdk 36
         versionCode gitVersionCode.get()
-        versionName "0.8.2"
+        versionName "0.8.3"
     }
 
     signingConfigs {
