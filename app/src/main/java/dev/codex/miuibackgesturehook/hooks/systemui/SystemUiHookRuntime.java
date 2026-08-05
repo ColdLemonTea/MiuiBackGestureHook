@@ -72,10 +72,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             hookBackAnimationSendBackEvent(classLoader);
             hookDefaultTransitionHandler(classLoader);
             hookDefaultTransitionImplMerge(classLoader);
-            log(Log.INFO, TAG, "Installed SystemUI AOSP back restoration hooks, build="
+            moduleLog(Log.INFO, TAG, "Installed SystemUI AOSP back restoration hooks, build="
                     + BUILD_MARK + ", hooks=" + hookHandles.size());
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to install SystemUI hooks", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to install SystemUI hooks", throwable);
         }
     }
 
@@ -88,9 +88,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(method)
                     .setId("systemui_block_miui_gesture_line_progress")
                     .intercept(this::interceptMiuiOverviewProxyTransact));
-            log(Log.INFO, TAG, "Hooked MiuiOverviewProxy.onTransact");
+            moduleLog(Log.INFO, TAG, "Hooked MiuiOverviewProxy.onTransact");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook MiuiOverviewProxy", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to hook MiuiOverviewProxy", throwable);
         }
     }
 
@@ -110,9 +110,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(startAnimation)
                     .setId("systemui_default_transition_start")
                     .intercept(this::registerDefaultTransitionHandler));
-            log(Log.INFO, TAG, "Hooked exact DefaultTransitionHandler.startAnimation");
+            moduleLog(Log.INFO, TAG, "Hooked exact DefaultTransitionHandler.startAnimation");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook DefaultTransitionHandler", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to hook DefaultTransitionHandler", throwable);
         }
     }
 
@@ -151,7 +151,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             captureRunningOpenTransition(chain.getThisObject(), chain.getArg(0),
                     chain.getArg(1));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to capture Xiaomi OPEN transition snapshot",
+            moduleLog(Log.WARN, TAG, "Failed to capture Xiaomi OPEN transition snapshot",
                     throwable);
         }
         return result;
@@ -230,7 +230,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 return;
             }
             if (snapshot.animators.length != snapshot.originalAnimatorCount) {
-                log(Log.INFO, TAG, "Skipped partial Xiaomi OPEN transition snapshot"
+                moduleLog(Log.INFO, TAG, "Skipped partial Xiaomi OPEN transition snapshot"
                         + ", currentAnimatorCount=" + snapshot.animators.length
                         + ", originalAnimatorCount=" + snapshot.originalAnimatorCount);
                 invalidateOpenTransitionSnapshot(snapshot, "partialAnimationSet");
@@ -258,12 +258,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 invalidateOpenTransitionSnapshot(snapshot, "activationRace");
                 return;
             }
-            log(Log.INFO, TAG, "Published reversible Xiaomi OPEN transition snapshot"
+            moduleLog(Log.INFO, TAG, "Published reversible Xiaomi OPEN transition snapshot"
                     + ", animatorCount=" + snapshot.animators.length
                     + ", info=" + shortObject(snapshot.transitionInfo));
         } catch (Throwable throwable) {
             invalidateOpenTransitionSnapshot(snapshot, "verificationFailure");
-            log(Log.WARN, TAG, "Failed to verify Xiaomi OPEN transition snapshot",
+            moduleLog(Log.WARN, TAG, "Failed to verify Xiaomi OPEN transition snapshot",
                     throwable);
         }
     }
@@ -287,11 +287,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             try {
                 snapshot.animExecutor.execute(() -> removeOpenTransitionListeners(snapshot));
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to remove Xiaomi OPEN snapshot listeners"
+                moduleLog(Log.WARN, TAG, "Failed to remove Xiaomi OPEN snapshot listeners"
                         + ", reason=" + reason, throwable);
             }
         }
-        log(Log.INFO, TAG, "Invalidated Xiaomi OPEN transition snapshot"
+        moduleLog(Log.INFO, TAG, "Invalidated Xiaomi OPEN transition snapshot"
                 + ", reason=" + reason
                 + ", animatorCount=" + snapshot.animators.length);
         if (previousState == OPEN_SNAPSHOT_ACTIVE && normalEnd) {
@@ -334,7 +334,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         runningOpenTransitions.clear();
         if (count > 0) {
-            log(Log.INFO, TAG, "Cleared Xiaomi OPEN transition snapshots"
+            moduleLog(Log.INFO, TAG, "Cleared Xiaomi OPEN transition snapshots"
                     + ", reason=" + reason
                     + ", count=" + count);
         }
@@ -358,9 +358,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(mergeAnimation)
                     .setId("systemui_default_transition_merge")
                     .intercept(this::trackMiuiOpenCloseMerge));
-            log(Log.INFO, TAG, "Hooked exact DefaultTransitionImpl.mergeAnimation");
+            moduleLog(Log.INFO, TAG, "Hooked exact DefaultTransitionImpl.mergeAnimation");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook DefaultTransitionImpl.mergeAnimation",
+            moduleLog(Log.ERROR, TAG, "Failed to hook DefaultTransitionImpl.mergeAnimation",
                     throwable);
         }
     }
@@ -385,9 +385,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(sendBackEvent)
                     .setId("systemui_back_send_event_guard")
                     .intercept(this::guardDuplicateBackEvent));
-            log(Log.INFO, TAG, "Hooked BackAnimationController.sendBackEvent guard");
+            moduleLog(Log.INFO, TAG, "Hooked BackAnimationController.sendBackEvent guard");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook BackAnimationController.sendBackEvent", throwable);
         }
     }
@@ -413,7 +413,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             legacyBackGuardPhase = BACK_GUARD_WAIT_MERGE;
             legacyBackGuardDeadlineUptime = now + LEGACY_BACK_MERGE_TIMEOUT_MS;
         }
-        log(Log.INFO, TAG, "Armed Xiaomi interruption BACK correlation"
+        moduleLog(Log.INFO, TAG, "Armed Xiaomi interruption BACK correlation"
                 + ", attempt=" + attempt.id
                 + ", controller=" + shortObject(controller)
                 + ", runningInfo=" + shortObject(runningInfo));
@@ -446,12 +446,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             return;
         }
         if (expired) {
-            log(Log.WARN, TAG, "Expired Xiaomi interruption BACK before merge"
+            moduleLog(Log.WARN, TAG, "Expired Xiaomi interruption BACK before merge"
                     + ", attempt=" + correlated.id
                     + ", elapsedMs=" + (now - correlated.startedUptime));
             return;
         }
-        log(Log.INFO, TAG, "Correlated Xiaomi OPEN/CLOSE reverse merge"
+        moduleLog(Log.INFO, TAG, "Correlated Xiaomi OPEN/CLOSE reverse merge"
                 + ", attempt=" + correlated.id
                 + ", elapsedMs=" + (now - correlated.startedUptime)
                 + ", duplicatePairDeadlineMs=" + DUPLICATE_BACK_PAIR_TIMEOUT_MS);
@@ -509,10 +509,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         if ("down".equals(outcome)) {
             scheduleLegacyBackGuardExpiry(attempt, DUPLICATE_BACK_UP_INTERVAL_MS);
         } else if ("pair".equals(outcome)) {
-            log(Log.INFO, TAG, "Consumed one correlated duplicate BACK pair"
+            moduleLog(Log.INFO, TAG, "Consumed one correlated duplicate BACK pair"
                     + ", attempt=" + attempt.id);
         } else if (outcome != null) {
-            log(Log.WARN, TAG, "Released Xiaomi duplicate BACK guard"
+            moduleLog(Log.WARN, TAG, "Released Xiaomi duplicate BACK guard"
                     + ", attempt=" + attempt.id
                     + ", reason=" + outcome);
         }
@@ -534,7 +534,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             phase = legacyBackGuardPhase;
             resetLegacyBackGuardLocked();
         }
-        log(Log.INFO, TAG, "Expired Xiaomi duplicate BACK guard"
+        moduleLog(Log.INFO, TAG, "Expired Xiaomi duplicate BACK guard"
                 + ", attempt=" + expectedAttempt.id
                 + ", phase=" + phase);
     }
@@ -548,7 +548,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             resetLegacyBackGuardLocked();
         }
         if (phase != BACK_GUARD_IDLE && attempt != null) {
-            log(Log.INFO, TAG, "Cleared Xiaomi duplicate BACK guard"
+            moduleLog(Log.INFO, TAG, "Cleared Xiaomi duplicate BACK guard"
                     + ", attempt=" + attempt.id
                     + ", phase=" + phase
                     + ", reason=" + reason);
@@ -586,10 +586,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(method)
                     .setId("systemui_navigation_bar_gesture_insets")
                     .intercept(this::restoreNavigationBarGestureInsets));
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Hooked NavigationBar application gesture Insets restoration");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook NavigationBar application gesture Insets", throwable);
         }
     }
@@ -648,13 +648,13 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 typedProvider.setInsetsSize(size);
                 restored++;
             }
-            log(restored == 2 ? Log.INFO : Log.WARN, TAG,
+            moduleLog(restored == 2 ? Log.INFO : Log.WARN, TAG,
                     "Restored application system-gesture Insets with zero IME override"
                             + ", left=" + widths.leftSensitivity
                             + ", right=" + widths.rightSensitivity
                             + ", providers=" + restored);
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to restore IME-safe application gesture Insets", throwable);
         }
         return result;
@@ -669,9 +669,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(method)
                     .setId("systemui_navigation_bar_show_transient")
                     .intercept(this::preserveTransientBarAutoHide));
-            log(Log.INFO, TAG, "Hooked NavigationBar.showTransient auto-hide preservation");
+            moduleLog(Log.INFO, TAG, "Hooked NavigationBar.showTransient auto-hide preservation");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook NavigationBar transient auto-hide", throwable);
         }
     }
@@ -688,7 +688,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 modeBefore = ((Number) mode).intValue();
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Cannot snapshot transient NavigationBar state", throwable);
+            moduleLog(Log.WARN, TAG, "Cannot snapshot transient NavigationBar state", throwable);
         }
 
         Object result = chain.proceed();
@@ -704,15 +704,15 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             }
             Object autoHideController = readField(navigationBar, "mAutoHideController");
             if (autoHideController == null) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Transparent transient NavigationBar has no AutoHideController");
                 return result;
             }
             invokeAnyMethod(autoHideController, "touchAutoHide", new Object[0]);
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Preserved native transient-bar auto-hide with unchanged transparent mode");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to preserve transparent transient-bar auto-hide", throwable);
         }
         return result;
@@ -727,9 +727,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(method)
                     .setId("systemui_navigation_bar_transient_appearance")
                     .intercept(this::preserveTransientBarAppearance));
-            log(Log.INFO, TAG, "Hooked NavBarHelper.transitionMode transient appearance");
+            moduleLog(Log.INFO, TAG, "Hooked NavBarHelper.transitionMode transient appearance");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook NavBarHelper transient appearance", throwable);
         }
     }
@@ -746,9 +746,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(method)
                     .setId("systemui_status_bar_transient_appearance")
                     .intercept(this::preserveTransientBarAppearance));
-            log(Log.INFO, TAG, "Hooked status-bar transient appearance reducer");
+            moduleLog(Log.INFO, TAG, "Hooked status-bar transient appearance reducer");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook status-bar transient appearance", throwable);
         }
     }
@@ -776,10 +776,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(method)
                     .setId("systemui_navigation_bar_controller_create")
                     .intercept(this::reconcileAfterNavigationBarCreate));
-            log(Log.INFO, TAG, "Hooked NavigationBarControllerImpl.createNavigationBar"
+            moduleLog(Log.INFO, TAG, "Hooked NavigationBarControllerImpl.createNavigationBar"
                     + " for headless lifecycle ownership");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook NavigationBarControllerImpl.createNavigationBar",
+            moduleLog(Log.ERROR, TAG, "Failed to hook NavigationBarControllerImpl.createNavigationBar",
                     throwable);
         }
     }
@@ -794,10 +794,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(method)
                     .setId("systemui_navigation_bar_controller_remove")
                     .intercept(this::reconcileAfterNavigationBarRemove));
-            log(Log.INFO, TAG, "Hooked NavigationBarControllerImpl.removeNavigationBar"
+            moduleLog(Log.INFO, TAG, "Hooked NavigationBarControllerImpl.removeNavigationBar"
                     + " for headless lifecycle ownership");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook NavigationBarControllerImpl.removeNavigationBar",
+            moduleLog(Log.ERROR, TAG, "Failed to hook NavigationBarControllerImpl.removeNavigationBar",
                     throwable);
         }
     }
@@ -812,10 +812,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(method)
                     .setId("systemui_navigation_bar_controller_onNavigationModeChanged")
                     .intercept(this::reconcileAfterNavigationModeChanged));
-            log(Log.INFO, TAG, "Hooked NavigationBarControllerImpl.onNavigationModeChanged"
+            moduleLog(Log.INFO, TAG, "Hooked NavigationBarControllerImpl.onNavigationModeChanged"
                     + " for headless lifecycle ownership");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook NavigationBarControllerImpl.onNavigationModeChanged",
                     throwable);
         }
@@ -831,7 +831,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         "createNavigationBar");
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to identify created NavigationBar display",
+            moduleLog(Log.WARN, TAG, "Failed to identify created NavigationBar display",
                     throwable);
         }
         return result;
@@ -947,7 +947,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         headlessNavBarLease = null;
                     }
                 }
-                log(Log.WARN, TAG, "Headless NavBar updater disappeared"
+                moduleLog(Log.WARN, TAG, "Headless NavBar updater disappeared"
                         + ", controller=" + shortObject(controller)
                         + ", reason=" + reason);
                 existing = null;
@@ -978,7 +978,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             new Class<?>[]{int.class},
                             new Object[]{navigationMode});
                     existing.navigationMode = navigationMode;
-                    log(Log.INFO, TAG, "Updated headless EdgeBackGestureHandler mode"
+                    moduleLog(Log.INFO, TAG, "Updated headless EdgeBackGestureHandler mode"
                             + ", mode=" + navigationMode
                             + ", reason=" + reason);
                 }
@@ -1001,7 +1001,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             attachHeadlessNavBarLease(controller, navBarHelper,
                     edgeBackGestureHandler, backAnimation, navigationMode, reason);
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to reconcile headless NavigationBar lifecycle"
+            moduleLog(Log.ERROR, TAG, "Failed to reconcile headless NavigationBar lifecycle"
                     + ", controller=" + shortObject(controller)
                     + ", reason=" + reason, throwable);
         }
@@ -1045,7 +1045,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 return false;
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Cannot authenticate live headless NavigationBar lifecycle", throwable);
             return false;
         }
@@ -1066,7 +1066,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             Method method = configsClass.getMethod("isFlipTinyScreen", Context.class);
             return Boolean.TRUE.equals(method.invoke(null, context));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to resolve Xiaomi flip tiny-screen state;"
+            moduleLog(Log.WARN, TAG, "Failed to resolve Xiaomi flip tiny-screen state;"
                     + " headless NavigationBar will fail closed", throwable);
             return true;
         }
@@ -1117,7 +1117,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 }
                 headlessNavBarLease = lease;
             }
-            log(Log.INFO, TAG, "Attached headless SystemUI NavigationBar lifecycle"
+            moduleLog(Log.INFO, TAG, "Attached headless SystemUI NavigationBar lifecycle"
                     + ", controller=" + shortObject(controller)
                     + ", helper=" + shortObject(navBarHelper)
                     + ", handler=" + shortObject(edgeBackGestureHandler)
@@ -1244,12 +1244,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     headlessNavBarLease = null;
                 }
             }
-            log(Log.INFO, TAG, "Detached headless SystemUI NavigationBar lifecycle"
+            moduleLog(Log.INFO, TAG, "Detached headless SystemUI NavigationBar lifecycle"
                     + ", controller=" + shortObject(lease.controller)
                     + ", reason=" + reason);
             return true;
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to detach headless NavigationBar lifecycle"
+            moduleLog(Log.ERROR, TAG, "Failed to detach headless NavigationBar lifecycle"
                     + ", controller=" + shortObject(lease.controller)
                     + ", reason=" + reason, throwable);
             return false;
@@ -1283,12 +1283,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         });
         try {
             if (!completed.await(5L, TimeUnit.SECONDS)) {
-                log(Log.ERROR, TAG, "Timed out detaching headless NavBar lease"
+                moduleLog(Log.ERROR, TAG, "Timed out detaching headless NavBar lease"
                         + " on the SystemUI main Looper");
             }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            log(Log.ERROR, TAG, "Interrupted detaching headless NavBar lease",
+            moduleLog(Log.ERROR, TAG, "Interrupted detaching headless NavBar lease",
                     exception);
         }
         return savedState;
@@ -1314,11 +1314,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 throw new IllegalStateException(
                         "Residual headless NavBar updater remains registered");
             }
-            log(Log.WARN, TAG, "Removed residual pre-reload headless NavBar updater"
+            moduleLog(Log.WARN, TAG, "Removed residual pre-reload headless NavBar updater"
                     + ", helper=" + shortObject(navBarHelper));
             return true;
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to remove residual pre-reload headless NavBar updater",
+            moduleLog(Log.ERROR, TAG, "Failed to remove residual pre-reload headless NavBar updater",
                     throwable);
             return false;
         }
@@ -1351,10 +1351,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     headlessNavBarLease = residual;
                 }
             }
-            log(Log.WARN, TAG, "Adopted residual pre-reload headless NavBar updater"
+            moduleLog(Log.WARN, TAG, "Adopted residual pre-reload headless NavBar updater"
                     + " for deferred exact cleanup");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to adopt residual headless NavBar updater",
+            moduleLog(Log.ERROR, TAG, "Failed to adopt residual headless NavBar updater",
                     throwable);
         }
     }
@@ -1401,7 +1401,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 installBackInputDriver(pair[0], pair[1]);
                 inputRestored++;
             }
-            log(Log.INFO, TAG, "Restored SystemUI hot reload lifecycle on main thread"
+            moduleLog(Log.INFO, TAG, "Restored SystemUI hot reload lifecycle on main thread"
                     + ", headlessControllers=" + headlessRestored
                     + ", inputMonitors=" + inputRestored);
         });
@@ -1413,7 +1413,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     SYSTEM_UI_DEPENDENCY, false, classLoader);
             Object dependency = readStaticField(dependencyClass, "sDependency");
             if (dependency == null) {
-                log(Log.INFO, TAG, "SystemUI Dependency is not initialized;"
+                moduleLog(Log.INFO, TAG, "SystemUI Dependency is not initialized;"
                         + " NavigationBar hooks will capture the controller later");
                 return null;
             }
@@ -1422,13 +1422,13 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             if (controller == null
                     || !NAVIGATION_BAR_CONTROLLER_IMPL.equals(
                     controller.getClass().getName())) {
-                log(Log.WARN, TAG, "Unexpected NavigationBarController dependency="
+                moduleLog(Log.WARN, TAG, "Unexpected NavigationBarController dependency="
                         + shortObject(controller));
                 return null;
             }
             return controller;
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to backfill NavigationBarController from Dependency",
+            moduleLog(Log.WARN, TAG, "Failed to backfill NavigationBarController from Dependency",
                     throwable);
             return null;
         }
@@ -1441,7 +1441,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             handlerClass = Class.forName(EDGE_BACK_GESTURE_HANDLER, false, classLoader);
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to resolve EdgeBackGestureHandler", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to resolve EdgeBackGestureHandler", throwable);
             return;
         }
         int installed = 0;
@@ -1454,7 +1454,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         .intercept(this::onEdgeBackUpdateIsEnabled));
                 installed++;
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to hook EdgeBackGestureHandler.updateIsEnabled",
+                moduleLog(Log.ERROR, TAG, "Failed to hook EdgeBackGestureHandler.updateIsEnabled",
                         throwable);
             }
         }
@@ -1468,7 +1468,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         .intercept(this::onEdgeBackNavigationModeChanged));
                 installed++;
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Failed to hook EdgeBackGestureHandler.onNavigationModeChanged",
                         throwable);
             }
@@ -1484,11 +1484,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         .intercept(this::onEdgeBackSetBackAnimation));
                 installed++;
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to hook EdgeBackGestureHandler.setBackAnimation",
+                moduleLog(Log.ERROR, TAG, "Failed to hook EdgeBackGestureHandler.setBackAnimation",
                         throwable);
             }
         }
-        log(Log.INFO, TAG, "Hooked EdgeBackGestureHandler AOSP path, installed=" + installed);
+        moduleLog(Log.INFO, TAG, "Hooked EdgeBackGestureHandler AOSP path, installed=" + installed);
     }
 
     /**
@@ -1507,10 +1507,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(performHapticFeedback)
                     .setId("systemui_back_panel_aosp_haptic")
                     .intercept(this::replaceAospBackPanelHaptic));
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Hooked AOSP back-panel threshold haptic replacement");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to hook AOSP back-panel activation haptic; native effect remains",
                     throwable);
         }
@@ -1552,7 +1552,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         .intercept(this::replaceAospBackPanelViewHaptic));
                 installed++;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to hook View.performHapticFeedback(int) for AOSP back panel",
                         throwable);
             }
@@ -1568,13 +1568,13 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         .intercept(this::replaceAospBackPanelViewHaptic));
                 installed++;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to hook View.performHapticFeedback(int, int) for AOSP back panel",
                         throwable);
             }
         }
         if (installed > 0) {
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Hooked AOSP BackPanel View threshold haptic replacement"
                             + ", methods=" + installed);
         }
@@ -1646,9 +1646,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             hookCrossActivitySlideAnimation(classLoader,
                     true, true, true, true, true, true);
             hookCrossTaskBackground(classLoader);
-            log(Log.INFO, TAG, "Hooked Shell BackAnimationController AOSP path");
+            moduleLog(Log.INFO, TAG, "Hooked Shell BackAnimationController AOSP path");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook Shell back animation", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to hook Shell back animation", throwable);
         }
     }
 
@@ -1731,11 +1731,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     .setId("systemui_back_prepared_target_arrival")
                     .intercept(this::onPreparedBackTargetArrival));
             preparedBackTargetArrivalHookReady = true;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Hooked prepared-back remote-target arrival handoff");
         } catch (Throwable throwable) {
             preparedBackTargetArrivalHookReady = false;
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook prepared-back remote-target arrival handoff",
                     throwable);
         }
@@ -1750,11 +1750,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     .setId("systemui_back_prepared_terminal")
                     .intercept(this::onPreparedBackTerminal));
             preparedBackTerminalHookReady = true;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Hooked prepared-back terminal handoff");
         } catch (Throwable throwable) {
             preparedBackTerminalHookReady = false;
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook prepared-back terminal handoff",
                     throwable);
         }
@@ -1772,7 +1772,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             token = chain.getArg(1);
             finishedCallback = chain.getArg(2);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to capture prepared-back target arrival",
                     throwable);
         }
@@ -1797,7 +1797,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     && isExactPreparedBackSession(hold)
                     && isHeldPreparedBackTransitionUntouched(hold);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to authenticate prepared-back terminal",
                     throwable);
         }
@@ -1959,10 +1959,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(startAnimation)
                     .setId("systemui_back_prepared_transition_decision")
                     .intercept(this::holdPreparedBackTransitionUntilTargets));
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Hooked prepared-back transition target ordering");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook prepared-back transition target ordering",
                     throwable);
         }
@@ -2060,7 +2060,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     (SurfaceControl.Transaction) chain.getArg(3),
                     chain.getArg(4));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to qualify prepared-back transition hold",
                     throwable);
             return chain.proceed();
@@ -2068,7 +2068,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         if (!preparedBackTransitionHold.compareAndSet(null, hold)) {
             return chain.proceed();
         }
-        log(Log.INFO, TAG,
+        moduleLog(Log.INFO, TAG,
                 "Held prepared-back transition until remote targets"
                         + ", transitionId=" + hold.transitionDebugId
                         + ", shellSessionId=" + hold.session.id
@@ -2093,7 +2093,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 throw new IllegalStateException("Shell Handler rejected resume");
             }
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to queue held prepared-back transition resume"
                             + ", transitionId=" + hold.transitionDebugId
                             + ", event=" + (terminal ? "terminal" : "targets"),
@@ -2146,7 +2146,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 throw cause == null ? exception : cause;
             }
             if (!Boolean.TRUE.equals(result)) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Stock handler declined held prepared-back transition"
                                 + ", transitionId=" + hold.transitionDebugId
                                 + ", shellSessionId=" + hold.session.id
@@ -2154,7 +2154,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 return;
             }
             if (!preparedBackTransitionHold.compareAndSet(hold, null)) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Lost held prepared-back ownership after stock resume"
                                 + ", transitionId=" + hold.transitionDebugId
                                 + ", shellSessionId=" + hold.session.id);
@@ -2168,14 +2168,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 preparedBackTargetArrival.compareAndSet(
                         consumedArrival, null);
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Resumed held prepared-back transition through stock handler"
                             + ", transitionId=" + hold.transitionDebugId
                             + ", shellSessionId=" + hold.session.id
                             + ", event=" + event
                             + ", apps=" + shortObject(controllerApps));
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to resume held prepared-back transition"
                             + ", transitionId=" + hold.transitionDebugId
                             + ", shellSessionId=" + hold.session.id
@@ -2256,10 +2256,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             recordHookHandle(hook(setHidden)
                     .setId("systemui_back_color_root_scrim_creation")
                     .intercept(this::keepFreeformScrimHiddenUntilFirstApply));
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Hooked freeform cross-activity scrim creation visibility");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook freeform cross-activity scrim creation",
                     throwable);
         }
@@ -2282,7 +2282,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     DEFAULT_CROSS_ACTIVITY_BACK_ANIMATION, false, classLoader);
             backMotionEventClass = BackMotionEvent.class;
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Cross-activity animation classes unavailable",
+            moduleLog(Log.ERROR, TAG, "Cross-activity animation classes unavailable",
                     throwable);
             return;
         }
@@ -2295,9 +2295,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 recordHookHandle(hook(apply)
                         .setId("systemui_back_color_root_apply")
                         .intercept(this::onCrossActivityColorRootApply));
-                log(Log.INFO, TAG, "Hooked freeform color-layer root adoption");
+                moduleLog(Log.INFO, TAG, "Hooked freeform color-layer root adoption");
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Failed to hook freeform color-layer root adoption", throwable);
             }
         }
@@ -2308,9 +2308,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 recordHookHandle(hook(start)
                         .setId("systemui_back_slide_start")
                         .intercept(this::onCrossActivitySlideStart));
-                log(Log.INFO, TAG, "Hooked slide start as " + start.getName());
+                moduleLog(Log.INFO, TAG, "Hooked slide start as " + start.getName());
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to hook slide start", throwable);
+                moduleLog(Log.ERROR, TAG, "Failed to hook slide start", throwable);
             }
         }
         if (installProgress) {
@@ -2326,10 +2326,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 recordHookHandle(hook(register)
                         .setId("systemui_back_slide_progress")
                         .intercept(this::onCrossActivitySlideProgressRegistration));
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Hooked slide progress via BackProgressAnimator registration");
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to hook slide progress", throwable);
+                moduleLog(Log.ERROR, TAG, "Failed to hook slide progress", throwable);
             }
         }
         if (installPostCommit) {
@@ -2344,12 +2344,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 recordHookHandle(hook(postCommit)
                         .setId("systemui_back_slide_post_commit")
                         .intercept(this::onCrossActivitySlidePostCommit));
-                log(Log.INFO, TAG, "Hooked slide post-commit as "
+                moduleLog(Log.INFO, TAG, "Hooked slide post-commit as "
                         + postCommit.getDeclaringClass().getSimpleName()
                         + "." + postCommit.getName()
                         + ", superPosition=" + miuixSlidePostCommitOnBase);
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to hook slide post-commit", throwable);
+                moduleLog(Log.ERROR, TAG, "Failed to hook slide post-commit", throwable);
             }
         }
         if (installDuration) {
@@ -2359,9 +2359,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 recordHookHandle(hook(duration)
                         .setId("systemui_back_slide_duration")
                         .intercept(this::onCrossActivitySlideDuration));
-                log(Log.INFO, TAG, "Hooked slide duration as " + duration.getName());
+                moduleLog(Log.INFO, TAG, "Hooked slide duration as " + duration.getName());
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to hook slide duration", throwable);
+                moduleLog(Log.ERROR, TAG, "Failed to hook slide duration", throwable);
             }
         }
         if (installFinish) {
@@ -2371,11 +2371,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 recordHookHandle(hook(finish)
                         .setId("systemui_back_slide_finish")
                         .intercept(this::onCrossActivitySlideFinish));
-                log(Log.INFO, TAG, "Hooked slide finish as "
+                moduleLog(Log.INFO, TAG, "Hooked slide finish as "
                         + finish.getDeclaringClass().getSimpleName()
                         + "." + finish.getName());
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to hook slide finish", throwable);
+                moduleLog(Log.ERROR, TAG, "Failed to hook slide finish", throwable);
             }
         }
     }
@@ -2391,13 +2391,13 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     recordHookHandle(hook(method)
                             .setId("systemui_cross_task_background")
                             .intercept(this::tintCrossTaskBackground));
-                    log(Log.INFO, TAG, "Hooked cross-task background tint");
+                    moduleLog(Log.INFO, TAG, "Hooked cross-task background tint");
                     return;
                 }
             }
-            log(Log.WARN, TAG, "BackAnimationBackground.ensureBackground not found");
+            moduleLog(Log.WARN, TAG, "BackAnimationBackground.ensureBackground not found");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook cross-task background", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to hook cross-task background", throwable);
         }
     }
 
@@ -2427,10 +2427,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 invokeMethod(transaction, "setColor",
                         new Class<?>[]{SurfaceControl.class, float[].class},
                         new Object[]{surface, new float[]{0.0f, 0.0f, 0.0f}});
-                log(Log.INFO, TAG, "Repainted cross-task background black");
+                moduleLog(Log.INFO, TAG, "Repainted cross-task background black");
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to tint cross-task background black", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to tint cross-task background black", throwable);
         }
         return result;
     }
@@ -2480,7 +2480,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             }
             if (match != null) {
                 match.setAccessible(true);
-                log(Log.INFO, TAG, "Resolved " + name + " by signature as "
+                moduleLog(Log.INFO, TAG, "Resolved " + name + " by signature as "
                         + current.getName() + "." + match.getName());
                 return match;
             }
@@ -2594,7 +2594,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 readFieldOrNull(builder, "mCallsite"))) {
             return chain.proceed();
         }
-        log(Log.INFO, TAG,
+        moduleLog(Log.INFO, TAG,
                 "Kept freeform cross-activity scrim hidden until atomic first apply"
                         + ", taskId=" + readIntFieldOrDefault(
                         candidate.closingTarget, "taskId", -1));
@@ -2678,7 +2678,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     if (freeformColorRootAdoption == adoption) {
                         freeformColorRootAdoption = null;
                     }
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Failed freeform Activity geometry normalization;"
                                     + " preserving native target geometry",
                             throwable);
@@ -2691,7 +2691,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             Object animation = chain.getThisObject();
             if (!matchesFreeformColorRootCandidate(candidate, animation)) {
                 freeformColorRootCandidate.compareAndSet(candidate, null);
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected stale freeform color-layer root candidate");
             } else {
                 Object scrim = readFieldOrNull(animation, "scrimLayer");
@@ -2767,14 +2767,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             }
         } catch (Throwable throwable) {
             freeformColorRootCandidate.compareAndSet(candidate, null);
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed freeform color-layer root adoption; leaving native layers",
                     throwable);
         }
         Object result = chain.proceed();
         if (adopted != null) {
             freeformColorRootAdoption = adopted;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Adopted freeform cross-activity color layers into prepared root"
                             + ", backgroundAlpha=0.0"
                             + ", rootCornerRadius=" + candidate.rootCornerRadius
@@ -2981,11 +2981,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             miuixSlideLastProgressSampleMs = 0L;
             miuixSlideArmedAnimation = new WeakReference<>(animation);
             miuixSlideAnimActive = true;
-            log(Log.INFO, TAG, "Armed miuix slide back animation"
+            moduleLog(Log.INFO, TAG, "Armed miuix slide back animation"
                     + ", width=" + width + ", rtl=" + rtl);
         } catch (Throwable throwable) {
             miuixSlideAnimActive = false;
-            log(Log.WARN, TAG, "Failed to arm miuix slide geometry", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to arm miuix slide geometry", throwable);
         }
         return result;
     }
@@ -3010,7 +3010,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             progressAnimator = readField(animation, "progressAnimator");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to read progressAnimator", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to read progressAnimator", throwable);
             return chain.proceed();
         }
         if (progressAnimator != chain.getThisObject()) {
@@ -3022,7 +3022,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 onMiuixSlideFrame(animation, event);
             } catch (Throwable throwable) {
                 miuixSlideAnimActive = false;
-                log(Log.WARN, TAG, "miuix slide frame failed"
+                moduleLog(Log.WARN, TAG, "miuix slide frame failed"
                         + ", fallingBackToNativeCallback=true", throwable);
                 if (originalCallback instanceof BackProgressAnimator.ProgressCallback) {
                     ((BackProgressAnimator.ProgressCallback) originalCallback)
@@ -3037,7 +3037,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         } finally {
             miuixSlideRegistrationReentry = false;
         }
-        log(Log.INFO, TAG, "miuix slide progress callback proxied");
+        moduleLog(Log.INFO, TAG, "miuix slide progress callback proxied");
         return null;
     }
 
@@ -3123,7 +3123,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         }
                     } catch (Throwable throwable) {
                         miuixSlideAnimActive = false;
-                        log(Log.WARN, TAG, "miuix slide deferred post-commit failed",
+                        moduleLog(Log.WARN, TAG, "miuix slide deferred post-commit failed",
                                 throwable);
                     }
                 });
@@ -3133,7 +3133,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             return null;
         } catch (Throwable throwable) {
             miuixSlideAnimActive = false;
-            log(Log.WARN, TAG, "miuix slide post-commit frame failed", throwable);
+            moduleLog(Log.WARN, TAG, "miuix slide post-commit frame failed", throwable);
             return chain.proceed();
         }
     }
@@ -3278,15 +3278,15 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     recordHookHandle(hook(method)
                             .setId("systemui_back_prepare_reparent")
                             .intercept(this::correctPredictiveBackPrepareReparent));
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Hooked Shell predictive prepare ownership correction");
                     return;
                 }
             }
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "BackTransitionHandler.handlePrepareTransition not found");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook Shell predictive-back prepare reparent",
                     throwable);
         }
@@ -3301,10 +3301,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     .setId("systemui_back_commit_composition")
                     .intercept(this::correctPredictiveBackCommitComposition));
             backCommitCompositionHookReady = true;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Hooked Shell predictive return-home commit composition");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook Shell predictive return-home commit composition",
                     throwable);
         }
@@ -3378,7 +3378,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 closingTarget, enteringTarget, rootLeash,
                 (SurfaceControl) closingLeash, (SurfaceControl) enteringLeash,
                 rootCornerRadius));
-        log(Log.INFO, TAG,
+        moduleLog(Log.INFO, TAG,
                 "Armed freeform cross-activity color-layer root adoption"
                         + ", taskId=" + taskId
                         + ", rootCornerRadius=" + rootCornerRadius);
@@ -3396,7 +3396,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             captureFreeformColorRootCandidate(
                     chain.getThisObject(), chain.getArg(0), chain.getArg(1));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to capture freeform color-layer root candidate",
                     throwable);
         }
@@ -3460,14 +3460,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         "prepared return-home role normalization was not retained"
                                 + ", mode=" + normalizedMode);
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Corrected Xiaomi predictive return-home prepare role"
                             + ", taskId=" + composition.closingTaskId
                             + ", mode=" + TRANSIT_TO_FRONT + "->" + normalizedMode
                             + ", wallpaperPresent="
                             + (preparedShape.wallpaperLeash != null));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed Xiaomi predictive return-home prepare role correction",
                     throwable);
         }
@@ -3480,7 +3480,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             candidate = captureReturnHomeCommitComposition(chain);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to inspect predictive return-home commit composition",
                     throwable);
         }
@@ -3489,7 +3489,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             try {
                 finishTransfer = captureReturnHomeFinishTransferCandidate(chain);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to inspect rejected return-home CLOSE boundary",
                         throwable);
             }
@@ -3501,7 +3501,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             if (nested == null) {
                 returnHomeFinishTransferCandidate.set(finishTransfer);
                 finishTransferArmed = true;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Armed atomic prepared-finish transfer"
                                 + ", transitionDebugId="
                                 + finishTransfer.transitionDebugId
@@ -3510,7 +3510,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                                 + ", taskId="
                                 + finishTransfer.composition.closingTaskId);
             } else {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected nested atomic prepared-finish transfer"
                                 + ", transitionDebugId="
                                 + finishTransfer.transitionDebugId
@@ -3526,7 +3526,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 routedArgs = chain.getArgs().toArray();
                 routedArgs[5] = wrappedFinishCallback;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Could not arm accepted return-home commit composition",
                         throwable);
             }
@@ -3596,14 +3596,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 boolean composedInStartTransaction =
                         candidate.acceptedBoundaryComposition.get() == 2;
                 if (!composedInStartTransaction) {
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Rejected non-atomic return-home commit composition"
                                     + ", taskId=" + composition.closingTaskId
                                     + ", boundaryPhase="
                                     + candidate.acceptedBoundaryComposition.get());
                     return result;
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Corrected accepted predictive return-home commit composition"
                                 + ", taskId=" + composition.closingTaskId
                                 + ", homeTaskId=" + composition.openingTaskId
@@ -3619,7 +3619,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         candidate.controller, null, false);
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed predictive return-home merge exit verification",
                     throwable);
         }
@@ -3652,7 +3652,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             candidate.acceptedBoundaryComposition.set(2);
                         } catch (Throwable throwable) {
                             candidate.acceptedBoundaryComposition.set(3);
-                            log(Log.WARN, TAG,
+                            moduleLog(Log.WARN, TAG,
                                     "Failed accepted return-home start-transaction composition"
                                             + ", taskId="
                                             + candidate.composition.closingTaskId
@@ -3706,7 +3706,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         // SurfaceFlinger can never present the unparented fullscreen change in between.
         ((SurfaceControl.Transaction) candidate.startTransaction).reparent(
                 candidate.changeLeash, composition.closingLeash);
-        log(Log.INFO, TAG,
+        moduleLog(Log.INFO, TAG,
                 "Composed accepted predictive return-home commit in original start transaction"
                         + ", taskId=" + composition.closingTaskId
                         + ", homeTaskId=" + composition.openingTaskId
@@ -3761,7 +3761,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         ReturnHomeComposition composition = resolveReturnHomeComposition(
                 readField(controller, "mApps"));
         if (composition == null) {
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Skipped predictive return-home commit composition: "
                             + "non-standard targets");
             return null;
@@ -3770,7 +3770,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 resolvePreparedReturnHomeShape(
                         preparedOpenInfo, composition, TRANSIT_CHANGE);
         if (preparedShape == null) {
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Skipped predictive return-home commit composition: "
                             + "non-standard prepared transition");
             return null;
@@ -3781,7 +3781,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         boolean supportedClosingType = transitionType == TRANSIT_CLOSE
                 || transitionType == TRANSIT_TO_BACK;
         if (!supportedClosingType) {
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Skipped predictive return-home commit composition: "
                             + "unexpected transition type=" + transitionType);
             return null;
@@ -3818,7 +3818,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         if (matchCount != 1 || matchingChange == null
                 || matchingMode != transitionType
                 || !backGestureAnimated || elementChangePresent) {
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Skipped predictive return-home commit composition: "
                             + "closing change mismatch"
                             + ", taskId=" + composition.closingTaskId
@@ -3839,7 +3839,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 composition.openingLeash)
                 || !surfacesAreSame((SurfaceControl) changeLeashObject,
                 preparedShape.appLeash)) {
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Skipped predictive return-home commit composition: "
                             + "invalid or aliased change leash"
                             + ", taskId=" + composition.closingTaskId
@@ -4471,7 +4471,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     && isExactReturnHomeFinishTransferPostShape(candidate);
             boolean firstAttempt = candidate.transferAttempted.compareAndSet(0, 1);
             if (!exact || !firstAttempt) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected prepared-finish atomic transfer at apply boundary"
                                 + ", exact=" + exact
                                 + ", transitionDebugId="
@@ -4490,7 +4490,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             candidate.startTransaction.merge(
                     candidate.preparedFinishTransaction);
             transferred = true;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Transferred prepared finish into Xiaomi native start transaction"
                             + ", transitionDebugId="
                             + candidate.transitionDebugId
@@ -4502,7 +4502,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             + candidate.composition.closingTaskId);
         } catch (Throwable throwable) {
             candidate.transferAttempted.set(1);
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed prepared-finish atomic transfer"
                             + ", exact=" + exact
                             + ", transitionDebugId="
@@ -4531,7 +4531,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             backFinishOpenAtomicHookReady = true;
             boolean callerDeoptimized =
                     deoptimizeBackFinishOpenCaller(classLoader);
-            log(isReturnHomeFinishTransferReady() ? Log.INFO : Log.WARN, TAG,
+            moduleLog(isReturnHomeFinishTransferReady() ? Log.INFO : Log.WARN, TAG,
                     "Hooked Shell prepared-finish atomic transfer"
                             + ", outerHook="
                             + backCommitCompositionHookReady
@@ -4544,7 +4544,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         } catch (Throwable throwable) {
             backFinishOpenAtomicHookReady = false;
             backFinishOpenCallerDeoptimized = false;
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook Shell prepared-finish atomic transfer",
                     throwable);
         }
@@ -4557,12 +4557,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     BACK_TRANSITION_HANDLER, false, classLoader);
             Method mergeAnimation = requireBackMergeAnimation(handlerClass);
             backFinishOpenCallerDeoptimized = deoptimize(mergeAnimation);
-            log(backFinishOpenCallerDeoptimized ? Log.INFO : Log.WARN,
+            moduleLog(backFinishOpenCallerDeoptimized ? Log.INFO : Log.WARN,
                     TAG, "Deoptimized exact BackTransitionHandler.mergeAnimation"
                             + ", success="
                             + backFinishOpenCallerDeoptimized);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to deoptimize BackTransitionHandler.mergeAnimation"
                             + " for finish/start atomicity",
                     throwable);
@@ -4673,7 +4673,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             if (!optional) {
                 throw exception;
             }
-            log(Log.INFO, TAG, "Optional Shell method unavailable: " + methodName);
+            moduleLog(Log.INFO, TAG, "Optional Shell method unavailable: " + methodName);
         }
     }
 
@@ -4728,7 +4728,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 }
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to capture fixed Shell completion identity",
                     throwable);
         }
@@ -4737,7 +4737,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             try {
                 Object transitionHandler = readField(controller,
                         "mBackTransitionHandler");
-                log(Log.INFO, TAG, "Completed stock Shell back-animation cleanup"
+                moduleLog(Log.INFO, TAG, "Completed stock Shell back-animation cleanup"
                         + ", postCommit=" + readField(controller,
                         "mPostCommitAnimationInProgress")
                         + ", navigation=" + shortObject(readField(controller,
@@ -4755,7 +4755,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         + ", prepareClose=" + shortObject(readField(
                         transitionHandler, "mClosePrepareTransition")));
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to inspect completed Shell back-animation cleanup",
                         throwable);
             }
@@ -4764,7 +4764,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             try {
                 completion.run();
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to publish fixed Shell completion",
                         throwable);
             }
@@ -4789,7 +4789,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 String senderPackage = getSentFromPackage();
                 if (!isTrustedMiuiHomeBroadcastSender(
                         receiverContext, senderUid, senderPackage)) {
-                    log(Log.WARN, TAG, "Rejected untrusted Miui launcher-state broadcast"
+                    moduleLog(Log.WARN, TAG, "Rejected untrusted Miui launcher-state broadcast"
                             + ", uid=" + senderUid
                             + ", package=" + senderPackage);
                     return;
@@ -4805,7 +4805,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 }
                 if (intent.hasExtra("drawer_visible")) {
                     miuiDrawerVisible = intent.getBooleanExtra("drawer_visible", false);
-                    log(Log.INFO, TAG, "MiuiHome drawer state changed"
+                    moduleLog(Log.INFO, TAG, "MiuiHome drawer state changed"
                             + ", drawerVisible=" + miuiDrawerVisible
                             + ", uid=" + senderUid
                             + ", package=" + senderPackage);
@@ -4813,7 +4813,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 if (intent.hasExtra(EXTRA_LAUNCHER_EDITING)) {
                     miuiLauncherEditing = intent.getBooleanExtra(
                             EXTRA_LAUNCHER_EDITING, false);
-                    log(Log.INFO, TAG, "MiuiHome editing state changed"
+                    moduleLog(Log.INFO, TAG, "MiuiHome editing state changed"
                             + ", editing=" + miuiLauncherEditing
                             + ", uid=" + senderUid
                             + ", package=" + senderPackage);
@@ -4828,7 +4828,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             EXTRA_LAUNCHER_OPEN_BREAK_AVAILABLE, false);
                     if (generation == 0L
                             || generation < miuiLauncherOpenBreakGeneration) {
-                        log(Log.WARN, TAG, "Ignored stale MiuiHome launcher OPEN break state"
+                        moduleLog(Log.WARN, TAG, "Ignored stale MiuiHome launcher OPEN break state"
                                 + ", active=" + active
                                 + ", available=" + available
                                 + ", generation=" + generation
@@ -4840,7 +4840,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         miuiLauncherOpenBreakGeneration = generation;
                         miuiLauncherOpenActive = active;
                         miuiLauncherOpenBreakAvailable = available;
-                        log(Log.INFO, TAG, "MiuiHome launcher OPEN break state changed"
+                        moduleLog(Log.INFO, TAG, "MiuiHome launcher OPEN break state changed"
                                 + ", active=" + active
                                 + ", available=" + available
                                 + ", generation=" + generation
@@ -4856,7 +4856,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     }
                 } else if (intent.hasExtra(
                         EXTRA_LAUNCHER_OPEN_BREAK_AVAILABLE)) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Ignored launcher OPEN state without active lifecycle");
                 }
                 String state = intent == null ? null : intent.getStringExtra("state");
@@ -4892,10 +4892,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             appContext.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
             miuiOverviewReceiverContext = appContext;
             miuiOverviewReceiver = receiver;
-            log(Log.INFO, TAG, "Registered Miui launcher overview-state receiver"
+            moduleLog(Log.INFO, TAG, "Registered Miui launcher overview-state receiver"
                     + ", currentOverviewVisible=" + miuiOverviewVisible);
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to register Miui overview-state receiver",
+            moduleLog(Log.ERROR, TAG, "Failed to register Miui overview-state receiver",
                     throwable);
         }
     }
@@ -4904,14 +4904,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         long generation = intent.getLongExtra(EXTRA_INPUT_ARBITER_GENERATION, 0L);
         if (generation != systemUiInputArbiterGeneration
                 || systemUiInputArbiterMonitorCount.get() <= 0) {
-            log(Log.WARN, TAG, "Ignored stale MiuiHome accepted input token"
+            moduleLog(Log.WARN, TAG, "Ignored stale MiuiHome accepted input token"
                     + ", tokenGeneration=" + generation
                     + ", currentGeneration=" + systemUiInputArbiterGeneration
                     + ", monitors=" + systemUiInputArbiterMonitorCount.get());
             return;
         }
         if (!intent.hasExtra(EXTRA_INPUT_EVENT_ID)) {
-            log(Log.WARN, TAG, "Rejected MiuiHome accepted token without event id");
+            moduleLog(Log.WARN, TAG, "Rejected MiuiHome accepted token without event id");
             return;
         }
         MiuiHomeAcceptedInputToken token = new MiuiHomeAcceptedInputToken(
@@ -4925,7 +4925,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 || token.deviceId == Integer.MIN_VALUE
                 || token.displayId == Integer.MIN_VALUE
                 || (token.edge != EDGE_LEFT && token.edge != EDGE_RIGHT)) {
-            log(Log.WARN, TAG, "Rejected malformed MiuiHome accepted input token"
+            moduleLog(Log.WARN, TAG, "Rejected malformed MiuiHome accepted input token"
                     + ", eventId=" + token.eventId
                     + ", downTime=" + token.downTime
                     + ", deviceId=" + token.deviceId
@@ -4943,7 +4943,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     () -> acceptedInputToken.compareAndSet(token, null),
                     INPUT_ACCEPTED_TOKEN_TIMEOUT_MS);
         }
-        log(Log.INFO, TAG, "Received MiuiHome accepted input token"
+        moduleLog(Log.INFO, TAG, "Received MiuiHome accepted input token"
                 + ", eventId=" + token.eventId
                 + ", downTime=" + token.downTime
                 + ", displayId=" + token.displayId
@@ -4962,7 +4962,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             String[] packages = context.getPackageManager().getPackagesForUid(uid);
             return packages != null && Arrays.asList(packages).contains(MIUI_HOME);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to validate launcher-state sender uid=" + uid,
+            moduleLog(Log.WARN, TAG, "Failed to validate launcher-state sender uid=" + uid,
                     throwable);
         }
         return false;
@@ -4981,9 +4981,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         try {
             receiverContext.unregisterReceiver(receiver);
-            log(Log.INFO, TAG, "Unregistered Miui launcher overview-state receiver");
+            moduleLog(Log.INFO, TAG, "Unregistered Miui launcher overview-state receiver");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to unregister Miui overview-state receiver",
+            moduleLog(Log.WARN, TAG, "Failed to unregister Miui overview-state receiver",
                     throwable);
         }
     }
@@ -5001,14 +5001,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 // permanently believing that launcher Home is visible.
                 miuiOverviewDismissPendingUntilUptime = 0L;
                 miuiOverviewVisible = true;
-                log(Log.INFO, TAG, "Confirmed new Miui Recents entry during dismiss pending"
+                moduleLog(Log.INFO, TAG, "Confirmed new Miui Recents entry during dismiss pending"
                         + ", state=" + state
                         + ", source=" + source
                         + ", clearedPendingForMs=" + (pendingUntil - now)
                         + ", overviewVisible=true");
                 return;
             }
-            log(Log.INFO, TAG, "Ignored Miui Recents enter while dismiss is pending"
+            moduleLog(Log.INFO, TAG, "Ignored Miui Recents enter while dismiss is pending"
                     + ", state=" + state
                     + ", source=" + source
                     + ", pendingForMs=" + (pendingUntil - now)
@@ -5019,7 +5019,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             long guardUntil = now + MIUI_OVERVIEW_EXIT_GUARD_MS;
             miuiOverviewDismissPendingUntilUptime = guardUntil;
             miuiOverviewVisible = false;
-            log(Log.INFO, TAG, "Confirmed Miui Recents dismiss"
+            moduleLog(Log.INFO, TAG, "Confirmed Miui Recents dismiss"
                     + ", state=" + state
                     + ", source=" + source
                     + ", lateEnterGuardMs=" + MIUI_OVERVIEW_EXIT_GUARD_MS
@@ -5030,7 +5030,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             miuiOverviewDismissPendingUntilUptime = 0L;
         }
         miuiOverviewVisible = overviewVisible;
-        log(Log.INFO, TAG, "Miui launcher state changed"
+        moduleLog(Log.INFO, TAG, "Miui launcher state changed"
                 + ", state=" + state
                 + ", source=" + source
                 + ", overviewVisible=" + overviewVisible);
@@ -5043,7 +5043,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         new Handler(Looper.getMainLooper()).postDelayed(
                 () -> restoreMiuiOverviewAfterDismissTimeout(pendingUntil),
                 MIUI_OVERVIEW_DISMISS_TIMEOUT_MS);
-        log(Log.INFO, TAG, "Started Miui Recents dismiss pending"
+        moduleLog(Log.INFO, TAG, "Started Miui Recents dismiss pending"
                 + ", reason=" + reason
                 + ", timeoutMs=" + MIUI_OVERVIEW_DISMISS_TIMEOUT_MS
                 + ", overviewVisible=false");
@@ -5055,7 +5055,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         miuiOverviewDismissPendingUntilUptime = 0L;
         miuiOverviewVisible = true;
-        log(Log.WARN, TAG, "Miui Recents dismiss confirmation timed out"
+        moduleLog(Log.WARN, TAG, "Miui Recents dismiss confirmation timed out"
                 + ", restoredOverviewVisible=true");
     }
 
@@ -5074,7 +5074,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             NativeBackInputMonitor existing = nativeInputMonitors.get(edgeBackGestureHandler);
             if (existing != null) {
                 existing.updateBackAnimation(backAnimationImpl);
-                log(Log.INFO, TAG, "Updated native SystemUI back input monitor"
+                moduleLog(Log.INFO, TAG, "Updated native SystemUI back input monitor"
                         + ", controller=" + shortObject(controller));
                 return;
             }
@@ -5105,10 +5105,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 unregisterMiuiOverviewStateReceiver();
                 return;
             }
-            log(Log.INFO, TAG, "Installed native SystemUI back input monitor"
+            moduleLog(Log.INFO, TAG, "Installed native SystemUI back input monitor"
                     + ", controller=" + shortObject(controller));
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to install SystemUI back input driver", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to install SystemUI back input driver", throwable);
         }
     }
 
@@ -5123,15 +5123,15 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             }
             Object backAnimation = readField(edgeBackGestureHandler, "mBackAnimation");
             if (backAnimation == null) {
-                log(Log.INFO, TAG, "Cannot restore back input from handler yet"
+                moduleLog(Log.INFO, TAG, "Cannot restore back input from handler yet"
                         + ", reason=" + reason + ", mBackAnimation=null");
                 return;
             }
             installBackInputDriver(edgeBackGestureHandler, backAnimation);
-            log(Log.INFO, TAG, "Restored back input from existing EdgeBackGestureHandler"
+            moduleLog(Log.INFO, TAG, "Restored back input from existing EdgeBackGestureHandler"
                     + ", reason=" + reason);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to restore back input from handler"
+            moduleLog(Log.WARN, TAG, "Failed to restore back input from handler"
                     + ", reason=" + reason, throwable);
         }
     }
@@ -5154,12 +5154,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             if (plugin != null) {
                 invokeAnyMethod(edgeBackGestureHandler, "setEdgeBackPlugin",
                         new Object[]{plugin});
-                log(Log.INFO, TAG, "Installed native AOSP NavigationEdgeBackPlugin: "
+                moduleLog(Log.INFO, TAG, "Installed native AOSP NavigationEdgeBackPlugin: "
                         + shortObject(plugin));
                 return;
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to create native AOSP edge back plugin", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to create native AOSP edge back plugin", throwable);
         }
         logNativePluginDiagnostics(edgeBackGestureHandler);
     }
@@ -5172,7 +5172,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             Object registry = readField(controller, "mShellBackAnimationRegistry");
             ensureAospRegistryDefinitions(registry, source);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to ensure AOSP back animations from " + source,
+            moduleLog(Log.WARN, TAG, "Failed to ensure AOSP back animations from " + source,
                     throwable);
         }
     }

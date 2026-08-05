@@ -151,6 +151,8 @@ private fun PredictiveBackSettingsScreen(
     var confirmedHyperOsHapticsEnhanced by remember { mutableStateOf(false) }
     var hyperOsSlideAnimation by remember { mutableStateOf(false) }
     var confirmedHyperOsSlideAnimation by remember { mutableStateOf(false) }
+    var moduleLogging by remember { mutableStateOf(true) }
+    var confirmedModuleLogging by remember { mutableStateOf(true) }
     val writeMutex = remember(preferences) { Mutex() }
     val lazyListState = rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
@@ -172,6 +174,8 @@ private fun PredictiveBackSettingsScreen(
         confirmedHyperOsHapticsEnhanced = false
         hyperOsSlideAnimation = false
         confirmedHyperOsSlideAnimation = false
+        moduleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
+        confirmedModuleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
         if (!serviceStateObserved) {
             configurationLoading = true
             return@LaunchedEffect
@@ -220,6 +224,10 @@ private fun PredictiveBackSettingsScreen(
                         PredictiveBackPreferences.KEY_HYPEROS_SLIDE_ANIMATION,
                         PredictiveBackPreferences.DEFAULT_HYPEROS_SLIDE_ANIMATION,
                     ),
+                    remotePreferences.getBoolean(
+                        PredictiveBackPreferences.KEY_MODULE_LOGGING,
+                        PredictiveBackPreferences.DEFAULT_MODULE_LOGGING,
+                    ),
                 )
                 remotePreferences to flags
             }
@@ -232,6 +240,8 @@ private fun PredictiveBackSettingsScreen(
             confirmedHyperOsHapticsEnhanced = loaded.second[2]
             hyperOsSlideAnimation = loaded.second[3]
             confirmedHyperOsSlideAnimation = loaded.second[3]
+            moduleLogging = loaded.second[4]
+            confirmedModuleLogging = loaded.second[4]
         } catch (_: Throwable) {
             configurationError = configurationErrorMessage
         } finally {
@@ -320,6 +330,15 @@ private fun PredictiveBackSettingsScreen(
             { confirmedHyperOsSlideAnimation = it },
         )
     }
+    val persistModuleLogging: (Boolean) -> Unit = { requestedEnabled ->
+        persistBooleanPreference(
+            PredictiveBackPreferences.KEY_MODULE_LOGGING,
+            requestedEnabled,
+            { moduleLogging = it },
+            { confirmedModuleLogging },
+            { confirmedModuleLogging = it },
+        )
+    }
     val statusMessage = when {
         configurationLoading -> SettingsStatusCardMessage(
             text = serviceLoadingMessage,
@@ -392,6 +411,16 @@ private fun PredictiveBackSettingsScreen(
                     onHyperOsHapticsToggle = persistHyperOsHaptics,
                     onHyperOsHapticsEnhancedToggle = persistHyperOsHapticsEnhanced,
                     onHyperOsSlideAnimationToggle = persistHyperOsSlideAnimation,
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 8.dp),
+                )
+            }
+            item(key = "module_logging") {
+                ModuleLoggingCard(
+                    moduleLogging = moduleLogging,
+                    configurationEnabled = configurationEnabled,
+                    onModuleLoggingToggle = persistModuleLogging,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 8.dp),
@@ -512,6 +541,27 @@ private fun AppListNavigationCard(
             title = stringResource(R.string.predictive_back_apps_entry_title),
             summary = stringResource(R.string.predictive_back_apps_entry_summary),
             onClick = onClick,
+        )
+    }
+}
+
+@Composable
+private fun ModuleLoggingCard(
+    moduleLogging: Boolean,
+    configurationEnabled: Boolean,
+    onModuleLoggingToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        insideMargin = PaddingValues(0.dp),
+    ) {
+        SwitchPreference(
+            title = stringResource(R.string.module_logging_title),
+            summary = stringResource(R.string.module_logging_summary),
+            checked = moduleLogging,
+            enabled = configurationEnabled,
+            onCheckedChange = onModuleLoggingToggle,
         )
     }
 }

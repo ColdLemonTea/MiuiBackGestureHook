@@ -31,7 +31,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 if (!shellBackAnimation.transact(
                         SHELL_BACK_SET_LAUNCHER_CALLBACK_TRANSACTION,
                         data, reply, 0)) {
-                    log(Log.WARN, TAG, "Shell rejected setBackToLauncherCallback transact");
+                    moduleLog(Log.WARN, TAG, "Shell rejected setBackToLauncherCallback transact");
                     return false;
                 }
                 reply.readException();
@@ -40,7 +40,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 attached = true;
                 return true;
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to register Shell return-to-home runner",
+                moduleLog(Log.ERROR, TAG, "Failed to register Shell return-to-home runner",
                         throwable);
                 return false;
             } finally {
@@ -119,7 +119,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 try {
                     shellBackAnimation.unlinkToDeath(shellDeathRecipient, 0);
                 } catch (Throwable throwable) {
-                    log(Log.INFO, TAG, "Shell back-animation death link already gone"
+                    moduleLog(Log.INFO, TAG, "Shell back-animation death link already gone"
                             + ", reason=" + reason);
                 }
             }
@@ -141,10 +141,10 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                             SHELL_BACK_CLEAR_LAUNCHER_CALLBACK_TRANSACTION,
                             data, reply, 0);
                     reply.readException();
-                    log(Log.INFO, TAG, "Cleared standard Shell return-to-home callback"
+                    moduleLog(Log.INFO, TAG, "Cleared standard Shell return-to-home callback"
                             + ", reason=" + reason);
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG, "Failed to clear Shell return-to-home callback"
+                    moduleLog(Log.WARN, TAG, "Failed to clear Shell return-to-home callback"
                             + ", reason=" + reason, throwable);
                 } finally {
                     reply.recycle();
@@ -200,7 +200,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
             if (discardRejectedRunnerCallback) {
                 discardRejectedRunnerCallback = false;
                 clearPendingCallbackState();
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Discarded cancel callback for rejected return-home runner");
                 return;
             }
@@ -217,14 +217,14 @@ abstract class MiuiHomeReturnHomePreviewRuntime
             if (discardRejectedRunnerCallback) {
                 discardRejectedRunnerCallback = false;
                 clearPendingCallbackState();
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Discarded invoke callback for rejected return-home runner");
                 return;
             }
             ReturnHomeSession session = currentSession;
             if (session == null || session.progressFrozen) {
                 pendingTerminalAction = RETURN_HOME_TERMINAL_INVOKE;
-                log(Log.INFO, TAG, "Return-to-home invoke waiting for remote targets");
+                moduleLog(Log.INFO, TAG, "Return-to-home invoke waiting for remote targets");
                 return;
             }
             clearPendingCallbackState();
@@ -270,7 +270,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 releaseTargets(nonApps);
                 ReturnHomeSession retainedSession = retainedLauncherOpen
                         ? previousLauncherOpen.session : previous;
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected overlapping return-home runner"
                                 + ", activeGeneration="
                                 + (retainedSession == null ? 0L
@@ -302,7 +302,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                     apps, wallpapers, nonApps, finishedCallback);
             currentSession = session;
             if (!session.resolveTargets()) {
-                log(Log.WARN, TAG, "Invalid return-to-home animation targets"
+                moduleLog(Log.WARN, TAG, "Invalid return-to-home animation targets"
                         + ", generation=" + session.generation
                         + ", apps=" + (apps == null ? -1 : apps.length));
                 discardPendingStandardCommitForRunner(
@@ -331,7 +331,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                     session.lastInputProgress = clamp01(progressEvent.getProgress());
                     updatePreviewFrame(session, progressEvent.getProgress(),
                             progressEvent.getTouchY(), false);
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Applied terminal return-home progress catch-up"
                                     + ", generation=" + session.generation
                                     + ", terminalAction=" + terminalAction
@@ -348,7 +348,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
             } else if (terminalAction == RETURN_HOME_TERMINAL_INVOKE) {
                 startNativeClose(session);
             }
-            log(Log.INFO, TAG, "MiuiHome return-to-home remote animation started"
+            moduleLog(Log.INFO, TAG, "MiuiHome return-to-home remote animation started"
                     + ", generation=" + session.generation
                     + ", transit=" + transit
                     + ", apps=" + apps.length
@@ -385,7 +385,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 }
                 Rect startBounds = resolveRemoteAnimationBounds(session.previewTarget);
                 if (startBounds == null || startBounds.isEmpty()) {
-                    log(Log.WARN, TAG, "Cannot resolve return-to-home preview bounds"
+                    moduleLog(Log.WARN, TAG, "Cannot resolve return-to-home preview bounds"
                             + ", generation=" + session.generation
                             + ", target=" + shortObject(session.previewTarget)
                             + ", source=" + session.previewTargetSource);
@@ -413,7 +413,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                             session, terminalCallbackExpected);
                     return false;
                 }
-                log(Log.INFO, TAG, "Initialized return-to-home preview"
+                moduleLog(Log.INFO, TAG, "Initialized return-to-home preview"
                         + ", generation=" + session.generation
                         + ", startRect=" + session.startRect
                         + ", startRadius=" + session.startCornerRadius
@@ -452,7 +452,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
             clearPendingCallbackState();
             discardPendingStandardCommitForRunner(
                     session.finishedCallback, "nativePreviewUnavailable");
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Rejected return-home runner without unified Xiaomi preview"
                             + ", generation=" + session.generation
                             + ", nativeOwned="
@@ -472,20 +472,20 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 try {
                     target = event.getDepartingAnimationTarget();
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG, "Failed to read departing predictive-back target"
+                    moduleLog(Log.WARN, TAG, "Failed to read departing predictive-back target"
                             + ", generation=" + session.generation, throwable);
                     return false;
                 }
                 source = "backMotionEvent";
                 if (target == null) {
-                    log(Log.WARN, TAG, "Missing departing predictive-back target"
+                    moduleLog(Log.WARN, TAG, "Missing departing predictive-back target"
                             + ", generation=" + session.generation
                             + ", removeDepartTargetFromMotion=false");
                     return false;
                 }
                 int mode = readIntFieldOrDefault(target, "mode", -1);
                 if (mode != 1) {
-                    log(Log.WARN, TAG, "Rejected non-closing departing back target"
+                    moduleLog(Log.WARN, TAG, "Rejected non-closing departing back target"
                             + ", generation=" + session.generation
                             + ", mode=" + mode
                             + ", target=" + shortObject(target));
@@ -497,7 +497,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 Object leash = readField(target, "leash");
                 if (!(leash instanceof SurfaceControl)
                         || !((SurfaceControl) leash).isValid()) {
-                    log(Log.WARN, TAG, "Invalid return-to-home preview leash"
+                    moduleLog(Log.WARN, TAG, "Invalid return-to-home preview leash"
                             + ", generation=" + session.generation
                             + ", source=" + source
                             + ", target=" + shortObject(target)
@@ -512,7 +512,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 session.previewTargetSource = source;
                 return true;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to resolve return-to-home preview target"
+                moduleLog(Log.WARN, TAG, "Failed to resolve return-to-home preview target"
                         + ", generation=" + session.generation
                         + ", source=" + source
                         + ", target=" + shortObject(target), throwable);
@@ -588,7 +588,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
             }
             if (Looper.myLooper() != Looper.getMainLooper()) {
                 session.progressAnimatorFailed = true;
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Refused return-home BackProgressAnimator outside main Looper"
                                 + ", generation=" + session.generation);
                 updatePreviewFrame(session, event.getProgress(),
@@ -608,7 +608,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                             smoothedEvent.getTouchY(),
                             terminalCallbackExpected);
                 });
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Started AOSP return-home progress smoothing"
                                 + ", generation=" + session.generation
                                 + ", inputProgress=" + session.lastInputProgress);
@@ -618,7 +618,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                     session.progressAnimator.reset();
                 } catch (Throwable ignored) {
                 }
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to start AOSP return-home progress smoothing"
                                 + ", generation=" + session.generation,
                         throwable);
@@ -650,7 +650,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                     session.progressAnimator.reset();
                 } catch (Throwable ignored) {
                 }
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to update AOSP return-home progress smoothing"
                                 + ", generation=" + session.generation,
                         throwable);
@@ -716,7 +716,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                     // The identity/frozen guard above updatePreviewFrame keeps that reset frame
                     // from overwriting the handoff or the verified cancel start rectangle.
                     session.progressAnimator.reset();
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Stopped AOSP return-home progress smoothing"
                                     + ", generation=" + session.generation
                                     + ", reason=" + reason
@@ -724,7 +724,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                                     + ", smoothedProgress="
                                     + session.lastSmoothedProgress);
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Failed to stop AOSP return-home progress smoothing"
                                     + ", generation=" + session.generation
                                     + ", reason=" + reason,
@@ -750,7 +750,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
             if (session.nativeHandoffStarted
                     || session.unifiedNativeCommitPending
                     || session.nativeAnimationStarted) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Ignored return-home cancel after native commit"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason);
@@ -766,7 +766,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 return;
             }
             if (Looper.myLooper() != Looper.getMainLooper()) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Refused Xiaomi preview backdrop outside MiuiHome main Looper"
                                 + ", generation=" + session.generation);
                 return;
@@ -779,7 +779,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         "getInstance", new Object[0]);
                 if (Boolean.TRUE.equals(invokeAnyMethod(stateManager,
                         "isWindowElementRunning", new Object[0]))) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved running Xiaomi animation instead of preparing backdrop"
                                     + ", generation=" + session.generation);
                     return;
@@ -788,7 +788,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 prepareNativePreviewShortcutLayer(session);
                 prepareNativePreviewWallpaper(session);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to resolve Xiaomi predictive backdrop owner"
                                 + ", generation=" + session.generation,
                         throwable);
@@ -849,7 +849,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         || Float.compare(layer.getScaleY(), homeScaleY) != 0
                         || appScaleX >= homeScaleX
                         || appScaleY >= homeScaleY) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved active Xiaomi launcher layer during predictive preview"
                                     + ", generation=" + session.generation
                                     + ", current=" + layer.getAlpha() + "/"
@@ -880,7 +880,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                     throw new IllegalStateException(
                             "Xiaomi launcher backdrop did not reach App state");
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Prepared Xiaomi predictive launcher backdrop"
                                 + ", generation=" + session.generation
                                 + ", home=" + homeAlpha + "/"
@@ -905,7 +905,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         "getInstance", new Object[0]);
                 if (element == null || !MIUI_HOME_SYSTEM_WALLPAPER_ELEMENT.equals(
                         element.getClass().getName())) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved unsupported Xiaomi wallpaper backend"
                                     + ", generation=" + session.generation
                                     + ", element=" + shortObject(element));
@@ -944,7 +944,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 session.previewWallpaperHomeZoom = homeZoom;
                 session.previewWallpaperOwned = true;
                 invokePreviewWallpaperSetTo(session, appParams);
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Prepared Xiaomi predictive wallpaper backdrop"
                                 + ", generation=" + session.generation
                                 + ", home=" + homeZoom
@@ -964,7 +964,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 return;
             }
             if (Looper.myLooper() != Looper.getMainLooper()) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Refused Xiaomi preview blur outside MiuiHome main Looper"
                                 + ", generation=" + session.generation);
                 return;
@@ -978,7 +978,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         "getInstance", new Object[0]);
                 if (Boolean.TRUE.equals(invokeAnyMethod(stateManager,
                         "isWindowElementRunning", new Object[0]))) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved running Xiaomi animation instead of preparing blur"
                                     + ", generation=" + session.generation);
                     return;
@@ -1051,7 +1051,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         || (!springRunning && (currentBlur != homeBlur
                         || Float.compare(currentDimming, homeDimming) != 0))
                         || appBlur <= homeBlur) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved active Xiaomi blur instead of taking preview ownership"
                                     + ", generation=" + session.generation
                                     + ", current=" + currentBlur + "/" + currentDimming
@@ -1161,7 +1161,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                                     + ", paramsMatch="
                                     + (appliedParams == ownedParams));
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Prepared progressive Xiaomi predictive return-home blur"
                                 + ", generation=" + session.generation
                                 + ", initial=" + currentBlur + "/" + currentDimming
@@ -1229,7 +1229,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         session.previewBlurPublishedDimming) == 0;
                 if (!stillOwned) {
                     session.previewBlurOwned = false;
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved replacement Xiaomi blur during predictive progress"
                                     + ", generation=" + session.generation
                                     + ", reason=" + reason
@@ -1282,7 +1282,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
         protected void recoverNativePreviewBlurWriteFailure(
                 ReturnHomeSession session, String reason, Throwable cause) {
             if (!session.previewBlurOwned) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to prepare Xiaomi native predictive return-home blur"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason,
@@ -1313,13 +1313,13 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                     // relaxed params rule is deliberately not used here.
                     restorePreviewBlurToHome(
                             session, blurElement, homeParams);
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Recovered Xiaomi blur after predictive write failure"
                                     + ", generation=" + session.generation
                                     + ", reason=" + reason,
                             cause);
                 } else {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Preserved replacement Xiaomi blur after write failure"
                                     + ", generation=" + session.generation
                                     + ", reason=" + reason
@@ -1331,7 +1331,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                             cause);
                 }
             } catch (Throwable recoveryFailure) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to recover Xiaomi predictive return-home blur"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason,
@@ -1348,7 +1348,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 return;
             }
             session.previewBlurOwned = false;
-            log(Log.INFO, TAG, "Transferred predictive blur ownership to Xiaomi"
+            moduleLog(Log.INFO, TAG, "Transferred predictive blur ownership to Xiaomi"
                     + ", generation=" + session.generation
                     + ", reason=" + reason
                     + ", nativeIdentity="
@@ -1394,7 +1394,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                                     + currentDimming);
                     return;
                 }
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Xiaomi CLOSE returned without taking preview blur ownership"
                                 + ", generation=" + session.generation
                                 + ", paramsReplaced="
@@ -1408,7 +1408,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
             } catch (Throwable throwable) {
                 // Retain module ownership when takeover cannot be proven. Native end/reject
                 // cleanup can then restore Home only if the exact App-state snapshot is intact.
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Could not verify Xiaomi predictive blur handoff"
                                 + ", generation=" + session.generation,
                         throwable);
@@ -1451,7 +1451,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         && Float.compare(currentDimming,
                         session.previewBlurPublishedDimming) == 0;
                 if (!stillOwned) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved replacement Xiaomi blur state"
                                     + ", generation=" + session.generation
                                     + ", reason=" + reason
@@ -1474,13 +1474,13 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 }
                 restorePreviewBlurToHome(
                         session, blurElement, homeParams);
-                log(Log.INFO, TAG, "Restored Xiaomi blur after predictive return"
+                moduleLog(Log.INFO, TAG, "Restored Xiaomi blur after predictive return"
                         + ", generation=" + session.generation
                         + ", reason=" + reason
                         + ", restored=" + session.previewBlurInitialRadius
                         + "/" + session.previewBlurInitialDimming);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to restore Xiaomi predictive return-home blur"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason,
@@ -1537,7 +1537,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         // Reissuing setTo() at release is numerically redundant but creates a
                         // separate launcher-View command immediately before native CLOSE starts.
                         // Keep the proven state in place and let Xiaomi's animTo(Home) acquire it.
-                        log(Log.INFO, TAG,
+                        moduleLog(Log.INFO, TAG,
                                 "Retained predictive launcher App state at commit"
                                         + ", generation="
                                         + session.generation
@@ -1567,7 +1567,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                     // wallpaper token. Do not reset that Surface command at release; classify
                     // Xiaomi's following animTo(Home) as continuation of the established state.
                     session.previewWallpaperNativeAppSetObserved = true;
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Retained predictive wallpaper App state at commit"
                                     + ", generation="
                                     + session.generation
@@ -1612,12 +1612,12 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                                         != session.previewShortcutOwnedParams)
                                         + ":springRunning=" + springRunning);
                     } else {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Xiaomi CLOSE returned without taking launcher backdrop"
                                         + ", generation=" + session.generation);
                     }
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Could not verify Xiaomi launcher backdrop handoff"
                                     + ", generation=" + session.generation,
                             throwable);
@@ -1664,19 +1664,19 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         && Float.compare(view.getScaleY(),
                         session.previewShortcutAppScaleY) == 0;
                 if (!stillOwned) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved replacement Xiaomi launcher backdrop"
                                     + ", generation=" + session.generation
                                     + ", reason=" + reason);
                     return;
                 }
                 invokeAnyMethod(element, "setTo", new Object[]{homeParams});
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Restored Xiaomi launcher backdrop after predictive return"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to restore Xiaomi predictive launcher backdrop"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason,
@@ -1689,7 +1689,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
         protected void recoverNativePreviewShortcutLayer(
                 ReturnHomeSession session, String reason, Throwable cause) {
             if (!session.previewShortcutOwned) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to prepare Xiaomi predictive launcher backdrop"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason,
@@ -1704,7 +1704,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
         protected void transferNativePreviewShortcutLayer(
                 ReturnHomeSession session, String reason) {
             if (session.previewShortcutOwned) {
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Transferred predictive launcher backdrop to Xiaomi"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason);
@@ -1749,7 +1749,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                     if (!animated && Float.compare(zoom,
                             session.previewWallpaperAppZoom) == 0) {
                         session.previewWallpaperNativeAppSetObserved = true;
-                        log(Log.INFO, TAG,
+                        moduleLog(Log.INFO, TAG,
                                 "Observed Xiaomi native wallpaper App handoff"
                                         + ", generation=" + session.generation
                                         + ", zoom=" + zoom);
@@ -1760,7 +1760,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                             && Float.compare(zoom,
                             session.previewWallpaperHomeZoom) == 0) {
                         session.previewWallpaperNativeHomeAnimObserved = true;
-                        log(Log.INFO, TAG,
+                        moduleLog(Log.INFO, TAG,
                                 "Observed Xiaomi native wallpaper Home continuation"
                                         + ", generation=" + session.generation
                                         + ", zoom=" + zoom);
@@ -1773,7 +1773,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
             } catch (Throwable throwable) {
                 transferNativePreviewWallpaper(session,
                         "unreadableExternalCommand");
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Could not classify Xiaomi wallpaper replacement"
                                 + ", generation=" + session.generation,
                         throwable);
@@ -1799,7 +1799,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                         "getMWorkspace", new Object[0]);
                 if (running || currentWorkspace != workspace
                         || readBackdropWindowToken(workspace) == null) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved replacement Xiaomi wallpaper state"
                                     + ", generation=" + session.generation
                                     + ", reason=" + reason
@@ -1811,14 +1811,14 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 session.previewWallpaperOwned = true;
                 invokePreviewWallpaperSetTo(session, homeParams);
                 session.previewWallpaperOwned = false;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Restored Xiaomi wallpaper after predictive return"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason
                                 + ", zoom="
                                 + session.previewWallpaperHomeZoom);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to restore Xiaomi predictive wallpaper"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason,
@@ -1832,7 +1832,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
         protected void recoverNativePreviewWallpaper(
                 ReturnHomeSession session, String reason, Throwable cause) {
             if (!session.previewWallpaperOwned) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to prepare Xiaomi predictive wallpaper"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason,
@@ -1840,7 +1840,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
                 clearNativePreviewWallpaperReferences(session);
                 return;
             }
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Recovering Xiaomi predictive wallpaper"
                             + ", generation=" + session.generation
                             + ", reason=" + reason,
@@ -1852,7 +1852,7 @@ abstract class MiuiHomeReturnHomePreviewRuntime
         protected void transferNativePreviewWallpaper(
                 ReturnHomeSession session, String reason) {
             if (session.previewWallpaperOwned) {
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Transferred predictive wallpaper to Xiaomi"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason);

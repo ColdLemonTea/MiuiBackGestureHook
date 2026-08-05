@@ -106,7 +106,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 }
                 if (pendingStandardCommitSignal.compareAndSet(
                         pending, null)) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Discarded standard commit for rejected runner"
                                     + ", attempt=" + pending.attempt
                                     + ", taskId=" + pending.taskId
@@ -132,7 +132,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 if (!bindStandardSignalToSession(pending, session)) {
                     return;
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Bound early standard commit to launcher runner"
                                 + ", generation=" + session.generation
                                 + ", attempt=" + pending.attempt
@@ -171,7 +171,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     != miuiHomeSystemUiInputArbiterGeneration
                     || signal.runnerSession == null
                     || !inputAuthenticated) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected standard commit without an authenticated input owner"
                                 + ", attempt=" + signal.attempt
                                 + ", taskId=" + signal.taskId
@@ -188,7 +188,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 return;
             }
             if (signal.attempt <= lastStandardCommitSignalAttempt) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Ignored reordered standard return-home commit signal"
                                 + ", attempt=" + signal.attempt
                                 + ", lastAttempt="
@@ -206,7 +206,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                         pendingStandardCommitSignal.get();
                 if (previous != null
                         && previous.attempt >= signal.attempt) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Ignored stale standard return-home commit signal"
                                     + ", attempt=" + signal.attempt
                                     + ", activeAttempt="
@@ -219,7 +219,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     break;
                 }
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Received authenticated standard return-home commit"
                             + ", attempt=" + signal.attempt
                             + ", taskId=" + signal.taskId
@@ -234,7 +234,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             if (bindNow) {
                 continueUnifiedStandardCommit(activeSession);
             } else {
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Retained authenticated standard commit until runner arrives"
                                 + ", attempt="
                                 + signal.attempt
@@ -273,7 +273,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                         || !standardSignalMatchesSession(signal, session)) {
                     pendingStandardCommitSignal.compareAndSet(signal, null);
                 }
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected non-matching standard return-home commit"
                                 + ", attempt=" + signal.attempt
                                 + ", signalTaskId=" + signal.taskId
@@ -344,7 +344,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 session.unifiedNativePreviewSpringEndHeld = false;
                 session.previewBlurProviderReturned = true;
                 session.previewBackdropProviderReturned = true;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Requested Xiaomi standard CLOSE on unified owner"
                                 + ", generation=" + session.generation
                                 + ", attempt=" + signal.attempt
@@ -373,7 +373,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                             requestUnifiedPendingCommitTermination(
                                     session,
                                     "standardNativeHandoffRejected");
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Failed Xiaomi standard CLOSE before animTo adoption"
                                     + ", generation="
                                     + session.generation
@@ -394,7 +394,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                         == UnifiedNativeStandardCommitToken.PHASE_ENTERED)
                         && requestUnifiedPendingCommitTermination(
                         session, "standardNativeProviderFailed");
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Xiaomi standard CLOSE provider tail failed; retained native owner"
                                 + ", generation=" + session.generation
                                 + ", attempt=" + signal.attempt
@@ -553,7 +553,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     pendingStandardCommitSignal.compareAndSet(
                             pendingSignal, null);
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Adopted Xiaomi full native closing provider on unified owner"
                                 + ", generation=" + session.generation
                                 + ", from=CLOSE_TO_DRAG"
@@ -568,7 +568,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                                 + shortObject(providerIdentity));
                 return true;
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Failed Xiaomi full native provider adoption on unified owner"
                                 + ", generation="
                                 + session.generation,
@@ -584,7 +584,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             }
             if (!session.unifiedNativePreviewOwned
                     || session.unifiedNativeCancelPending) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected return-home commit without unified Xiaomi preview"
                                 + ", generation=" + session.generation
                                 + ", nativeOwned="
@@ -613,7 +613,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     if (!abandonReplacedUnifiedNativePreview(
                             session, "commit", currentElement,
                             currentIdentity, targetSetChanged)) {
-                        log(Log.ERROR, TAG,
+                        moduleLog(Log.ERROR, TAG,
                                 "Retained uncertain Xiaomi owner before commit"
                                         + ", generation="
                                         + session.generation);
@@ -621,7 +621,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     return;
                 }
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Could not verify Xiaomi owner before commit"
                                 + ", generation=" + session.generation,
                         throwable);
@@ -638,7 +638,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             prepareNativePreviewBackdropForCommit(session);
             session.nativeHandoffStarted = true;
             session.unifiedNativeCommitPending = true;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Held Xiaomi CLOSE_TO_DRAG for real commit transition"
                             + ", generation=" + session.generation
                             + ", animationIdentity="
@@ -647,7 +647,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                             + ", rect=" + session.currentRect);
             if (!session.unifiedNativeCommitReady.compareAndSet(
                     false, true)) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Rejected duplicate Xiaomi predictive retarget boundary"
                                 + ", generation=" + session.generation
                                 + ", ready=true");
@@ -679,7 +679,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                         && windowElement == session.nativeWindowElement
                         && animationIdentity
                         == session.unifiedNativeAnimationIdentity) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Observed module-owned Xiaomi predictive spring"
                                     + ", generation="
                                     + session.generation
@@ -692,7 +692,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 }
                 return false;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to capture Xiaomi CLOSE animation identity"
+                moduleLog(Log.WARN, TAG, "Failed to capture Xiaomi CLOSE animation identity"
                         + ", generation=" + session.generation, throwable);
                 return false;
             }
@@ -840,7 +840,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             if (!pendingLauncherOpenBarrier.compareAndSet(null, token)) {
                 return null;
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Prepared Xiaomi CLOSE-to-OPEN handoff"
                             + ", generation=" + session.generation
                             + ", attempt=" + signal.attempt
@@ -979,7 +979,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 try {
                     acceptNativeCloseToOpenBoundary(token);
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Failed Xiaomi CLOSE-to-OPEN completion boundary"
                                     + ", generation=" + token.generation,
                             throwable);
@@ -1093,7 +1093,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     && surfaceCancelExecuted && canceled
                     && nativeCallbackConsumed && freshOpenReady;
             if (!valid) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected Xiaomi CLOSE-to-OPEN completion boundary"
                                 + ", generation=" + session.generation
                                 + ", sameElement="
@@ -1130,7 +1130,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             if (!token.armed.compareAndSet(false, true)) {
                 return false;
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Accepted Xiaomi CLOSE-to-OPEN completion boundary"
                             + ", generation=" + session.generation
                             + ", type=" + currentType
@@ -1166,7 +1166,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     || !token.armed.compareAndSet(false, true)) {
                 return false;
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Armed Xiaomi launcher OPEN cleanup barrier"
                             + ", generation=" + token.generation
                             + ", attempt=" + token.expectedSignal.attempt
@@ -1245,7 +1245,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             try {
                 invokeLauncherOpenCallback(token.originalCallback,
                         token.callbackMethod, new Object[0]);
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Released Xiaomi launcher OPEN after Shell cleanup"
                                 + ", generation=" + token.generation
                                 + ", attempt="
@@ -1255,7 +1255,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                                 + ", transitionDebugId="
                                 + token.expectedSignal.transitionDebugId);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed delayed Xiaomi launcher OPEN callback"
                                 + ", generation=" + token.generation,
                         throwable);
@@ -1290,7 +1290,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             } else {
                 token.completed.set(true);
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Invalidated Xiaomi launcher OPEN cleanup barrier"
                             + ", generation=" + token.generation
                             + ", armed=" + token.armed.get()
@@ -1322,13 +1322,13 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             try {
                 invokeLauncherOpenCallback(token.originalCallback,
                         callbackMethod, new Object[0]);
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Released Xiaomi launcher OPEN callback after barrier invalidation"
                                 + ", generation=" + token.generation
                                 + ", attempt="
                                 + token.expectedSignal.attempt);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed Xiaomi launcher OPEN callback after barrier invalidation"
                                 + ", generation=" + token.generation,
                         throwable);
@@ -1366,7 +1366,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 return false;
             }
             if (Looper.myLooper() != Looper.getMainLooper()) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected Xiaomi same-icon native parallel routing off main Looper");
                 return false;
             }
@@ -1397,7 +1397,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     || session.stateManager != stateManager
                     || session.nativeWindowElement == null
                     || session.nativeAnimationIdentity == null) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected inactive Xiaomi same-icon native parallel routing"
                                 + ", generation=" + session.generation
                                 + ", attached=" + attached
@@ -1506,7 +1506,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     && useShellListener && couldExecuteShellEnd && callbackClear
                     && noPendingHandoff;
             if (!valid) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected Xiaomi same-icon native parallel routing"
                                 + ", generation=" + session.generation
                                 + ", currentSession=" + (currentSession == session)
@@ -1544,7 +1544,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                                 + ", noPendingHandoff=" + noPendingHandoff);
                 return false;
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Routed same-icon predictive CLOSE through Xiaomi parallel launcher path"
                             + ", generation=" + session.generation
                             + ", type=" + currentType
@@ -1606,7 +1606,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     && surfaceCanceled && surfaceCancelExecuted
                     && canceled;
             if (!valid) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected stale Xiaomi CLOSE-to-OPEN handoff"
                                 + ", generation=" + token.generation
                                 + ", sameElement="
@@ -1631,7 +1631,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             if (!token.freshOpenConsumed.compareAndSet(false, true)) {
                 return false;
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Forced Xiaomi fresh OPEN for non-reusable same-icon CLOSE"
                             + ", generation=" + token.generation
                             + ", animationIdentity="
@@ -1749,7 +1749,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     && useShellListener
                     && couldExecuteShellEnd && callbackClear;
             if (!valid) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected direct same-icon Xiaomi CLOSE handoff"
                                 + ", generation=" + session.generation
                                 + ", currentSession=" + (currentSession == session)
@@ -1828,7 +1828,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                                     token, proxy, method, invocationArgs));
             token.wrappedCallback = wrappedCallback;
             if (!pendingDirectCancel.compareAndSet(null, token)) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected overlapping direct same-icon Xiaomi CLOSE handoff"
                                 + ", generation=" + session.generation);
                 return null;
@@ -1847,7 +1847,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             token.cleanupGuard = cleanupGuard;
             handler.postDelayed(cleanupGuard,
                     RETURN_HOME_DIRECT_CANCEL_CLEANUP_GUARD_MS);
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Prepared direct same-icon Xiaomi CLOSE handoff"
                             + ", generation=" + session.generation
                             + ", type=" + currentType
@@ -1883,7 +1883,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 } catch (Throwable throwable) {
                     invalidateNativeDirectCancel(
                             token, "callbackVerificationFailed", false);
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Failed direct same-icon Xiaomi CLOSE callback boundary"
                                     + ", generation=" + token.generation,
                             throwable);
@@ -1968,7 +1968,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             if (!valid) {
                 invalidateNativeDirectCancel(token,
                         "callbackStateMismatch", false);
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected direct same-icon Xiaomi CLOSE callback boundary"
                                 + ", generation=" + session.generation
                                 + ", currentSession=" + (currentSession == session)
@@ -2039,7 +2039,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     "directCancelCallback");
             notifyRemoteAnimationFinished(session.finishedCallback,
                     "nativeDirectCancelBeforeLauncherOpen");
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Finished Shell runner before direct same-icon Xiaomi OPEN"
                             + ", generation=" + session.generation
                             + ", type=" + currentType
@@ -2074,7 +2074,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             if (guard != null) {
                 handler.removeCallbacks(guard);
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Invalidated direct same-icon Xiaomi CLOSE handoff"
                             + ", generation=" + token.generation
                             + ", reason=" + reason);
@@ -2143,7 +2143,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                         || isReturnHomeNativeCloseType(
                         token.session.nativeAnimationType));
                 if (!valid) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Rejected direct same-icon Xiaomi CLOSE end"
                                     + ", generation=" + token.generation
                                     + ", finished="
@@ -2159,7 +2159,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                                     + token.session.nativeAnimationType);
                     return;
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Accepted direct same-icon Xiaomi CLOSE end"
                                 + ", generation=" + token.generation
                                 + ", type="
@@ -2169,7 +2169,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 handler.post(() -> cleanupNativeDirectCancel(
                         token, "nativeDirectCancelAnimationEnd"));
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to verify direct same-icon Xiaomi CLOSE end"
                                 + ", generation=" + token.generation,
                         throwable);
@@ -2206,7 +2206,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                         session, previous)) {
                     snapshot.phase.set(
                             UnifiedNativeFinishSnapshot.PHASE_INVALID);
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Preserved first exact Xiaomi finish state across duplicate StateManager end"
                                     + ", generation="
                                     + session.generation
@@ -2231,7 +2231,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                         UnifiedNativeFinishSnapshot.PHASE_PENDING,
                         UnifiedNativeFinishSnapshot.PHASE_INVALID);
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Captured Xiaomi finish state before StateManager listener"
                             + ", generation=" + session.generation
                             + ", type=" + snapshot.actualType
@@ -2272,7 +2272,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     if (snapshot == null
                             || snapshot.animationIdentity
                             != animationIdentity) {
-                        log(Log.ERROR, TAG,
+                        moduleLog(Log.ERROR, TAG,
                                 "Missing Xiaomi pre-listener finish snapshot; retained owner"
                                         + ", generation="
                                         + session.generation
@@ -2282,7 +2282,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     }
                     if (session.unifiedNativeCancelPending) {
                         session.unifiedNativeCancelEndObserved = true;
-                        log(Log.INFO, TAG,
+                        moduleLog(Log.INFO, TAG,
                                 "Captured unified Xiaomi cancel finish before target clear"
                                         + ", generation="
                                         + session.generation
@@ -2301,7 +2301,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                         return true;
                     }
                     session.unifiedNativeCommitEndObserved = true;
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Captured unified Xiaomi commit finish before target clear"
                                     + ", generation="
                                     + session.generation
@@ -2325,7 +2325,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                 }
                 return false;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to verify Xiaomi CLOSE animation end"
+                moduleLog(Log.WARN, TAG, "Failed to verify Xiaomi CLOSE animation end"
                         + ", generation=" + session.generation, throwable);
                 return false;
             }
@@ -2343,7 +2343,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     startUnifiedNativeCancel(
                             session, "finish:" + reason);
                 }
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Deferred runner finish behind Xiaomi native owner"
                                 + ", generation=" + session.generation
                                 + ", reason=" + reason
@@ -2402,14 +2402,14 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                         invokeAnyMethod(session.nativeWindowAnimContext,
                                 "setLocalAnimLastStatus", new Object[]{null});
                     } else if (currentStatus != null) {
-                        log(Log.INFO, TAG, "Preserved replacement Xiaomi handoff status"
+                        moduleLog(Log.INFO, TAG, "Preserved replacement Xiaomi handoff status"
                                 + ", generation=" + session.generation
                                 + ", published="
                                 + shortObject(session.nativePublishedStatus)
                                 + ", current=" + shortObject(currentStatus));
                     }
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG, "Failed to clear unused Xiaomi handoff status"
+                    moduleLog(Log.WARN, TAG, "Failed to clear unused Xiaomi handoff status"
                             + ", generation=" + session.generation, throwable);
                 }
             }
@@ -2493,7 +2493,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                     setUnifiedNativePreviewSpringEndEnabled(
                             session, true, "cleanup:" + reason);
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Failed to restore Xiaomi predictive spring end"
                                     + ", generation=" + session.generation
                                     + ", reason=" + reason,
@@ -2521,7 +2521,7 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
             if (currentSession == session) {
                 currentSession = null;
             }
-            log(Log.INFO, TAG, "Finished MiuiHome return-to-home runner"
+            moduleLog(Log.INFO, TAG, "Finished MiuiHome return-to-home runner"
                     + ", generation=" + session.generation
                     + ", reason=" + reason
                     + ", nativeHandoff=" + session.nativeHandoffStarted

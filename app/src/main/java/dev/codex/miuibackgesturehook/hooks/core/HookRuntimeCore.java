@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import dev.codex.miuibackgesturehook.BuildConfig;
+import dev.codex.miuibackgesturehook.PredictiveBackPreferences;
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
@@ -471,6 +472,22 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected volatile SharedPreferences predictiveBackPreferences;
     protected volatile boolean predictiveBackPreferencesFailureLogged;
     protected volatile boolean predictiveBackApplicationMetadataFailureLogged;
+    protected volatile boolean moduleLoggingEnabled =
+            PredictiveBackPreferences.DEFAULT_MODULE_LOGGING;
+    protected volatile SharedPreferences moduleLoggingPreferences;
+    private final SharedPreferences.OnSharedPreferenceChangeListener
+            moduleLoggingPreferenceListener = (preferences, key) -> {
+                if (!PredictiveBackPreferences.KEY_MODULE_LOGGING.equals(key)) {
+                    return;
+                }
+                try {
+                    moduleLoggingEnabled = preferences.getBoolean(
+                            PredictiveBackPreferences.KEY_MODULE_LOGGING,
+                            PredictiveBackPreferences.DEFAULT_MODULE_LOGGING);
+                } catch (Throwable ignored) {
+                    // Keep the last known logging policy when the remote preference is unreadable.
+                }
+            };
     protected String processName;
     protected boolean nativePluginDiagnosticsLogged;
     protected boolean headlessSysUiStateLogged;
@@ -909,10 +926,48 @@ public abstract class HookRuntimeCore extends XposedModule {
         }
     }
 
+    protected final synchronized void initializeModuleLoggingPreference() {
+        try {
+            SharedPreferences preferences = getRemotePreferences(
+                    PredictiveBackPreferences.GROUP);
+            SharedPreferences previous = moduleLoggingPreferences;
+            if (previous != preferences) {
+                if (previous != null) {
+                    previous.unregisterOnSharedPreferenceChangeListener(
+                            moduleLoggingPreferenceListener);
+                }
+                preferences.registerOnSharedPreferenceChangeListener(
+                        moduleLoggingPreferenceListener);
+                moduleLoggingPreferences = preferences;
+            }
+            moduleLoggingEnabled = preferences.getBoolean(
+                    PredictiveBackPreferences.KEY_MODULE_LOGGING,
+                    PredictiveBackPreferences.DEFAULT_MODULE_LOGGING);
+        } catch (Throwable ignored) {
+            moduleLoggingEnabled = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING;
+        }
+    }
+
+    protected final void moduleLog(int priority, String tag, String message) {
+        if (priority < Log.WARN && !moduleLoggingEnabled) {
+            return;
+        }
+        super.log(priority, tag, message);
+    }
+
+    protected final void moduleLog(int priority, String tag, String message,
+                                   Throwable throwable) {
+        if (priority < Log.WARN && !moduleLoggingEnabled) {
+            return;
+        }
+        super.log(priority, tag, message, throwable);
+    }
+
     @Override
     public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
         processName = param.getProcessName();
-        log(Log.INFO, TAG, "Module loaded, build=" + BUILD_MARK
+        initializeModuleLoggingPreference();
+        moduleLog(Log.INFO, TAG, "Module loaded, build=" + BUILD_MARK
                 + ", process=" + processName
                 + ", systemServer=" + param.isSystemServer());
     }
@@ -1039,17 +1094,17 @@ public abstract class HookRuntimeCore extends XposedModule {
                 method.setAccessible(true);
                 Object result = method.invoke(null);
                 if (result instanceof Boolean) {
-                    log(Log.INFO, TAG, "Read " + methodName + " from "
+                    moduleLog(Log.INFO, TAG, "Read " + methodName + " from "
                             + className + ": " + result);
                     return ((Boolean) result).booleanValue();
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Flag lookup failed for " + className
+                moduleLog(Log.WARN, TAG, "Flag lookup failed for " + className
                         + ": " + throwable.getClass().getSimpleName()
                         + ": " + throwable.getMessage());
             }
         }
-        log(Log.WARN, TAG, "Unable to read " + methodName
+        moduleLog(Log.WARN, TAG, "Unable to read " + methodName
                 + "; defaulting to " + defaultValue);
         return defaultValue;
     }
@@ -1083,7 +1138,7 @@ public abstract class HookRuntimeCore extends XposedModule {
             return;
         }
         nativePluginDiagnosticsLogged = true;
-        log(Log.WARN, TAG, "Native BackPanelController plugin unavailable"
+        moduleLog(Log.WARN, TAG, "Native BackPanelController plugin unavailable"
                 + ", handler=" + shortObject(edgeBackGestureHandler));
     }
 
@@ -1104,10 +1159,10 @@ public abstract class HookRuntimeCore extends XposedModule {
                     crossTask, "crossTask");
             if (changed) {
                 invokeAnyMethod(registry, "updateSupportedAnimators", new Object[0]);
-                log(Log.INFO, TAG, "Restored AOSP registry definitions from " + source);
+                moduleLog(Log.INFO, TAG, "Restored AOSP registry definitions from " + source);
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to restore AOSP registry definitions from " + source,
+            moduleLog(Log.WARN, TAG, "Failed to restore AOSP registry definitions from " + source,
                     throwable);
         }
     }
@@ -1126,11 +1181,11 @@ public abstract class HookRuntimeCore extends XposedModule {
             }
             invokeAnyMethod(definitions, "set",
                     new Object[]{type, runner});
-            log(Log.INFO, TAG, "Added " + label + " runner to registry, type=" + type
+            moduleLog(Log.INFO, TAG, "Added " + label + " runner to registry, type=" + type
                     + ", runner=" + shortObject(runner));
             return true;
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to add " + label + " runner, type=" + type,
+            moduleLog(Log.WARN, TAG, "Failed to add " + label + " runner, type=" + type,
                     throwable);
             return false;
         }
@@ -1273,7 +1328,7 @@ public abstract class HookRuntimeCore extends XposedModule {
 
     protected void logBackNavigationInfo(Object info) {
         if (info == null) {
-            log(Log.INFO, TAG, "BackNavigationInfo=null");
+            moduleLog(Log.INFO, TAG, "BackNavigationInfo=null");
             return;
         }
         try {
@@ -1281,11 +1336,11 @@ public abstract class HookRuntimeCore extends XposedModule {
             int type = navigationInfo.getType();
             boolean prepare = navigationInfo.isPrepareRemoteAnimation();
             Object callback = navigationInfo.getOnBackInvokedCallback();
-            log(Log.INFO, TAG, "BackNavigationInfo detail: type=" + type
+            moduleLog(Log.INFO, TAG, "BackNavigationInfo detail: type=" + type
                     + ", prepareRemoteAnimation=" + prepare
                     + ", callback=" + shortObject(callback));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to inspect BackNavigationInfo", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to inspect BackNavigationInfo", throwable);
         }
     }
 
@@ -1297,11 +1352,11 @@ public abstract class HookRuntimeCore extends XposedModule {
             BackNavigationInfo navigationInfo = (BackNavigationInfo) info;
             if (navigationInfo.getType() == TYPE_CALLBACK) {
                 navigationInfo.disableAppProgressGenerationAllowed();
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Disabled app-generated progress for TYPE_CALLBACK; SystemUI will dispatch progress");
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to force SystemUI callback progress", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to force SystemUI callback progress", throwable);
         }
     }
 

@@ -60,7 +60,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         session, "standardCommit");
                 verifyUnifiedStateManagerListenerGate(
                         session, true, "standardCommitEntry");
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Recorded Xiaomi standard animTo entry"
                                 + ", generation=" + session.generation
                                 + ", signalAttempt="
@@ -93,7 +93,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     session, "transitionCommit");
             verifyUnifiedStateManagerListenerGate(
                     session, true, "transitionCommitEntry");
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Recorded Xiaomi transition animTo entry"
                             + ", generation=" + session.generation
                             + ", debugId="
@@ -172,7 +172,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         "mDisableStateManagerListener");
                 if (actual instanceof Boolean
                         && ((Boolean) actual).booleanValue() == disabled) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Used exact Xiaomi listener-gate field fallback"
                                     + ", generation="
                                     + session.generation
@@ -270,7 +270,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 }
             }
             handler.post(() -> handleUnifiedNativeTerminalFailure(snapshot));
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Published guarded Xiaomi native-owner terminal failure"
                             + ", generation=" + session.generation
                             + ", animToEpoch=" + animToEpoch
@@ -300,7 +300,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 }
                 session.unifiedNativeTerminalFailure.compareAndSet(
                         snapshot, null);
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Invalidated queued Xiaomi terminal failure before new owner epoch"
                                 + ", generation="
                                 + session.generation
@@ -458,7 +458,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     snapshot, currentElement, currentIdentity)) {
                 snapshot.phase.set(
                         UnifiedNativeTerminalFailureSnapshot.PHASE_INVALID);
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Rejected stale Xiaomi native-owner terminal failure"
                                 + ", generation="
                                 + snapshot.generation
@@ -558,7 +558,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 snapshot.cleanupGuard = guard;
                 handler.postDelayed(guard,
                         RETURN_HOME_NATIVE_TIMEOUT_MS);
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Issued exact Xiaomi native cancel for terminal failure"
                                 + ", generation="
                                 + session.generation
@@ -581,7 +581,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         completeUnifiedNativeTerminalFailure(
                                 snapshot,
                                 "nativeCancelInvocationFailed"));
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Xiaomi native terminal cancel invocation failed"
                                 + ", generation="
                                 + session.generation
@@ -617,7 +617,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     && session.unifiedNativeTerminalFailure.get()
                     == snapshot) {
                 session.unifiedNativeCleanupVerified = true;
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Completed guarded Xiaomi native-owner terminal cleanup"
                                 + ", generation="
                                 + session.generation
@@ -658,7 +658,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     }
                 } catch (Throwable throwable) {
                     snapshot.failure.addSuppressed(throwable);
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Could not finish skipped Xiaomi terminal cleanup stage"
                                     + ", generation="
                                     + session.generation
@@ -724,7 +724,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         UNIFIED_CONFIG_HOOK_RUNNING);
                 previous = state.get();
             }
-            log(previous == UNIFIED_CONFIG_HOOK_RUNNING
+            moduleLog(previous == UNIFIED_CONFIG_HOOK_RUNNING
                             ? Log.INFO : Log.WARN,
                     TAG,
                     "Entered Xiaomi animTo config hook"
@@ -748,7 +748,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     .animParams.get() == params;
             int previous = state.getAndSet(
                     UNIFIED_CONFIG_HOOK_COMPLETED);
-            log(failure == null && paramsExact ? Log.INFO : Log.ERROR,
+            moduleLog(failure == null && paramsExact ? Log.INFO : Log.ERROR,
                     TAG,
                     "Completed Xiaomi animTo config hook"
                             + ", previousState=" + previous
@@ -835,7 +835,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         // This runnable is FIFO behind Xiaomi's already queued animTo lambda.
                         // Retain the tombstone: removing it without an intercepted config ack
                         // could admit a later stale invocation after controller replacement.
-                        log(Log.ERROR, TAG,
+                        moduleLog(Log.ERROR, TAG,
                                 "Xiaomi animTo owner drain reached without config ack"
                                         + ", generation="
                                         + snapshot.generation
@@ -849,7 +849,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     }
                 });
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Could not queue Xiaomi interrupted-config owner drain"
                                 + ", generation=" + snapshot.generation
                                 + ", animToEpoch=" + snapshot.animToEpoch
@@ -880,7 +880,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             }
             pendingUnifiedInterruptedAnimToConfigs.remove(
                     new ObjectIdentityKey(snapshot.animParams), snapshot);
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Acknowledged skipped stale Xiaomi animTo config"
                             + ", generation=" + snapshot.generation
                             + ", ownerAttempt=" + snapshot.ownerAttempt
@@ -916,7 +916,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             snapshot.phase.compareAndSet(
                     UnifiedNativePendingInterruptionSnapshot.PHASE_PENDING,
                     UnifiedNativePendingInterruptionSnapshot.PHASE_INVALID);
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Acknowledged normally applied Xiaomi animTo config"
                             + ", generation=" + snapshot.generation
                             + ", ownerAttempt=" + snapshot.ownerAttempt
@@ -973,7 +973,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         UnifiedNativePendingInterruptionSnapshot.PHASE_PENDING,
                         UnifiedNativePendingInterruptionSnapshot.PHASE_INVALID);
             }
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Closed unacknowledged Xiaomi animTo config hook"
                             + ", generation=" + snapshot.generation
                             + ", ownerAttempt=" + snapshot.ownerAttempt
@@ -1072,7 +1072,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             }
             if (!ownerTupleExact || !implementorExact
                     || verificationFailure != null) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Fail-closed interrupted Xiaomi animTo config verification"
                                 + ", generation="
                                 + snapshot.generation
@@ -1094,7 +1094,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                             : "configHookFailClosed")) {
                 return false;
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Skipped Xiaomi final animTo config after native interruption began"
                             + ", generation="
                             + snapshot.generation
@@ -1182,7 +1182,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                                 "configuredDuringCancelSurface:"
                                         + epoch);
                     } catch (Throwable throwable) {
-                        log(Log.ERROR, TAG,
+                        moduleLog(Log.ERROR, TAG,
                                 "Could not retain Xiaomi listener gate during cancel-surface interruption"
                                         + ", generation="
                                         + session.generation
@@ -1190,7 +1190,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                                 throwable);
                     }
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Suppressed final-owner publication after native interruption began"
                                 + ", generation=" + session.generation
                                 + ", animToEpoch=" + epoch
@@ -1281,7 +1281,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 } catch (Throwable ignored) {
                     // Diagnostics must not turn a native accepted animTo into a rejection.
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Published configured Xiaomi final animTo epoch"
                                 + ", generation=" + session.generation
                                 + ", animToEpoch=" + epoch
@@ -1315,7 +1315,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                                 cancel,
                                 "animToConfiguredFailure",
                                 throwable);
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Rejected unverified Xiaomi final animTo configuration"
                                 + ", generation=" + session.generation
                                 + ", animToEpoch=" + epoch
@@ -1516,7 +1516,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         .computeIfAbsent(windowElement,
                                 ignored -> new ConcurrentLinkedQueue<>())
                         .offer(token);
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Admitted Xiaomi final finish source"
                                 + ", generation=" + session.generation
                                 + ", dispatchId=" + dispatchId
@@ -1536,7 +1536,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         == animationIdentity) {
                     terminal.markFinishSourceSkipped();
                 }
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Skipped superseded Xiaomi finish source"
                                 + ", generation=" + session.generation
                                 + ", dispatchId=" + dispatchId
@@ -1580,7 +1580,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                             "finishSourceAbort:" + reason);
                 }
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Could not close Xiaomi listener gate after finish-source abort"
                                 + ", generation=" + token.generation
                                 + ", dispatchId=" + token.dispatchId
@@ -1612,7 +1612,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         && session.finished.get() == 0
                         && session.unifiedNativePreviewOwned
                         && session.nativeWindowElement == windowElement) {
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Skipped unpaired Xiaomi finish apply"
                                     + ", generation="
                                     + session.generation);
@@ -1684,7 +1684,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         == token.animationIdentity) {
                     terminal.markFinishApplySkipped();
                 }
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Skipped stale Xiaomi finish apply"
                                 + ", generation=" + token.generation
                                 + ", dispatchId=" + token.dispatchId
@@ -1697,7 +1697,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         failure);
                 return Boolean.FALSE;
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Admitted Xiaomi final finish apply"
                             + ", generation=" + token.generation
                             + ", dispatchId=" + token.dispatchId
@@ -1755,7 +1755,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             if (!exact || !snapshot.phase.compareAndSet(
                     UnifiedNativeFinishSnapshot.PHASE_PENDING,
                     UnifiedNativeFinishSnapshot.PHASE_CONSUMED)) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Retained rejected unconfigured Xiaomi cancel finish"
                                 + ", generation=" + token.generation
                                 + ", dispatchId=" + token.dispatchId
@@ -1766,7 +1766,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             }
             session.unifiedNativeCommitPending = false;
             session.unifiedNativeCleanupVerified = true;
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Finished unconfigured cancelled Xiaomi commit owner"
                             + ", generation=" + token.generation
                             + ", dispatchId=" + token.dispatchId
@@ -1803,7 +1803,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     UnifiedNativeFinishSnapshot.PHASE_INVALID)) {
                 session.unifiedNativeFinishSnapshot.compareAndSet(
                         previous, null);
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Invalidated previous Xiaomi finish snapshot at animTo entry"
                                 + ", generation=" + session.generation
                                 + ", previousEpoch="
@@ -1858,7 +1858,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 session.unifiedNativeFinishSnapshot.compareAndSet(
                         snapshot, null);
                 session.unifiedNativeCommitEndObserved = false;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Discarded previous drag finish from commit animTo call"
                                 + ", generation=" + session.generation
                                 + ", animToEpoch=" + epoch
@@ -1970,7 +1970,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             session.nativePublishedStatus = status;
             session.nativeStatusPublished = true;
             session.localHandoffToken = token;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Armed stopped unified predictive handoff status"
                             + ", generation=" + session.generation
                             + ", reason=" + reason
@@ -2003,13 +2003,13 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 }
                 invokeAnyMethod(token.windowAnimContext, "setLocalAnimLastStatus",
                         new Object[]{null});
-                log(Log.INFO, TAG, "Supplied predictive handoff to Xiaomi local animator"
+                moduleLog(Log.INFO, TAG, "Supplied predictive handoff to Xiaomi local animator"
                         + ", generation=" + token.generation
                         + ", rect=" + session.currentRect
                         + ", radius=" + session.currentCornerRadius);
                 return token.status;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to supply Xiaomi local predictive handoff"
+                moduleLog(Log.WARN, TAG, "Failed to supply Xiaomi local predictive handoff"
                         + ", token=" + shortObject(miuiHomeLocalHandoffToken.get()),
                         throwable);
                 return null;
@@ -2036,11 +2036,11 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 }
                 invokeAnyMethod(token.windowAnimContext, "setLocalAnimLastStatus",
                         new Object[]{null});
-                log(Log.INFO, TAG, "Preserved Xiaomi native local handoff"
+                moduleLog(Log.INFO, TAG, "Preserved Xiaomi native local handoff"
                         + ", generation=" + token.generation
                         + ", reason=" + reason);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to discard module local handoff"
+                moduleLog(Log.WARN, TAG, "Failed to discard module local handoff"
                         + ", reason=" + reason, throwable);
             }
         }
@@ -2147,7 +2147,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 previous.phase.set(
                         UnifiedNativeCommitTransitionToken.PHASE_INVALID);
                 session.unifiedNativeCommitAttempt = 0L;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Invalidated superseded Xiaomi commit transition"
                                 + ", generation=" + session.generation
                                 + ", oldDebugId="
@@ -2160,7 +2160,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                             params, compat, helper, token, info,
                             infoDebugId);
             session.unifiedNativeCommitTransition = accepted;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Accepted real Xiaomi return-home transition"
                             + ", generation=" + session.generation
                             + ", debugId=" + infoDebugId
@@ -2191,7 +2191,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 session.unifiedNativeCommitAttempt = 0L;
                 session.unifiedNativeCommitRequestedType = null;
             }
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Invalidated failed Xiaomi commit transition injection"
                             + ", generation=" + session.generation
                             + ", debugId="
@@ -2399,7 +2399,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                             elementChange, elementLeash,
                             session.closingLeash);
             pendingElementLeashReuse.set(reuseToken);
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Prepared predictive element leash continuity"
                             + ", generation=" + session.generation
                             + ", taskId=" + closingTaskId
@@ -2482,7 +2482,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 throw new IllegalStateException(
                         "Xiaomi floating icon remained drawable");
             }
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Retained native Xiaomi floating-icon lifecycle without drawing"
                             + ", generation=" + session.generation
                             + ", transitionDebugId="
@@ -2548,7 +2548,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 }
                 token.phase.set(
                         ReturnHomeElementLeashReuseToken.PHASE_REARMED);
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Rearmed predictive leash after Xiaomi native clear"
                                 + ", generation=" + session.generation
                                 + ", taskId=" + token.taskId
@@ -2571,7 +2571,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                                 new Object[0]);
                     }
                 } catch (Throwable rollbackFailure) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Failed to roll back rejected predictive leash"
                                     + ", generation=" + token.generation,
                             rollbackFailure);
@@ -2608,7 +2608,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 return;
             }
             session.nativeGeometryFailureLogged = true;
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed Xiaomi native return geometry"
                             + ", generation=" + session.generation
                             + ", stage=" + stage
@@ -3042,7 +3042,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     return;
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed element leash identity check before geometry seed",
                         throwable);
                 return;
@@ -3127,7 +3127,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     token.startGeometrySeed.set(
                             ReturnHomeElementLeashReuseToken.SEED_APPLIED);
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Armed predictive closing geometry for transition apply"
                                 + ", generation=" + token.generation
                                 + ", taskId=" + token.taskId
@@ -3137,7 +3137,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 token.startGeometrySeed.compareAndSet(
                         ReturnHomeElementLeashReuseToken.SEEDING,
                         ReturnHomeElementLeashReuseToken.SEED_INVALID);
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected element/closing transition-start geometry arm"
                                 + ", generation=" + token.generation
                                 + ", taskId=" + token.taskId
@@ -3185,7 +3185,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         && token.closingLeash.isValid();
                 return exact ? session.nativeGeometryApplyLock : null;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to resolve return-home start transaction apply lock"
                                 + ", generation=" + token.generation
                                 + ", taskId=" + token.taskId,
@@ -3278,7 +3278,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     ((SurfaceControl.Transaction) transaction).merge(
                             refreshTransaction);
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Refreshed return-home start geometry at apply boundary"
                                 + ", generation=" + token.generation
                                 + ", taskId=" + token.taskId
@@ -3289,7 +3289,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             } catch (Throwable throwable) {
                 token.startGeometrySeed.set(
                         ReturnHomeElementLeashReuseToken.SEED_INVALID);
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to refresh return-home start geometry at apply boundary"
                                 + ", generation=" + token.generation
                                 + ", taskId=" + token.taskId
@@ -3335,7 +3335,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     : ReturnHomeElementLeashReuseToken.SEED_INVALID;
             boolean changed = token.startGeometrySeed.compareAndSet(
                     expected, result);
-            log(applied && changed ? Log.INFO : Log.WARN, TAG,
+            moduleLog(applied && changed ? Log.INFO : Log.WARN, TAG,
                     "Finished return-home start geometry apply"
                             + ", generation=" + token.generation
                             + ", taskId=" + token.taskId
@@ -3360,7 +3360,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                                     token.windowElement,
                                     pendingAnimParams);
                         } catch (Throwable throwable) {
-                            log(Log.WARN, TAG,
+                            moduleLog(Log.WARN, TAG,
                                     "Failed delayed predictive element adoption after geometry commit"
                                             + ", generation="
                                             + token.generation
@@ -3428,7 +3428,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     && surfacesAreSame((SurfaceControl) adoptedLeash,
                     token.closingLeash);
             if (!valid) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected predictive element leash adoption"
                                 + ", generation=" + session.generation
                                 + ", currentType=" + currentType
@@ -3443,7 +3443,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 return;
             }
             session.nativeAnimationType = "CLOSE_TO_ELEMENT";
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Adopted predictive leash for Xiaomi CLOSE_TO_ELEMENT"
                             + ", generation=" + session.generation
                             + ", taskId=" + token.taskId
@@ -3576,7 +3576,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             long ownerAttempt = session.unifiedNativeRetargetAttempts
                     .incrementAndGet();
             token.ownerAttempt = ownerAttempt;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Queued Xiaomi standard commit owner verification"
                             + ", generation=" + session.generation
                             + ", signalAttempt="
@@ -3597,7 +3597,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                             session, token, inspection));
                 });
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Could not queue standard commit owner verification"
                                 + ", generation="
                                 + session.generation
@@ -3630,7 +3630,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         session.stateManager,
                         "getCurrentWindowElement", new Object[0]);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Could not verify standard Xiaomi commit element"
                                 + ", generation="
                                 + session.generation
@@ -3650,7 +3650,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     && standardType
                     && currentElement == session.nativeWindowElement;
             if (!exact) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Rejected Xiaomi standard commit at animation-owner tail"
                                 + ", generation="
                                 + session.generation
@@ -3696,7 +3696,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     session, inspection.animationIdentity,
                     inspection.actualType));
             scheduleUnifiedNativeEndTimeout(session);
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Accepted the same Xiaomi predictive spring for standard return-home"
                             + ", generation=" + session.generation
                             + ", signalAttempt="

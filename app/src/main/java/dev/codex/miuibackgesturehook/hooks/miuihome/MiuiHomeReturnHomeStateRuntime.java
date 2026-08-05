@@ -804,7 +804,7 @@ abstract class MiuiHomeReturnHomeStateRuntime extends SystemUiHookRuntime {
                 data.writeInterfaceToken(REMOTE_ANIMATION_FINISHED_DESCRIPTOR);
                 callback.transact(1, data, null, IBinder.FLAG_ONEWAY);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to finish Shell remote animation"
+                moduleLog(Log.WARN, TAG, "Failed to finish Shell remote animation"
                         + ", reason=" + reason, throwable);
             } finally {
                 data.recycle();
@@ -864,7 +864,7 @@ abstract class MiuiHomeReturnHomeStateRuntime extends SystemUiHookRuntime {
                     return Math.max(0.0f, ((Number) value).floatValue());
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to resolve Xiaomi window corner radius",
+                moduleLog(Log.WARN, TAG, "Failed to resolve Xiaomi window corner radius",
                         throwable);
             }
             return Math.max(0.0f, readFloatFieldOrDefault(
@@ -970,7 +970,7 @@ abstract class MiuiHomeReturnHomeStateRuntime extends SystemUiHookRuntime {
                             return super.onTransact(code, data, reply, flags);
                     }
                 } catch (Throwable throwable) {
-                    log(Log.ERROR, TAG, "MiuiHome back callback transact failed"
+                    moduleLog(Log.ERROR, TAG, "MiuiHome back callback transact failed"
                             + ", code=" + code, throwable);
                     return true;
                 }
@@ -1019,7 +1019,7 @@ abstract class MiuiHomeReturnHomeStateRuntime extends SystemUiHookRuntime {
                     }
                     return super.onTransact(code, data, reply, flags);
                 } catch (Throwable throwable) {
-                    log(Log.ERROR, TAG, "MiuiHome remote runner transact failed"
+                    moduleLog(Log.ERROR, TAG, "MiuiHome remote runner transact failed"
                             + ", code=" + code, throwable);
                     return true;
                 }
@@ -1733,7 +1733,7 @@ abstract class MiuiHomeReturnHomeStateRuntime extends SystemUiHookRuntime {
                     animator = new BackProgressAnimator();
                 } catch (Throwable throwable) {
                     progressAnimatorFailed = true;
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Could not create AOSP return-home progress smoothing"
                                     + ", generation=" + generation,
                             throwable);

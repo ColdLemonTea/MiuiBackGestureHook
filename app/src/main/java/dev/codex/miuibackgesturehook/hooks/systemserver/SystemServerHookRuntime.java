@@ -43,7 +43,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
         try {
             ClassLoader serverClassLoader = findSystemServerClassLoader(classLoader);
             if (serverClassLoader == null) {
-                log(Log.ERROR, TAG, "Unable to find system_server classloader for "
+                moduleLog(Log.ERROR, TAG, "Unable to find system_server classloader for "
                         + BACK_NAVIGATION_CONTROLLER);
                 return;
             }
@@ -54,10 +54,10 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             hookFreeformCrossActivityPrepareRole(serverClassLoader);
             hookScheduleAnimationPrepareTransition(serverClassLoader);
             hookReturnHomeTouchOcclusion(serverClassLoader);
-            log(Log.INFO, TAG, "Installed system_server back navigation hooks, build="
+            moduleLog(Log.INFO, TAG, "Installed system_server back navigation hooks, build="
                     + BUILD_MARK + ", hooks=" + hookHandles.size());
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to install system_server hooks", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to install system_server hooks", throwable);
         }
     }
 
@@ -78,16 +78,16 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                 recordHookHandle(hook(method)
                         .setId("server_predictive_opt_in_metadata")
                         .intercept(this::injectSelectedPredictiveBackMetadata));
-                log(Log.INFO, TAG, "Hooked predictive-back opt-in metadata"
+                moduleLog(Log.INFO, TAG, "Hooked predictive-back opt-in metadata"
                         + ", owner=system_server"
                         + ", policy=selectedApplications"
                         + ", preferencesGroup=" + PredictiveBackPreferences.GROUP);
                 return;
             }
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Predictive-back opt-in check not found in system_server");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook selected predictive-back metadata", throwable);
         }
     }
@@ -110,7 +110,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             return chain.proceed();
         }
         if (applicationOptInEnabled.booleanValue()) {
-            log(Log.INFO, TAG, "Ignored stale predictive-back selection"
+            moduleLog(Log.INFO, TAG, "Ignored stale predictive-back selection"
                     + ", package=" + packageName
                     + ", reason=applicationAlreadyOptedIn");
             return chain.proceed();
@@ -126,7 +126,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                     | ACTIVITY_PREDICTIVE_BACK_ENABLE_FLAG;
             writeField(activityInfo, "privateFlags", effectiveFlags);
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to inject selected predictive-back metadata"
+            moduleLog(Log.ERROR, TAG, "Failed to inject selected predictive-back metadata"
                     + ", package=" + packageName
                     + ", activity=" + shortObject(activityInfo), throwable);
             return chain.proceed();
@@ -134,7 +134,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
 
         Object result = chain.proceed();
         int priority = Boolean.TRUE.equals(result) ? Log.INFO : Log.WARN;
-        log(priority, TAG, "Selected predictive-back metadata result"
+        moduleLog(priority, TAG, "Selected predictive-back metadata result"
                 + ", package=" + packageName
                 + ", activity=" + shortObject(activityInfo)
                 + ", activityFlags=" + originalFlags + "->" + effectiveFlags
@@ -156,7 +156,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
         } catch (Throwable throwable) {
             if (!predictiveBackApplicationMetadataFailureLogged) {
                 predictiveBackApplicationMetadataFailureLogged = true;
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Could not inspect application predictive-back metadata"
                                 + ", policy=preservePlatformDecision",
                         throwable);
@@ -185,7 +185,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
         } catch (Throwable throwable) {
             if (!predictiveBackPreferencesFailureLogged) {
                 predictiveBackPreferencesFailureLogged = true;
-                log(Log.ERROR, TAG, "Predictive-back preferences unavailable"
+                moduleLog(Log.ERROR, TAG, "Predictive-back preferences unavailable"
                         + ", policy=failClosed"
                         + ", package=" + packageName, throwable);
             }
@@ -219,26 +219,26 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                             .intercept(this::interceptSecuritySidebarTransientBars));
                     installed++;
                 } catch (Throwable throwable) {
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Failed to hook security-sidebar transient bars " + hookId,
                             throwable);
                 }
             }
             if (hooked == 0) {
-                log(Log.WARN, TAG, "DisplayPolicy.requestTransientBars not found");
+                moduleLog(Log.WARN, TAG, "DisplayPolicy.requestTransientBars not found");
             } else {
-                log(Log.INFO, TAG, "Hooked DisplayPolicy transient-bars overloads="
+                moduleLog(Log.INFO, TAG, "Hooked DisplayPolicy transient-bars overloads="
                         + hooked + ", installed=" + installed);
             }
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook security-sidebar transient bars", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to hook security-sidebar transient bars", throwable);
         }
     }
 
     protected Object interceptSecuritySidebarTransientBars(XposedInterface.Chain chain)
             throws Throwable {
         if (isSidebarTransientGesture(chain.getThisObject())) {
-            log(Log.INFO, TAG, "Blocked transient bars from sidebar bounds"
+            moduleLog(Log.INFO, TAG, "Blocked transient bars from sidebar bounds"
                     + ", overload=" + chain.getExecutable().toGenericString());
             return null;
         }
@@ -260,7 +260,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                 continue;
             }
             if ("com.miui.securitycenter".equals(owner)) {
-                log(Log.INFO, TAG, "Blocked transient bars from security sidebar"
+                moduleLog(Log.INFO, TAG, "Blocked transient bars from security sidebar"
                         + ", target=" + shortObject(argument));
                 return null;
             }
@@ -272,19 +272,19 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             try {
                 navigationBar = readField(chain.getThisObject(), "mNavigationBar");
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Cannot inspect AOSP side transient-bars target", throwable);
                 return chain.proceed();
             }
             if (navigationBar == null) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Cannot restore AOSP side transient bars: NavigationBar is absent");
                 return chain.proceed();
             }
             Object[] args = chain.getArgs().toArray();
             args[0] = navigationBar;
             args[1] = Boolean.TRUE;
-            log(Log.INFO, TAG, "Restored AOSP side transient-bars target"
+            moduleLog(Log.INFO, TAG, "Restored AOSP side transient-bars target"
                     + ", target=" + shortObject(navigationBar));
             return chain.proceed(args);
         }
@@ -331,7 +331,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                     if (!rect.isEmpty()) {
                         rect.inset(-padding, -padding);
                         if (rect.contains(x, y)) {
-                            log(Log.INFO, TAG, "Matched sidebar transient gesture"
+                            moduleLog(Log.INFO, TAG, "Matched sidebar transient gesture"
                                     + ", pointer=" + pointer + ", x=" + x + ", y=" + y
                                     + ", bounds=" + rect);
                             return true;
@@ -340,7 +340,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                 }
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to inspect sidebar transient gesture", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to inspect sidebar transient gesture", throwable);
         }
         return false;
     }
@@ -358,10 +358,10 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             }
             try {
                 Class.forName(BACK_NAVIGATION_CONTROLLER, false, candidate);
-                log(Log.INFO, TAG, "Resolved system_server classloader: " + candidate);
+                moduleLog(Log.INFO, TAG, "Resolved system_server classloader: " + candidate);
                 return candidate;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "System_server classloader candidate failed: "
+                moduleLog(Log.WARN, TAG, "System_server classloader candidate failed: "
                         + candidate + ", error=" + throwable.getClass().getSimpleName()
                         + ": " + throwable.getMessage());
             }
@@ -386,13 +386,13 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                 recordHookHandle(hook(method)
                         .setId("server_back_navigation_done_cleanup")
                         .intercept(this::cleanupSkippedRemoteAnimationOnNavigationDone));
-                log(Log.INFO, TAG, "Hooked BackNavigationController navigation-done cleanup"
+                moduleLog(Log.INFO, TAG, "Hooked BackNavigationController navigation-done cleanup"
                         + ", method=" + method.getName());
                 return;
             }
-            log(Log.WARN, TAG, "BackNavigationController.onBackNavigationDone not found");
+            moduleLog(Log.WARN, TAG, "BackNavigationController.onBackNavigationDone not found");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to hook BackNavigationController navigation-done cleanup",
+            moduleLog(Log.ERROR, TAG, "Failed to hook BackNavigationController navigation-done cleanup",
                     throwable);
         }
     }
@@ -425,7 +425,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                     Object prepareOpen = openAdaptor == null ? null
                             : readField(openAdaptor, "mPreparedOpenTransition");
                     if (prepareClose != null || prepareOpen != null) {
-                        log(Log.INFO, TAG,
+                        moduleLog(Log.INFO, TAG,
                                 "Kept composed predictive-back animation for transition cleanup"
                                         + ", prepareOpen=" + shortObject(prepareOpen)
                                         + ", prepareClose=" + shortObject(prepareClose));
@@ -438,10 +438,10 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                 invokeAnyMethod(windowManagerService,
                         "resetPriorityAfterLockedSection", new Object[0]);
             }
-            log(Log.INFO, TAG, "Cleared committed remote-only predictive-back animation"
+            moduleLog(Log.INFO, TAG, "Cleared committed remote-only predictive-back animation"
                     + " after skipped prepare transition");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed committed remote-only predictive-back cleanup",
+            moduleLog(Log.WARN, TAG, "Failed committed remote-only predictive-back cleanup",
                     throwable);
         }
         return result;
@@ -458,13 +458,13 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                     recordHookHandle(hook(method)
                             .setId("server_back_window_start_animation")
                             .intercept(this::prepareOpeningTaskFragment));
-                    log(Log.INFO, TAG, "Hooked BackWindowAnimationAdaptor.startAnimation");
+                    moduleLog(Log.INFO, TAG, "Hooked BackWindowAnimationAdaptor.startAnimation");
                     return;
                 }
             }
-            log(Log.WARN, TAG, "BackWindowAnimationAdaptor.startAnimation not found");
+            moduleLog(Log.WARN, TAG, "BackWindowAnimationAdaptor.startAnimation not found");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to hook BackWindowAnimationAdaptor.startAnimation",
+            moduleLog(Log.WARN, TAG, "Failed to hook BackWindowAnimationAdaptor.startAnimation",
                     throwable);
         }
     }
@@ -490,17 +490,17 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                     recordHookHandle(hook(method)
                             .setId("server_freeform_prepare_role_normalization")
                             .intercept(this::normalizeFreeformCrossActivityTransitionInfo));
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Hooked server cross-activity predictive-back prepare role"
                                     + " normalization");
                     return;
                 }
             }
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Transition.calculateTransitionInfo five-argument overload not found");
         } catch (Throwable throwable) {
             serverTransitionChangeInfoFlagsField = null;
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook server cross-activity predictive-back prepare role",
                     throwable);
         }
@@ -516,7 +516,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             return true;
         } catch (Throwable throwable) {
             serverTransitionChangeInfoFlagsField = null;
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Server cross-activity prepare-role reflection unavailable", throwable);
             return false;
         }
@@ -544,7 +544,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                 }
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to inspect server cross-activity prepared targets;"
                             + " preserving the platform transition",
                     throwable);
@@ -672,7 +672,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                     (SurfaceControl.Transaction) startTransaction;
             transaction.setLayer((SurfaceControl) openingLeash, openingLayer);
             transaction.setLayer((SurfaceControl) closingLeash, closingLayer);
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Normalized server cross-activity prepare role"
                             + ", transitionId=" + chain.getArg(4)
                             + ", changeIndex=" + closingIndex
@@ -681,7 +681,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                             + ", leashLayers=" + closingLayer + "/" + openingLayer
                             + ", flags=0x" + Integer.toHexString(normalizedFlags));
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Server cross-activity prepare-role normalization failed;"
                             + " preserving the platform transition",
                     throwable);
@@ -777,13 +777,13 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                     recordHookHandle(hook(method)
                             .setId("server_schedule_animation_prepare_transition")
                             .intercept(this::interceptScheduleAnimationPrepareTransition));
-                    log(Log.INFO, TAG, "Hooked ScheduleAnimationBuilder.prepareTransitionIfNeeded");
+                    moduleLog(Log.INFO, TAG, "Hooked ScheduleAnimationBuilder.prepareTransitionIfNeeded");
                     return;
                 }
             }
-            log(Log.WARN, TAG, "ScheduleAnimationBuilder.prepareTransitionIfNeeded not found");
+            moduleLog(Log.WARN, TAG, "ScheduleAnimationBuilder.prepareTransitionIfNeeded not found");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to hook ScheduleAnimationBuilder.prepareTransitionIfNeeded",
+            moduleLog(Log.WARN, TAG, "Failed to hook ScheduleAnimationBuilder.prepareTransitionIfNeeded",
                     throwable);
         }
     }
@@ -798,10 +798,10 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             recordHookHandle(hook(method)
                     .setId("server_return_home_touch_occlusion")
                     .intercept(this::allowCommittedReturnHomeTouchThrough));
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Hooked committed return-home touch occlusion ownership");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to hook committed return-home touch occlusion",
                     throwable);
         }
@@ -864,7 +864,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             // prepared-transition/target relationship then owns the same close until finish.
             // The Surface remains visible for the launcher animation in both phases, so
             // USE_OPACITY would make this already non-touchable surface block Launcher input.
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Allowed Launcher touch through committed predictive CLOSE"
                             + ", window=" + shortObject(window)
                             + ", activity=" + shortObject(activity)
@@ -876,7 +876,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                             + ", backType=" + TYPE_RETURN_TO_HOME);
             return TOUCH_OCCLUSION_MODE_ALLOW;
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to verify committed return-home touch ownership"
                             + ", window=" + shortObject(window),
                     throwable);
@@ -894,7 +894,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                 ensureOpenTaskFragmentVisible(target, (SurfaceControl.Transaction) transaction);
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to prepare opening TaskFragment", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to prepare opening TaskFragment", throwable);
         }
         return chain.proceed();
     }
@@ -915,7 +915,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                 invokeAnyMethod(taskFragment, "updateOrganizedTaskFragmentSurface",
                         new Object[0]);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Open TaskFragment update surface failed, target="
+                moduleLog(Log.WARN, TAG, "Open TaskFragment update surface failed, target="
                         + shortObject(target) + ", taskFragment=" + shortObject(taskFragment)
                         + ", error=" + throwable.getClass().getSimpleName()
                         + ": " + throwable.getMessage());
@@ -923,18 +923,18 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             Object surface = readFieldOrNull(taskFragment, "mSurfaceControl");
             if (surface instanceof SurfaceControl) {
                 invokeAnyMethod(transaction, "show", new Object[]{surface});
-                log(Log.INFO, TAG, "Forced opening TaskFragment visible for predictive back"
+                moduleLog(Log.INFO, TAG, "Forced opening TaskFragment visible for predictive back"
                         + ", target=" + shortObject(target)
                         + ", taskFragment=" + shortObject(taskFragment)
                         + ", surface=" + shortObject(surface));
             } else {
-                log(Log.WARN, TAG, "Open TaskFragment has no SurfaceControl"
+                moduleLog(Log.WARN, TAG, "Open TaskFragment has no SurfaceControl"
                         + ", target=" + shortObject(target)
                         + ", taskFragment=" + shortObject(taskFragment)
                         + ", surface=" + shortObject(surface));
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to force opening TaskFragment visible, target="
+            moduleLog(Log.WARN, TAG, "Failed to force opening TaskFragment visible, target="
                     + shortObject(target), throwable);
         }
     }
@@ -952,22 +952,22 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             try {
                 exactCrossActivity = isExactFreeformCrossActivityPrepare(chain, builder);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to inspect cross-activity prepare;"
+                moduleLog(Log.WARN, TAG, "Failed to inspect cross-activity prepare;"
                         + " preserving the platform transition", throwable);
                 return chain.proceed();
             }
             if (exactCrossActivity) {
                 Object close = chain.getArg(1);
                 Object[] open = (Object[]) chain.getArg(2);
-                log(Log.INFO, TAG, "Allowing native unified prepare for exact"
+                moduleLog(Log.INFO, TAG, "Allowing native unified prepare for exact"
                         + " cross-activity, close=" + shortObject(close)
                         + ", open=" + shortObject(open[0]));
                 Object transition = chain.proceed();
-                log(Log.INFO, TAG, "Native cross-activity prepare completed"
+                moduleLog(Log.INFO, TAG, "Native cross-activity prepare completed"
                         + ", transition=" + shortObject(transition));
                 return transition;
             }
-            log(Log.INFO, TAG, "Skipped ScheduleAnimationBuilder.prepareTransitionIfNeeded"
+            moduleLog(Log.INFO, TAG, "Skipped ScheduleAnimationBuilder.prepareTransitionIfNeeded"
                     + " to avoid Xiaomi unified-transition leash reparenting"
                     + ", unifyBackNavigationTransition=true"
                     + ", returnToHome=false"
@@ -976,12 +976,12 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             return null;
         }
         if (!launchBehindKnown) {
-            log(Log.WARN, TAG, "Unable to identify ScheduleAnimationBuilder back type;"
+            moduleLog(Log.WARN, TAG, "Unable to identify ScheduleAnimationBuilder back type;"
                     + " preserving the platform transition"
                     + ", launchBehind=" + launchBehind
                     + ", builder=" + shortObject(builder));
         }
-        log(Log.INFO, TAG, "Allowing ScheduleAnimationBuilder.prepareTransitionIfNeeded"
+        moduleLog(Log.INFO, TAG, "Allowing ScheduleAnimationBuilder.prepareTransitionIfNeeded"
                 + ", unifyBackNavigationTransition=" + unify
                 + ", returnToHome=" + (launchBehindKnown
                     ? Boolean.toString(returnToHome)
@@ -1078,7 +1078,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                 "rotationForActivityInDifferentOrientation",
                 new Object[]{openActivity})).intValue();
         if (fixedRotation != -1) {
-            log(Log.INFO, TAG, "Treating fixed-rotation cross-activity prepare as non-exact"
+            moduleLog(Log.INFO, TAG, "Treating fixed-rotation cross-activity prepare as non-exact"
                     + ", rotation=" + fixedRotation
                     + ", close=" + shortObject(closeActivity)
                     + ", open=" + shortObject(openActivity));

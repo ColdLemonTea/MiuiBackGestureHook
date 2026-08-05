@@ -112,7 +112,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         } catch (Throwable throwable) {
             if (!hyperOsIndicatorPreferencesFailureLogged) {
                 hyperOsIndicatorPreferencesFailureLogged = true;
-                log(Log.ERROR, TAG, "HyperOS indicator preference unavailable"
+                moduleLog(Log.ERROR, TAG, "HyperOS indicator preference unavailable"
                         + ", policy=failClosedToAospPanel"
                         + ", key=" + key, throwable);
             }
@@ -146,9 +146,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         helper = new MiuiHapticFeedbackHelper(panelContext,
                                 (priority, message, throwable) -> {
                                     if (throwable == null) {
-                                        log(priority, TAG, message);
+                                        moduleLog(priority, TAG, message);
                                     } else {
-                                        log(priority, TAG, message, throwable);
+                                        moduleLog(priority, TAG, message, throwable);
                                     }
                                 });
                         hyperOsBackHapticHelper = helper;
@@ -160,7 +160,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             }
             return helper.performDefaultBack();
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to replace native threshold haptic; keeping native feedback",
                     throwable);
             return false;
@@ -249,7 +249,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 driver.onInputMonitorAttached();
                 onSystemUiInputMonitorAttached(context);
             }
-            log(Log.INFO, TAG, "Native SystemUI back input receiver attached"
+            moduleLog(Log.INFO, TAG, "Native SystemUI back input receiver attached"
                     + ", inputModel=miuihome-accepted-token");
         }
 
@@ -259,18 +259,18 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             try {
                 dispose();
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to dispose native back input receiver", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to dispose native back input receiver", throwable);
             }
             try {
                 inputMonitor.dispose();
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to dispose native back input monitor", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to dispose native back input monitor", throwable);
             }
             if (arbiterAttached) {
                 arbiterAttached = false;
                 onSystemUiInputMonitorDetached(context);
             }
-            log(Log.INFO, TAG, "Native SystemUI back input receiver detached");
+            moduleLog(Log.INFO, TAG, "Native SystemUI back input receiver detached");
         }
 
         void updateBackAnimation(Object newBackAnimationImpl) throws Exception {
@@ -302,7 +302,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     handled = handleMotionEvent((MotionEvent) event);
                 }
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Native SystemUI back input failed", throwable);
+                moduleLog(Log.ERROR, TAG, "Native SystemUI back input failed", throwable);
                 resetCandidate();
             } finally {
                 finishInputEvent(event, handled);
@@ -341,12 +341,12 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 downEventId = readMotionEventId(event);
                 downDisplayId = readMotionEventDisplayId(event);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Cannot identify pending MiuiHome DOWN", throwable);
+                moduleLog(Log.WARN, TAG, "Cannot identify pending MiuiHome DOWN", throwable);
                 resetCandidate();
                 return false;
             }
             pendingDownEvent = MotionEvent.obtain(event);
-            log(Log.INFO, TAG, "Native SystemUI back candidate awaiting MiuiHome acceptance"
+            moduleLog(Log.INFO, TAG, "Native SystemUI back candidate awaiting MiuiHome acceptance"
                     + ", eventId=" + downEventId
                     + ", downTime=" + downTime
                     + ", launcherOpenBreak=" + launcherOpenBreakCandidate
@@ -442,7 +442,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         launcherShadeCandidate,
                         launcherDrawerCandidate,
                         launcherEditingCandidate)) {
-                    log(Log.INFO, TAG, "MiuiHome accepted DOWN but SystemUI path declined"
+                    moduleLog(Log.INFO, TAG, "MiuiHome accepted DOWN but SystemUI path declined"
                             + ", eventId=" + token.eventId
                             + ", edge=" + token.edge);
                     resetCandidate();
@@ -453,14 +453,14 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             "driver owner changed before accepted-DOWN bind");
                     return true;
                 }
-                log(Log.INFO, TAG, "Matched MiuiHome accepted input token"
+                moduleLog(Log.INFO, TAG, "Matched MiuiHome accepted input token"
                         + ", eventId=" + token.eventId
                         + ", downTime=" + token.downTime
                         + ", displayId=" + token.displayId
                         + ", edge=" + token.edge
                         + ", generation=" + token.generation);
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to start accepted MiuiHome input", throwable);
+                moduleLog(Log.ERROR, TAG, "Failed to start accepted MiuiHome input", throwable);
                 resetCandidate();
                 return true;
             } finally {
@@ -507,10 +507,10 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             try {
                 inputMonitor.pilferPointers();
                 pilfered = true;
-                log(Log.INFO, TAG, "Native SystemUI back pilfered pointers"
+                moduleLog(Log.INFO, TAG, "Native SystemUI back pilfered pointers"
                         + ", distance=" + distance + ", edge=" + activeEdge);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to pilfer native back pointers", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to pilfer native back pointers", throwable);
             }
         }
 
@@ -524,9 +524,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         launcherEditingCandidate);
                 cancel.recycle();
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to cancel native back candidate", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to cancel native back candidate", throwable);
             }
-            log(Log.INFO, TAG, "Cancelled native SystemUI back candidate before pilfer"
+            moduleLog(Log.INFO, TAG, "Cancelled native SystemUI back candidate before pilfer"
                     + ", reason=" + reason
                     + ", edge=" + activeEdge
                     + ", x=" + event.getRawX()
@@ -586,11 +586,11 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         launcherEditingCandidate);
                 cancel.recycle();
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to cancel Shell back after native transient-bars claim",
                         throwable);
             }
-            log(Log.INFO, TAG, "Yielded immersive side gesture to native transient bars"
+            moduleLog(Log.INFO, TAG, "Yielded immersive side gesture to native transient bars"
                     + ", phase=" + phase
                     + ", inputPilfered=" + handled
                     + ", downTime=" + downTime
@@ -635,7 +635,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             }
             ComponentName topActivity = findTopActivity();
             if (topActivity == null) {
-                log(Log.WARN, TAG, "Rejected native back because top activity is unknown"
+                moduleLog(Log.WARN, TAG, "Rejected native back because top activity is unknown"
                         + ", displayId=" + displayId
                         + ", edge=" + edge);
                 return false;
@@ -665,7 +665,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             if (launcherHome && !miuiOverviewVisible
                     && !launcherOpenBreak && !launcherShade
                     && !launcherDrawer && !launcherEditing) {
-                log(Log.INFO, TAG, "Ignored native back on launcher Home"
+                moduleLog(Log.INFO, TAG, "Ignored native back on launcher Home"
                         + ", topActivity=" + topActivity.flattenToShortString()
                         + ", overviewVisible=false"
                         + ", launcherShade=false"
@@ -682,33 +682,33 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return false;
             }
             if (launcherPackage && !launcherHome) {
-                log(Log.INFO, TAG, "Accepted non-Home MiuiHome activity as a normal back target"
+                moduleLog(Log.INFO, TAG, "Accepted non-Home MiuiHome activity as a normal back target"
                         + ", topActivity=" + topActivity.flattenToShortString()
                         + ", displayId=" + displayId
                         + ", edge=" + edge);
             }
             if (launcherShade) {
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Accepted native back for NotificationShade over MiuiHome Home"
                                 + ", requireShellCallback=true"
                                 + ", displayId=" + displayId
                                 + ", edge=" + edge);
             }
             if (launcherDrawer) {
-                log(Log.INFO, TAG, "Accepted native back in MiuiHome app drawer"
+                moduleLog(Log.INFO, TAG, "Accepted native back in MiuiHome app drawer"
                         + ", drawerVisible=true"
                         + ", requireShellCallback=true"
                         + ", displayId=" + displayId
                         + ", edge=" + edge);
             }
             if (launcherEditing) {
-                log(Log.INFO, TAG, "Accepted native back in MiuiHome editing surface"
+                moduleLog(Log.INFO, TAG, "Accepted native back in MiuiHome editing surface"
                         + ", requireShellCallback=true"
                         + ", displayId=" + displayId
                         + ", edge=" + edge);
             }
             if (launcherOpenBreak) {
-                log(Log.INFO, TAG, "Accepted native back during launcher OPEN animation"
+                moduleLog(Log.INFO, TAG, "Accepted native back during launcher OPEN animation"
                         + ", launcherOpenBreakAvailable="
                         + miuiLauncherOpenBreakAvailable
                         + ", launcherHome=" + launcherHome
@@ -730,7 +730,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     && isCurrentHeadlessNavBarLifecycle(edgeBackGestureHandler);
             if (navBarHidden && !allowGestureIgnoringBarVisibility
                     && !authenticatedHeadlessLifecycle) {
-                log(Log.INFO, TAG, "Ignored native back by AOSP bar-visibility policy"
+                moduleLog(Log.INFO, TAG, "Ignored native back by AOSP bar-visibility policy"
                         + ", sysUiStateFlags=" + sysUiStateFlags
                         + ", edge=" + edge + ", x=" + event.getRawX()
                         + ", y=" + event.getRawY());
@@ -739,33 +739,33 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             waitingForTransientBarsAtDown = navBarHidden && !navBarShownTransiently;
             if (navBarHidden && authenticatedHeadlessLifecycle
                     && !allowGestureIgnoringBarVisibility) {
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Accepted native back through authenticated headless lifecycle"
                                 + ", sysUiStateFlags=" + sysUiStateFlags
                                 + ", edge=" + edge + ", x=" + event.getRawX()
                                 + ", y=" + event.getRawY());
             } else if (navBarHidden) {
-                log(Log.INFO, TAG, "AOSP bar-visibility policy allows immersive back"
+                moduleLog(Log.INFO, TAG, "AOSP bar-visibility policy allows immersive back"
                         + ", sysUiStateFlags=" + sysUiStateFlags
                         + ", edge=" + edge + ", x=" + event.getRawX()
                         + ", y=" + event.getRawY());
             }
             if (!isBackGestureAllowedBySystemUiState()) {
-                log(Log.INFO, TAG, "Ignored native back while SystemUI state disallows back");
+                moduleLog(Log.INFO, TAG, "Ignored native back while SystemUI state disallows back");
                 return false;
             }
             if (isInBottomGestureRegion(event)) {
-                log(Log.INFO, TAG, "Ignored native back inside bottom gesture region"
+                moduleLog(Log.INFO, TAG, "Ignored native back inside bottom gesture region"
                         + ", x=" + event.getRawX() + ", y=" + event.getRawY());
                 return false;
             }
             if (isInMiuiSidebarRegion(event)) {
-                log(Log.INFO, TAG, "Ignored native back inside MIUI sidebar bounds"
+                moduleLog(Log.INFO, TAG, "Ignored native back inside MIUI sidebar bounds"
                         + ", x=" + event.getRawX() + ", y=" + event.getRawY());
                 return false;
             }
             if (isInExcludedRegion(event, edge)) {
-                log(Log.INFO, TAG, "Ignored native back inside exclusion region"
+                moduleLog(Log.INFO, TAG, "Ignored native back inside exclusion region"
                         + ", x=" + event.getRawX() + ", y=" + event.getRawY());
                 return false;
             }
@@ -789,7 +789,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (!(stateDisplayId instanceof Number)
                         || ((Number) stateDisplayId).intValue() != displayId
                         || !(flagsObject instanceof Number)) {
-                    log(Log.WARN, TAG, "Rejected launcher shade state with invalid SysUiState"
+                    moduleLog(Log.WARN, TAG, "Rejected launcher shade state with invalid SysUiState"
                             + ", stateDisplayId=" + stateDisplayId
                             + ", monitorDisplayId=" + displayId
                             + ", flags=" + flagsObject);
@@ -799,7 +799,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return (flags & SYSUI_STATE_MIUI_SHADE_EXPANDED_MASK) != 0L
                         && (flags & SYSUI_STATE_LOCKED_OR_PINNED_MASK) == 0L;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to inspect MIUI notification shade state; preserving Home ignore",
                         throwable);
                 return false;
@@ -855,7 +855,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (!(stateDisplayId instanceof Number)
                         || ((Number) stateDisplayId).intValue() != displayId
                         || !(flagsObject instanceof Number)) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Cannot bind AOSP gesture policy to current SysUiState"
                                     + ", stateDisplayId=" + stateDisplayId
                                     + ", monitorDisplayId=" + displayId
@@ -874,14 +874,14 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     }
                 }
                 if (logHeadlessState) {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Authenticated native SysUiState for headless NavigationBar"
                                     + ", displayId=" + displayId
                                     + ", flags=0x" + Long.toHexString(flags));
                 }
                 return flags;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to inspect AOSP immersive gesture visibility policy",
                         throwable);
                 return null;
@@ -904,7 +904,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     return false;
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to inspect gesture-blocking activity state",
+                moduleLog(Log.WARN, TAG, "Failed to inspect gesture-blocking activity state",
                         throwable);
                 return false;
             }
@@ -927,7 +927,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
                 return null;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to inspect top activity for native back", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to inspect top activity for native back", throwable);
                 return null;
             }
         }
@@ -946,7 +946,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     // Preserve the old fail-closed Home behavior when package resolution is
                     // unexpectedly unavailable. Pilfering a real launcher Home stream is worse
                     // than declining a sibling Activity until the resolution fault is known.
-                    log(Log.WARN, TAG, "Could not resolve a MiuiHome HOME component"
+                    moduleLog(Log.WARN, TAG, "Could not resolve a MiuiHome HOME component"
                             + ", topActivity=" + topActivity.flattenToShortString()
                             + ", displayId=" + displayId);
                     return true;
@@ -958,7 +958,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         && topActivity.equals(new ComponentName(
                         activityInfo.packageName, activityInfo.targetActivity)));
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to distinguish MiuiHome Activity from launcher Home"
+                moduleLog(Log.WARN, TAG, "Failed to distinguish MiuiHome Activity from launcher Home"
                         + ", topActivity=" + topActivity.flattenToShortString()
                         + ", displayId=" + displayId, throwable);
                 return true;
@@ -973,7 +973,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
             } catch (Throwable throwable) {
                 if (displayId != 0) {
-                    log(Log.WARN, TAG, "Failed to inspect running-task display"
+                    moduleLog(Log.WARN, TAG, "Failed to inspect running-task display"
                             + ", monitorDisplayId=" + displayId, throwable);
                 }
             }
@@ -992,7 +992,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     return true;
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to inspect application exclusion region",
+                moduleLog(Log.WARN, TAG, "Failed to inspect application exclusion region",
                         throwable);
                 return true;
             }
@@ -1002,7 +1002,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     return true;
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to inspect desktop exclusion region", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to inspect desktop exclusion region", throwable);
                 return true;
             }
             try {
@@ -1011,7 +1011,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     return true;
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to inspect navigation-overlay exclusion bounds",
+                moduleLog(Log.WARN, TAG, "Failed to inspect navigation-overlay exclusion bounds",
                         throwable);
                 return true;
             }
@@ -1026,7 +1026,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         return true;
                     }
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG, "Failed to inspect PiP exclusion bounds", throwable);
+                    moduleLog(Log.WARN, TAG, "Failed to inspect PiP exclusion bounds", throwable);
                     return true;
                 }
             }
@@ -1038,7 +1038,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 Object value = readField(edgeBackGestureHandler, "mIsInPip");
                 return value instanceof Boolean ? (Boolean) value : null;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to inspect PiP state", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to inspect PiP state", throwable);
                 return null;
             }
         }
@@ -1049,7 +1049,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 encoded = Settings.Secure.getString(context.getContentResolver(),
                         MIUI_SIDEBAR_BOUNDS);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to read MIUI sidebar bounds", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to read MIUI sidebar bounds", throwable);
                 return true;
             }
             if (encoded == null || encoded.trim().isEmpty()) {
@@ -1076,7 +1076,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     }
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to parse MIUI sidebar bounds: " + encoded,
+                moduleLog(Log.WARN, TAG, "Failed to parse MIUI sidebar bounds: " + encoded,
                         throwable);
                 return true;
             }
@@ -1120,7 +1120,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return insets == null
                         || !insets.isVisible(WindowInsets.Type.navigationBars());
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to inspect navigation-bar visibility", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to inspect navigation-bar visibility", throwable);
                 return true;
             }
         }
@@ -1146,7 +1146,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         .getCurrentWindowMetrics().getBounds();
                 return event.getRawY() >= bounds.bottom - bottomGestureHeight;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to inspect bottom gesture region", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to inspect bottom gesture region", throwable);
                 return true;
             }
         }
@@ -1364,7 +1364,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         new Object[]{task});
                 return true;
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Failed blocking Shell-owner task, reason=" + reason,
                         throwable);
                 return false;
@@ -1423,7 +1423,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         return gestureActive;
                 }
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "SystemUI back gesture driver failed", throwable);
+                moduleLog(Log.ERROR, TAG, "SystemUI back gesture driver failed", throwable);
                 clearLocalGestureState();
                 return false;
             }
@@ -1457,13 +1457,13 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 try {
                     ready.set(isShellStartReadyOnOwner(owner.controller));
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Failed Shell readiness check before pilfer",
                             throwable);
                 }
             }, "prePilferReadiness");
             if (!completed || !ready.get()) {
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Left accepted gesture unpilfered while Shell is busy"
                                 + ", state=" + state.get());
                 return false;
@@ -1508,7 +1508,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     != miuiLauncherOpenBreakGeneration) {
                 long staleGeneration = launcherOpenBreakGeneration;
                 gestureActive = false;
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Rejected stale launcher OPEN candidate"
                                 + ", generation=" + staleGeneration
                                 + ", currentGeneration="
@@ -1521,14 +1521,14 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 launcherOpenBreakGesture = false;
                 launcherOpenBreakGeneration = 0L;
                 launcherOpenBreakAttemptId = 0L;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Started expired launcher OPEN candidate on the normal Shell path"
                                 + ", generation=" + endedGeneration
                                 + ", edge=" + activeEdge);
             }
             if (launcherOpenBreakGesture) {
                 dispatchToEdgePlugin(event, activeEdge);
-                log(Log.INFO, TAG, "SystemUI-owned launcher OPEN break candidate"
+                moduleLog(Log.INFO, TAG, "SystemUI-owned launcher OPEN break candidate"
                         + ", useMiuiHomeNativeController=true"
                         + ", shellGestureStarted=false"
                         + ", generation=" + launcherOpenBreakGeneration
@@ -1538,7 +1538,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             }
             if (launcherOverviewGesture || launcherShadeGesture
                     || launcherDrawerGesture || launcherEditingGesture) {
-                log(Log.INFO, TAG, (launcherShadeGesture
+                moduleLog(Log.INFO, TAG, (launcherShadeGesture
                         ? "SystemUI-owned NotificationShade back gesture candidate"
                         : launcherOverviewGesture
                         ? "SystemUI-owned Recents back gesture candidate"
@@ -1552,14 +1552,14 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (!startShellGesture()) {
                     if (recentsVisualOnlyGesture) {
                         dispatchToEdgePlugin(event, activeEdge);
-                        log(Log.INFO, TAG, "Started visual-only Recents edge gesture"
+                        moduleLog(Log.INFO, TAG, "Started visual-only Recents edge gesture"
                                 + ", staleShellTargetRejected=true"
                                 + ", inputWillRemainUnpilfered=true");
                         return true;
                     }
                     gestureActive = false;
                     gestureSuppressed = false;
-                    log(Log.INFO, TAG, (launcherShadeGesture
+                    moduleLog(Log.INFO, TAG, (launcherShadeGesture
                             ? "Ignored NotificationShade gesture without a callback target"
                             : launcherDrawerGesture
                             ? "Ignored MiuiHome drawer gesture without a callback target"
@@ -1577,7 +1577,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 shellGestureStartDeferred = true;
             }
             dispatchToEdgePlugin(event, activeEdge);
-            log(Log.INFO, TAG, "SystemUI gesture driver candidate"
+            moduleLog(Log.INFO, TAG, "SystemUI gesture driver candidate"
                     + ", shellStartDeferred=" + shellGestureStartDeferred
                     + ", inputModel=miuihome-accepted-token"
                     + ", launcherShade=" + launcherShadeGesture
@@ -1613,7 +1613,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             "BackNavigationInfo unavailable at intent threshold");
                     return false;
                 }
-                log(Log.INFO, TAG, "Started in-app back path at 8dp intent threshold"
+                moduleLog(Log.INFO, TAG, "Started in-app back path at 8dp intent threshold"
                         + ", shellGestureStarted=" + shellGestureStarted
                         + ", legacyInterrupt=" + legacyInterruptGesture
                         + ", aospNullNavigation=" + aospNullNavigationGesture
@@ -1691,7 +1691,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 long openHandoffEpoch) {
             if (!thresholdCrossed) {
                 shellGestureStartDeferred = true;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Deferred " + openDescription + "-to-Shell handoff until 8dp"
                                 + identityDescription
                                 + ", edge=" + activeEdge);
@@ -1711,14 +1711,14 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (!startShellGesture(
                         gestureOwner, lastX, lastY, openHandoffEpoch)) {
                     gestureSuppressed = true;
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Suppressed ended " + openDescription
                                     + " handoff after Shell rejected navigation"
                                     + identityDescription);
                     return;
                 }
                 ShellGestureSession session = activeShellSession;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         (legacyInterruptGesture
                                 ? "Handed ended " + openDescription
                                 + " gesture to Xiaomi OPEN interruption"
@@ -1733,7 +1733,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                 + ", shellSessionId="
                                 + (session == null ? 0L : session.id));
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Failed " + openDescription + "-to-Shell handoff"
                                 + identityDescription,
                         throwable);
@@ -1746,13 +1746,13 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             }
             thresholdCrossed = true;
             if (legacyInterruptGesture) {
-                log(Log.INFO, TAG, "MIUI in-app interrupt threshold crossed, distance="
+                moduleLog(Log.INFO, TAG, "MIUI in-app interrupt threshold crossed, distance="
                         + distance);
             } else if (launcherOpenBreakGesture) {
-                log(Log.INFO, TAG, "MiuiHome launcher OPEN break threshold crossed, distance="
+                moduleLog(Log.INFO, TAG, "MiuiHome launcher OPEN break threshold crossed, distance="
                         + distance);
             } else {
-                log(Log.INFO, TAG, launcherShadeGesture
+                moduleLog(Log.INFO, TAG, launcherShadeGesture
                         ? "SystemUI NotificationShade Shell callback threshold crossed, distance="
                         + distance
                         : launcherOverviewGesture
@@ -1770,7 +1770,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 dispatchToEdgePlugin(event, activeEdge);
                 clearControllerTriggerAfterVisualOnlyGesture();
                 clearLocalGestureState();
-                log(Log.INFO, TAG, "Finished suppressed SystemUI back gesture");
+                moduleLog(Log.INFO, TAG, "Finished suppressed SystemUI back gesture");
                 return true;
             }
             if (launcherOpenBreakGesture) {
@@ -1788,7 +1788,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         ? event.getRawX() - downX
                         : downX - event.getRawX();
                 clearControllerTriggerAfterVisualOnlyGesture();
-                log(Log.INFO, TAG, "Finished visual-only Recents edge gesture"
+                moduleLog(Log.INFO, TAG, "Finished visual-only Recents edge gesture"
                         + ", releaseDistance=" + releaseDistance
                         + ", wouldPassCommitThreshold="
                         + (allowTrigger && releaseDistance > dp(TRIGGER_THRESHOLD_DP))
@@ -1816,7 +1816,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             boolean ownerStillCurrent = isShellSessionOwnerCurrent(session);
             if (!ownerStillCurrent) {
                 trigger = false;
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Forced Shell release cancellation after owner changed"
                                 + ", shellSessionId=" + session.id
                                 + ", sessionController="
@@ -1839,7 +1839,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     launcherEditingGesture, aospNullNavigationGesture,
                     session.inputEpoch,
                     releaseInputIdentity);
-            log(queued ? Log.INFO : Log.ERROR, TAG,
+            moduleLog(queued ? Log.INFO : Log.ERROR, TAG,
                     "SystemUI gesture driver release queued=" + queued
                     + ", requestedTrigger=" + trigger
                     + ", recentsShellCallback=" + launcherOverviewGesture
@@ -1883,7 +1883,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 // DefaultTransitionImpl.mergeAnimation() reverses the running OPEN animators.
                 dispatchLegacyInterruptBack(releaseController);
             }
-            log(Log.INFO, TAG, "Finished MIUI in-app interrupt gesture"
+            moduleLog(Log.INFO, TAG, "Finished MIUI in-app interrupt gesture"
                     + ", fixedThresholdEligible=" + fixedThresholdEligible
                     + ", nativePanelTrigger=" + nativePanelTrigger
                     + ", exactReleaseOwner=" + exactReleaseOwner
@@ -1954,14 +1954,14 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             context, generation, attemptId, this,
                             releaseController);
                 } catch (Throwable throwable) {
-                    log(Log.ERROR, TAG, "Failed to send launcher OPEN break command",
+                    moduleLog(Log.ERROR, TAG, "Failed to send launcher OPEN break command",
                             throwable);
                     onLauncherOpenBreakCommandResult(generation, attemptId,
                             LAUNCHER_OPEN_BREAK_RESULT_REJECTED, "sendException",
                             releaseController);
                 }
             }
-            log(Log.INFO, TAG, "Finished MiuiHome launcher OPEN break gesture"
+            moduleLog(Log.INFO, TAG, "Finished MiuiHome launcher OPEN break gesture"
                     + ", trigger=" + trigger
                     + ", generation=" + launcherOpenBreakGeneration
                     + ", attempt=" + launcherOpenBreakAttemptId
@@ -1984,7 +1984,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                                        Object releaseController) {
             if (pendingLauncherOpenBreakGeneration != generation
                     || pendingLauncherOpenBreakAttemptId != attemptId) {
-                log(Log.WARN, TAG, "Ignored stale launcher OPEN break command result"
+                moduleLog(Log.WARN, TAG, "Ignored stale launcher OPEN break command result"
                         + ", generation=" + generation
                         + ", attempt=" + attemptId
                         + ", pendingGeneration=" + pendingLauncherOpenBreakGeneration
@@ -1997,12 +1997,12 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             pendingLauncherOpenBreakGeneration = 0L;
             pendingLauncherOpenBreakAttemptId = 0L;
             if (resultCode == LAUNCHER_OPEN_BREAK_RESULT_ACCEPTED) {
-                log(Log.INFO, TAG, "MiuiHome accepted launcher OPEN break command"
+                moduleLog(Log.INFO, TAG, "MiuiHome accepted launcher OPEN break command"
                         + ", generation=" + generation
                         + ", attempt=" + attemptId);
                 return;
             }
-            log(Log.WARN, TAG, "Falling back to one ordinary BACK after launcher OPEN "
+            moduleLog(Log.WARN, TAG, "Falling back to one ordinary BACK after launcher OPEN "
                     + "break rejection"
                     + ", generation=" + generation
                     + ", attempt=" + attemptId
@@ -2015,7 +2015,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             int remaining = launcherOpenBreakCommandsInFlight.decrementAndGet();
             if (remaining < 0) {
                 launcherOpenBreakCommandsInFlight.set(0);
-                log(Log.WARN, TAG, "Corrected launcher OPEN break in-flight underflow");
+                moduleLog(Log.WARN, TAG, "Corrected launcher OPEN break in-flight underflow");
             }
         }
 
@@ -2033,7 +2033,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             ShellOwner owner = progressOwner == null
                     ? gestureOwner : progressOwner;
             if (!isShellOwnerCurrent(owner)) {
-                log(Log.WARN, TAG, "Rejected gesture without a stable Shell start owner"
+                moduleLog(Log.WARN, TAG, "Rejected gesture without a stable Shell start owner"
                         + ", controller=" + shortObject(controller)
                         + ", inputEpoch=" + inputMonitorEpoch.get()
                         + ", inputAttached=" + inputMonitorAttached);
@@ -2050,7 +2050,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             if (runningOpen != null) {
                 legacyInterruptGesture = true;
                 legacyRunningOpenInfo = runningOpen.transitionInfo;
-                log(Log.INFO, TAG, "Preferred running Xiaomi OPEN transition before predictive back");
+                moduleLog(Log.INFO, TAG, "Preferred running Xiaomi OPEN transition before predictive back");
                 return true;
             }
 
@@ -2058,7 +2058,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 invokeAnyMethod(edgeBackGestureHandler,
                         "updateDisplaySize$1", new Object[0]);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to update display size before Shell start",
                         throwable);
             }
@@ -2179,7 +2179,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             startX, startY, startEdge));
                     cleanupQueued = true;
                 } catch (Throwable cleanupFailure) {
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Failed to queue abandoned Shell-start cleanup",
                             cleanupFailure);
                 }
@@ -2187,7 +2187,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     shellStartInFlight = false;
                     shellOwnerUncertain = false;
                 }
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Rejected gesture after Shell blocking start failed"
                                 + ", cleanupQueued=" + cleanupQueued
                                 + ", taskEntered=" + startTaskEntered.get()
@@ -2207,7 +2207,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             maxDistance, nonLinearFactor,
                             startX, startY, startEdge);
                 }
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Rejected gesture after Shell blocking start timed out"
                                 + ", controller="
                                 + shortObject(owner.controller)
@@ -2222,13 +2222,13 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             startX, startY, startEdge);
                 }
                 shellStartInFlight = false;
-                log(Log.ERROR, TAG, "Shell-owner gesture start failed",
+                moduleLog(Log.ERROR, TAG, "Shell-owner gesture start failed",
                         start.failure);
                 return false;
             }
             if (!start.ready || !start.startInvoked) {
                 shellStartInFlight = false;
-                log(Log.WARN, TAG, "Rejected gesture while Shell is busy"
+                moduleLog(Log.WARN, TAG, "Rejected gesture while Shell is busy"
                         + ", state=" + start.stateDescription);
                 return false;
             }
@@ -2246,7 +2246,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             Object info = start.navigation;
             boolean receivedNull = start.receivedNullNavigation;
             if (!isShellOwnerCurrent(owner)) {
-                log(Log.WARN, TAG, "Rejected Shell gesture after start owner changed"
+                moduleLog(Log.WARN, TAG, "Rejected Shell gesture after start owner changed"
                         + ", sessionId=" + session.id
                         + ", startController=" + shortObject(owner.controller)
                         + ", currentController=" + shortObject(controller)
@@ -2256,7 +2256,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return false;
             }
             if (info == null || receivedNull) {
-                log(Log.WARN, TAG, "Shell rejected back navigation"
+                moduleLog(Log.WARN, TAG, "Shell rejected back navigation"
                         + ", info=" + shortObject(info)
                         + ", receivedNull=" + receivedNull
                         + ", state=" + start.stateDescription);
@@ -2266,7 +2266,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (launcherCallbackOnly) {
                     cleanupRejectedShellGesture(session);
                     if (launcherOverviewGesture) {
-                        log(Log.INFO, TAG, "Rejected null Recents BackNavigationInfo"
+                        moduleLog(Log.INFO, TAG, "Rejected null Recents BackNavigationInfo"
                                 + ", mode=visual-only"
                                 + ", retry=false");
                     }
@@ -2277,7 +2277,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     cleanupRejectedShellGesture(session);
                     legacyInterruptGesture = true;
                     legacyRunningOpenInfo = runningOpen.transitionInfo;
-                    log(Log.INFO, TAG, "Using SystemUI-owned legacy BACK for possible "
+                    moduleLog(Log.INFO, TAG, "Using SystemUI-owned legacy BACK for possible "
                             + "MIUI in-app transition interruption");
                     return true;
                 }
@@ -2299,7 +2299,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     }
                 }
                 if (authenticatedNullStart) {
-                    log(Log.INFO, TAG, "Continuing authenticated in-app gesture with AOSP "
+                    moduleLog(Log.INFO, TAG, "Continuing authenticated in-app gesture with AOSP "
                             + "null-navigation fallback"
                             + ", input=" + shortObject(acceptedInputIdentity)
                             + ", edge=" + activeEdge);
@@ -2312,7 +2312,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 int navigationType = info instanceof BackNavigationInfo
                         ? ((BackNavigationInfo) info).getType() : -1;
                 if (navigationType != TYPE_CALLBACK) {
-                    log(Log.WARN, TAG, (launcherShadeGesture
+                    moduleLog(Log.WARN, TAG, (launcherShadeGesture
                             ? "Rejected non-callback NotificationShade Shell target"
                             : launcherOverviewGesture
                             ? "Rejected stale Recents Shell target"
@@ -2327,7 +2327,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     cleanupRejectedShellGesture(session);
                     return false;
                 }
-                log(Log.INFO, TAG, (launcherShadeGesture
+                moduleLog(Log.INFO, TAG, (launcherShadeGesture
                         ? "Resolved NotificationShade Shell callback, type="
                         : launcherOverviewGesture
                         ? "Resolved Launcher Recents Shell callback, type="
@@ -2337,7 +2337,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         + navigationType);
             }
             shellGestureStarted = true;
-            log(Log.INFO, TAG, "SystemUI gesture driver onGestureStarted"
+            moduleLog(Log.INFO, TAG, "SystemUI gesture driver onGestureStarted"
                     + ", shellSessionId=" + session.id
                     + ", edge=" + activeEdge + ", x=" + downX + ", y=" + downY);
             return true;
@@ -2347,7 +2347,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             ShellGestureSession completedSession;
             synchronized (backInputLifecycleLock) {
                 if (shellStartInFlight || shellOwnerUncertain) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Rejected Shell start while ownership is unsettled"
                                     + ", startInFlight=" + shellStartInFlight
                                     + ", ownerUncertain=" + shellOwnerUncertain);
@@ -2358,7 +2358,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     return true;
                 }
                 if (!completedSession.completionConsumed.get()) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Rejected Shell start while another session owns the slot"
                                     + ", shellSessionId=" + completedSession.id
                                     + ", completionConsumed="
@@ -2435,7 +2435,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 session.executor.execute(() -> cancelFailedShellRelease(
                         session, session.tracker));
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Could not cancel untracked Shell session"
                                 + ", sessionId=" + session.id
                                 + ", reason=" + reason,
@@ -2448,7 +2448,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             for (OpenTransitionSnapshot snapshot : runningOpenTransitions.values()) {
                 if (snapshot.state.get() == OPEN_SNAPSHOT_ACTIVE) {
                     if (active != null) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Rejected ambiguous reversible OPEN transitions"
                                         + ", firstInfo="
                                         + shortObject(active.transitionInfo)
@@ -2460,7 +2460,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
             }
             if (active != null) {
-                log(Log.INFO, TAG, "Detected reversible running OPEN transition"
+                moduleLog(Log.INFO, TAG, "Detected reversible running OPEN transition"
                         + ", animatorCount=" + active.animators.length
                         + ", info=" + shortObject(active.transitionInfo));
             }
@@ -2544,7 +2544,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     false, false, session.edge,
                     launcherOverviewGesture, launcherShadeGesture, launcherDrawerGesture,
                     launcherEditingGesture, false, 0L, null);
-            log(queued ? Log.INFO : Log.ERROR, TAG,
+            moduleLog(queued ? Log.INFO : Log.ERROR, TAG,
                     "Rejected Shell navigation cancellation queued=" + queued
                             + ", requestedTrigger=false"
                             + ", recentsProbe=" + launcherOverviewGesture
@@ -2562,7 +2562,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 invokeAnyMethod(backAnimationImpl, "setTriggerBack",
                         new Object[]{Boolean.FALSE});
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to queue visual-only trigger clear through BackAnimationImpl",
                         throwable);
             }
@@ -2611,10 +2611,10 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 dispatchToEdgePlugin(cancel, activeEdge);
                 cancel.recycle();
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to cancel local edge panel", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to cancel local edge panel", throwable);
             }
             clearLocalGestureState();
-            log(Log.INFO, TAG, "Cancelled local SystemUI back gesture, reason=" + reason);
+            moduleLog(Log.INFO, TAG, "Cancelled local SystemUI back gesture, reason=" + reason);
         }
 
         protected Runnable captureShellAnimationCompletion(
@@ -2684,7 +2684,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                 quiescent = isShellReadyOnOwner(
                                         finishedController);
                                 if (quiescent) {
-                                    log(Log.WARN, TAG,
+                                    moduleLog(Log.WARN, TAG,
                                             "Cancelled orphaned Shell animation callback"
                                                     + " after stock timeout"
                                                     + ", shellSessionId="
@@ -2693,12 +2693,12 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             }
                         }
                     } catch (Throwable throwable) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Failed to verify orphaned Shell cleanup",
                                 throwable);
                     }
                     if (!quiescent) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Retained orphaned Shell session after non-quiescent finish"
                                         + ", shellSessionId=" + session.id
                                         + ", tracker="
@@ -2713,7 +2713,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                         + shortObject(navigation));
                         return;
                     }
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Accepted definitive stock cleanup for orphaned Shell session"
                                     + ", shellSessionId=" + session.id);
                 }
@@ -2740,7 +2740,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 ShellGestureSession session, String reason) {
             synchronized (backInputLifecycleLock) {
                 if (activeShellSession != session) {
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Ignored stale Shell session completion"
                                     + ", shellSessionId=" + session.id
                                     + ", activeSessionId="
@@ -2785,7 +2785,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             } catch (Throwable throwable) {
                 // A release must never fall back to mutating controller/tracker state from
                 // the input Looper. Fail closed if the owner executor cannot be reached.
-                log(Log.ERROR, TAG, "Failed to queue complete Shell release transaction"
+                moduleLog(Log.ERROR, TAG, "Failed to queue complete Shell release transaction"
                                 + ", shellSessionId=" + session.id,
                         throwable);
                 session.awaitingStockCleanup.set(true);
@@ -2813,13 +2813,13 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             try {
                 if (session.moveFailed.get()) {
                     requestedTrigger = false;
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Forced Shell release cancellation after MOVE failure"
                                     + ", shellSessionId=" + session.id);
                 }
                 if (!isShellSessionOwnerCurrent(session)) {
                     if (requestedTrigger) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Forced Shell release cancellation after owner changed on executor"
                                         + ", shellSessionId=" + session.id
                                         + ", sessionController="
@@ -2878,7 +2878,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             + shortObject(tracker));
                 }
                 boolean actualTrigger = ((BackTouchTracker) tracker).getTriggerBack();
-                log(Log.INFO, TAG, "Resolved Shell release trigger"
+                moduleLog(Log.INFO, TAG, "Resolved Shell release trigger"
                         + ", fixedThresholdEligible=" + requestedTrigger
                         + ", nativeTriggerBeforeThresholdVeto="
                         + nativeTriggerBeforeThresholdVeto
@@ -2920,7 +2920,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (Boolean.TRUE.equals(readField(releaseController,
                         "mPostCommitAnimationInProgress"))) {
                     session.awaitingStockCleanup.set(true);
-                    log(Log.WARN, TAG, "Shell release found an existing post-commit animation"
+                    moduleLog(Log.WARN, TAG, "Shell release found an existing post-commit animation"
                             + ", actualTrigger=" + actualTrigger
                             + ", edge=" + releaseEdge);
                     return;
@@ -2929,7 +2929,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     if (focusedTaskId < 0 || inputIdentity == null
                             || inputIdentity.generation
                             != systemUiInputArbiterGeneration) {
-                        log(Log.ERROR, TAG,
+                        moduleLog(Log.ERROR, TAG,
                                 "Could not bind committed return-home to accepted DOWN"
                                         + ", taskId=" + focusedTaskId
                                         + ", input="
@@ -2947,7 +2947,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         SystemUiReturnHomeCommitIdentity replaced =
                                 systemUiReturnHomeCommitIdentity
                                         .getAndSet(identity);
-                        log(Log.INFO, TAG,
+                        moduleLog(Log.INFO, TAG,
                                 "Bound committed return-home to accepted DOWN"
                                         + ", taskId=" + focusedTaskId
                                         + ", eventId="
@@ -3007,7 +3007,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         "post-commit", releaseEdge,
                         recentsCallback, shadeCallback, drawerCallback, editingCallback);
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Complete Shell release transaction failed; cancelling",
+                moduleLog(Log.ERROR, TAG, "Complete Shell release transaction failed; cancelling",
                         throwable);
                 cancelFailedShellRelease(session, tracker);
             }
@@ -3041,7 +3041,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (Boolean.TRUE.equals(readField(releaseController,
                         "mPostCommitAnimationInProgress"))) {
                     session.awaitingStockCleanup.set(true);
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Null-navigation release found an existing post-commit animation"
                                     + ", authenticatedFallback="
                                     + authenticatedFallback
@@ -3059,7 +3059,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             completeShellSessionOnOwner(session,
                     commitLegacyBack ? "null-navigation-commit"
                             : "null-navigation-cancel");
-            log(commitLegacyBack ? Log.INFO : Log.WARN, TAG,
+            moduleLog(commitLegacyBack ? Log.INFO : Log.WARN, TAG,
                     "Finished released gesture with null navigation"
                             + ", requestedTrigger=" + requestedTrigger
                             + ", actualTrigger=" + actualTrigger
@@ -3098,7 +3098,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     writeField(transitionHandler, "mCloseTransitionRequested",
                             Boolean.FALSE);
                 }
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Prepared stock return-to-home cancel transition cleanup"
                                 + ", staleCloseRequested="
                                 + staleCloseRequested
@@ -3109,7 +3109,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             } catch (Throwable throwable) {
                 // Keep stock cancellation moving even when a vendor field changes. Its normal
                 // timeout remains safer than finishing a prepared transition from this driver.
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to prepare return-to-home cancel transition cleanup",
                         throwable);
             }
@@ -3129,7 +3129,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 invokeAnyMethod(session.controller, "dispatchOnBackProgressed",
                         new Object[]{callback, progressEvent});
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to dispatch final progress on Shell executor",
+                moduleLog(Log.WARN, TAG, "Failed to dispatch final progress on Shell executor",
                         throwable);
             }
         }
@@ -3163,7 +3163,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             } catch (Throwable throwable) {
                 // Unknown is deliberately not treated as missing/cancelled. The tracker stays
                 // FINISHED and Shell's own timeout is allowed to resolve the navigation.
-                log(Log.WARN, TAG, "Remote runner state is unknown; waiting for Shell timeout",
+                moduleLog(Log.WARN, TAG, "Remote runner state is unknown; waiting for Shell timeout",
                         throwable);
                 return REMOTE_RUNNER_UNKNOWN;
             }
@@ -3177,7 +3177,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 invokeAnyMethod(executor, "executeDelayed",
                         new Object[]{timeout, 2000L});
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to schedule required Shell animation timeout",
+                moduleLog(Log.ERROR, TAG, "Failed to schedule required Shell animation timeout",
                         throwable);
             }
         }
@@ -3186,7 +3186,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 ShellGestureSession session, String reason) {
             session.awaitingStockCleanup.set(true);
             scheduleShellAnimationTimeout(session.controller);
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Kept failed Shell session for stock timeout"
                             + ", shellSessionId=" + session.id
                             + ", reason=" + reason
@@ -3266,7 +3266,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 invokeAnyMethod(releaseController,
                         "startPostCommitAnimation", new Object[0]);
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to cancel broken Shell release transaction",
+                moduleLog(Log.ERROR, TAG, "Failed to cancel broken Shell release transaction",
                         throwable);
                 failShellReleaseWithoutTracker(session,
                         "failedReleaseCancellationException");
@@ -3281,7 +3281,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                            boolean shadeCallback,
                                            boolean drawerCallback,
                                            boolean editingCallback) {
-            log(Log.INFO, TAG, "Completed Shell release transaction"
+            moduleLog(Log.INFO, TAG, "Completed Shell release transaction"
                     + ", type=" + info.getType()
                     + ", requestedTrigger=" + requestedTrigger
                     + ", actualTrigger=" + actualTrigger
@@ -3308,7 +3308,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return false;
             }
             triggerBack = newTriggerBack;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "SystemUI gesture driver triggerBack=" + newTriggerBack);
             return true;
         }
@@ -3372,7 +3372,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         }
                     } catch (Throwable throwable) {
                         session.moveFailed.set(true);
-                        log(Log.ERROR, TAG,
+                        moduleLog(Log.ERROR, TAG,
                                 "Fixed Shell-owner MOVE failed; cancelling"
                                         + ", shellSessionId=" + session.id,
                                 throwable);
@@ -3385,7 +3385,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return true;
             } catch (Throwable throwable) {
                 session.moveFailed.set(true);
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Failed to queue fixed Shell-owner MOVE"
                                 + ", shellSessionId=" + session.id,
                         throwable);
@@ -3403,7 +3403,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
 
         protected void dispatchLegacyInterruptBack(Object interruptionController) {
             if (legacyRunningOpenInfo == null) {
-                log(Log.WARN, TAG, "Missing correlated OPEN info for legacy interruption; "
+                moduleLog(Log.WARN, TAG, "Missing correlated OPEN info for legacy interruption; "
                         + "using ordinary BACK without duplicate guard");
                 injectLegacyBackKey(interruptionController);
                 return;
@@ -3425,7 +3425,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
 
         protected void injectLegacyBackKey(Object injectionController) {
             if (injectionController == null) {
-                log(Log.ERROR, TAG, "Cannot inject legacy BACK without a controller");
+                moduleLog(Log.ERROR, TAG, "Cannot inject legacy BACK without a controller");
                 return;
             }
             Object previousMarker = moduleLegacyBackInjection.get();
@@ -3439,15 +3439,15 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             new Object[]{KEY_ACTION_DOWN});
                     downSent = true;
                 } catch (Throwable throwable) {
-                    log(Log.ERROR, TAG, "Failed to inject legacy BACK down", throwable);
+                    moduleLog(Log.ERROR, TAG, "Failed to inject legacy BACK down", throwable);
                 } finally {
                     if (downSent) {
                         try {
                             invokeAnyMethod(injectionController, "sendBackEvent",
                                     new Object[]{KEY_ACTION_UP});
-                            log(Log.INFO, TAG, "Injected legacy back key via sendBackEvent");
+                            moduleLog(Log.INFO, TAG, "Injected legacy back key via sendBackEvent");
                         } catch (Throwable throwable) {
-                            log(Log.ERROR, TAG, "Failed to inject legacy BACK up", throwable);
+                            moduleLog(Log.ERROR, TAG, "Failed to inject legacy BACK up", throwable);
                         }
                     }
                 }
@@ -3465,7 +3465,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             try {
                 Object plugin = readField(edgeBackGestureHandler, "mEdgeBackPlugin");
                 if (plugin == null) {
-                    log(Log.WARN, TAG, "NavigationEdgeBackPlugin is null; native panel unavailable");
+                    moduleLog(Log.WARN, TAG, "NavigationEdgeBackPlugin is null; native panel unavailable");
                     if (miuiStyleGestureActive) {
                         miuiStyleGestureActive = false;
                         MiuiStyleBackArrowOverlay overlay = miuiStyleOverlay;
@@ -3505,7 +3505,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
                 return true;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to dispatch event to NavigationEdgeBackPlugin",
+                moduleLog(Log.WARN, TAG, "Failed to dispatch event to NavigationEdgeBackPlugin",
                         throwable);
                 return false;
             } finally {
@@ -3524,7 +3524,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return state instanceof Enum<?>
                         ? ((Enum<?>) state).name() : null;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to read native BackPanelController state",
                         throwable);
                 return null;
@@ -3559,7 +3559,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 invokeAnyMethod(plugin, "updateConfiguration$1", new Object[0]);
                 invokeAnyMethod(plugin, "updateRestingArrowDimens", new Object[0]);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to prepare native AOSP back panel", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to prepare native AOSP back panel", throwable);
             }
         }
 
@@ -3572,15 +3572,15 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     miuiStyleOverlay = new MiuiStyleBackArrowOverlay(context,
                             (priority, message, throwable) -> {
                                 if (throwable == null) {
-                                    log(priority, TAG, message);
+                                    moduleLog(priority, TAG, message);
                                 } else {
-                                    log(priority, TAG, message, throwable);
+                                    moduleLog(priority, TAG, message, throwable);
                                 }
                             });
                 }
                 return miuiStyleOverlay.prepare(edge);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to prepare HyperOS-style indicator",
+                moduleLog(Log.WARN, TAG, "Failed to prepare HyperOS-style indicator",
                         throwable);
                 return false;
             }
@@ -3602,13 +3602,13 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 View target = (View) panelView;
                 if (target.getAlpha() != alpha) {
                     target.setAlpha(alpha);
-                    log(Log.INFO, TAG, "Native BackPanel visuals "
+                    moduleLog(Log.INFO, TAG, "Native BackPanel visuals "
                             + (hide ? "hidden behind HyperOS-style indicator"
                             : "restored"));
                 }
                 return true;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to change native BackPanel visibility"
+                moduleLog(Log.WARN, TAG, "Failed to change native BackPanel visibility"
                         + ", hide=" + hide, throwable);
                 return false;
             }
@@ -3680,7 +3680,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         break;
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to drive HyperOS-style indicator",
+                moduleLog(Log.WARN, TAG, "Failed to drive HyperOS-style indicator",
                         throwable);
                 miuiStyleGestureActive = false;
                 miuiStyleSwipeStarted = false;
@@ -3710,9 +3710,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     miuiHapticHelper = new MiuiHapticFeedbackHelper(context,
                             (priority, message, throwable) -> {
                                 if (throwable == null) {
-                                    log(priority, TAG, message);
+                                    moduleLog(priority, TAG, message);
                                 } else {
-                                    log(priority, TAG, message, throwable);
+                                    moduleLog(priority, TAG, message, throwable);
                                 }
                             });
                 }
@@ -3731,7 +3731,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
                 return true;
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to prepare MIUI two-stage haptics",
+                moduleLog(Log.WARN, TAG, "Failed to prepare MIUI two-stage haptics",
                         throwable);
                 return false;
             }
@@ -3773,7 +3773,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
                 overlay.markArrowFeedbackDone();
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to play MIUI hand-up haptic", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to play MIUI hand-up haptic", throwable);
             }
         }
 
@@ -3796,12 +3796,12 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 boolean enabled = !suppress;
                 if (target.isHapticFeedbackEnabled() != enabled) {
                     target.setHapticFeedbackEnabled(enabled);
-                    log(Log.INFO, TAG, "Native BackPanel haptics "
+                    moduleLog(Log.INFO, TAG, "Native BackPanel haptics "
                             + (suppress ? "suppressed for MIUI two-stage haptics"
                             : "restored"));
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to change native BackPanel haptics"
+                moduleLog(Log.WARN, TAG, "Failed to change native BackPanel haptics"
                         + ", suppress=" + suppress, throwable);
                 if (suppress) {
                     miuiStyleHapticsActive = false;
@@ -3826,7 +3826,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         applyNativePanelHapticSuppression(plugin, false);
                     }
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG, "Failed to restore native BackPanel visuals",
+                    moduleLog(Log.WARN, TAG, "Failed to restore native BackPanel visuals",
                             throwable);
                 }
             });

@@ -23,7 +23,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         PreparedBackTransitionHold heldTransition =
                 preparedBackTransitionHold.get();
         if (heldTransition != null) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Deferred hot reload while a prepared-back transition is held"
                             + ", process=" + processName
                             + ", "
@@ -34,7 +34,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         for (NativeBackInputMonitor monitor
                 : new ArrayList<>(nativeInputMonitors.values())) {
             if (monitor.blocksHotReload()) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Deferred hot reload while a fixed Shell gesture session is active"
                                 + ", process=" + processName
                                 + ", state="
@@ -46,14 +46,14 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 miuiHomeReturnHomeController;
         if (activeReturnHomeController != null
                 && activeReturnHomeController.blocksControllerReplacement()) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Deferred hot reload while Xiaomi owns predictive return-home"
                             + ", process=" + processName
                             + ", state="
                             + activeReturnHomeController.describeUnifiedOwner());
             return false;
         }
-        log(Log.INFO, TAG, "Hot reloading, build=" + BUILD_MARK
+        moduleLog(Log.INFO, TAG, "Hot reloading, build=" + BUILD_MARK
                 + ", process=" + processName
                 + ", hooks=" + hookHandles.size());
         boolean savedMiuiOverviewVisible = miuiOverviewVisible;
@@ -206,7 +206,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     oldHandle.unhook();
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to replace old hook: " + oldHandle, throwable);
+                moduleLog(Log.WARN, TAG, "Failed to replace old hook: " + oldHandle, throwable);
             }
         }
         restoreHotReloadInput(param.getSavedInstanceState());
@@ -257,7 +257,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                             BACK_ANIMATION_CONTROLLER, false,
                             hotReloadClassLoader);
                 } catch (Throwable throwable) {
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Failed to resolve Shell controller for hook backfill",
                             throwable);
                 }
@@ -270,7 +270,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                             "onBackAnimationFinished",
                             "shell_back_onBackAnimationFinished", false);
                 } catch (Throwable throwable) {
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Failed to backfill outer Shell completion hook",
                             throwable);
                 }
@@ -283,7 +283,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                             "finishBackAnimation",
                             "shell_back_finishBackAnimation", true);
                 } catch (Throwable throwable) {
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Failed to backfill definitive Shell completion hook",
                             throwable);
                 }
@@ -295,7 +295,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     hookBackNavigationInfoReceived(
                             hotReloadBackControllerClass);
                 } catch (Throwable throwable) {
-                    log(Log.ERROR, TAG,
+                    moduleLog(Log.ERROR, TAG,
                             "Failed to backfill Shell navigation-info hook",
                             throwable);
                 }
@@ -456,7 +456,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                         hookMiuiHomeLauncherOpenSnapshotTargets(
                                 hotReloadClassLoader);
                     } catch (Throwable throwable) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Failed to backfill Xiaomi OPEN target binding",
                                 throwable);
                     }
@@ -474,7 +474,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                                 !oldHookIds.contains("miui_home_return_home_element_leash_rearm"),
                                 !oldHookIds.contains("miui_home_return_home_element_anim_type"));
                     } catch (Throwable throwable) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Failed to backfill MiuiHome element continuity",
                                 throwable);
                     }
@@ -489,7 +489,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                                 !oldHookIds.contains("miui_home_return_home_finish_dispatch_source"),
                                 !oldHookIds.contains("miui_home_return_home_finish_dispatch_apply"));
                     } catch (Throwable throwable) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Failed to backfill MiuiHome finish-epoch hooks",
                                 throwable);
                     }
@@ -498,7 +498,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     try {
                         hookMiuiHomePermissionMerge(hotReloadClassLoader);
                     } catch (Throwable throwable) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Failed to backfill MiuiHome permission merge",
                                 throwable);
                     }
@@ -515,7 +515,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                         hookMiuiHomeTransitionSetupLeash(
                                 hotReloadClassLoader);
                     } catch (Throwable throwable) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Failed to backfill MiuiHome transition geometry hook",
                                 throwable);
                     }
@@ -558,11 +558,11 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 restoreMiuiHomeOpenBreakAfterHotReload();
                 restoreMiuiHomeReturnHomeAfterHotReload(hotReloadClassLoader);
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to restore MiuiHome hooks",
+                moduleLog(Log.ERROR, TAG, "Failed to restore MiuiHome hooks",
                         throwable);
             }
         }
-        log(Log.INFO, TAG, "Hot reloaded, build=" + BUILD_MARK
+        moduleLog(Log.INFO, TAG, "Hot reloaded, build=" + BUILD_MARK
                 + ", process=" + processName
                 + ", oldHooksReplaced=" + replaced
                 + ", hooks=" + hookHandles.size());
@@ -802,18 +802,18 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 ? (Object[][]) inputStateObject : new Object[0][0];
         if (SYSTEM_UI.equals(processName)) {
             pendingHotReloadInputState = inputState;
-            log(Log.INFO, TAG, "Deferred SystemUI hot reload lifecycle restoration"
+            moduleLog(Log.INFO, TAG, "Deferred SystemUI hot reload lifecycle restoration"
                     + ", inputCount=" + inputState.length
                     + ", headlessLeaseCount="
                     + pendingHotReloadHeadlessState.length);
             return;
         }
         if (!(inputStateObject instanceof Object[][])) {
-            log(Log.INFO, TAG, "No hot reload back input state to restore");
+            moduleLog(Log.INFO, TAG, "No hot reload back input state to restore");
             return;
         }
         if (inputState.length == 0) {
-            log(Log.INFO, TAG, "Hot reload back input state is empty; "
+            moduleLog(Log.INFO, TAG, "Hot reload back input state is empty; "
                     + "will restore from next EdgeBackGestureHandler callback");
             return;
         }
@@ -826,7 +826,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 installBackInputDriver(pair[0], pair[1]);
                 restored++;
             }
-            log(Log.INFO, TAG, "Restored hot reload back input on main thread, count="
+            moduleLog(Log.INFO, TAG, "Restored hot reload back input on main thread, count="
                     + restored);
         });
     }
@@ -840,20 +840,20 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         if (remaining <= 0L) {
             miuiOverviewDismissPendingUntilUptime = 0L;
             miuiOverviewVisible = true;
-            log(Log.WARN, TAG, "Expired Recents dismiss deadline during hot reload"
+            moduleLog(Log.WARN, TAG, "Expired Recents dismiss deadline during hot reload"
                     + ", restoredOverviewVisible=true");
             return;
         }
         new Handler(Looper.getMainLooper()).postDelayed(
                 () -> restoreMiuiOverviewAfterDismissTimeout(deadline), remaining);
-        log(Log.INFO, TAG, "Restored Recents dismiss timeout after hot reload"
+        moduleLog(Log.INFO, TAG, "Restored Recents dismiss timeout after hot reload"
                 + ", remainingMs=" + remaining);
     }
 
     @Override
     public void onPackageLoaded(XposedModuleInterface.PackageLoadedParam param) {
         processName = param.getPackageName();
-        log(Log.INFO, TAG, "Package loaded: " + processName
+        moduleLog(Log.INFO, TAG, "Package loaded: " + processName
                 + ", classLoader=" + param.getDefaultClassLoader()
                 + ", sourceDir=" + param.getApplicationInfo().sourceDir);
         if (SYSTEM_UI.equals(processName)) {
@@ -887,7 +887,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             try {
                 hookMiuiHomeLauncherOpenSnapshotTargets(classLoader);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to install Xiaomi OPEN target binding",
                         throwable);
             }
@@ -896,7 +896,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 hookMiuiHomeTransitionContinuity(
                         classLoader, true, true, true);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to install MiuiHome element continuity",
                         throwable);
             }
@@ -904,14 +904,14 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 hookMiuiHomeUnifiedFinishEpoch(
                         classLoader, true, true, true);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to install MiuiHome finish-epoch hooks",
                         throwable);
             }
             try {
                 hookMiuiHomePermissionMerge(classLoader);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to install MiuiHome permission merge",
                         throwable);
             }
@@ -919,7 +919,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             try {
                 hookMiuiHomeTransitionSetupLeash(classLoader);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to install MiuiHome transition geometry hook",
                         throwable);
             }
@@ -934,7 +934,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             hookMiuiHomeReturnHomeInitialize(classLoader);
             hookMiuiHomeReturnHomeLocalHandoff(classLoader);
             hookMiuiHomeReturnHomeWallpaperCommands(classLoader, true, true);
-            log(Log.INFO, TAG, "Enabled MiuiHome native side input arbitration"
+            moduleLog(Log.INFO, TAG, "Enabled MiuiHome native side input arbitration"
                     + ", preservedGestureStubInitialization=true"
                     + ", preservesNativeRedirect=true"
                     + ", blocksLegacyGestureProcessor=true"
@@ -950,14 +950,14 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     + ", repairsNonReusableSameIconOpen=true"
                     + ", usesStandardLauncherBackCallback=true");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to install MiuiHome input arbitration", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to install MiuiHome input arbitration", throwable);
         }
     }
 
     @Override
     public void onSystemServerStarting(XposedModuleInterface.SystemServerStartingParam param) {
         processName = "system";
-        log(Log.INFO, TAG, "System server starting, build=" + BUILD_MARK
+        moduleLog(Log.INFO, TAG, "System server starting, build=" + BUILD_MARK
                 + ", classLoader=" + param.getClassLoader());
         installSystemServerHooks(param.getClassLoader());
     }

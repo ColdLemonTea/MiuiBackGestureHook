@@ -26,6 +26,8 @@
     <string name="hyperos_haptics_enhanced_summary">Always vibrate on commit, with a distinct release effect</string>
     <string name="hyperos_slide_animation_title">HyperOS slide-back animation</string>
     <string name="hyperos_slide_animation_summary">Full-width slide instead of the AOSP predictive back</string>
+    <string name="module_logging_title">Detailed module logs</string>
+    <string name="module_logging_summary">Keep informational logs enabled; warnings and errors are always kept</string>
     <string name="back">Back</string>
     <string name="close">Close</string>
     <string name="more_options">More options</string>

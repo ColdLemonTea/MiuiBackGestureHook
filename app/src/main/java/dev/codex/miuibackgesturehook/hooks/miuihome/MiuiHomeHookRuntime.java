@@ -110,7 +110,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 recordHookHandle(hook(method)
                         .setId("miui_home_return_home_local_handoff")
                         .intercept(this::provideMiuiHomeReturnHomeLocalHandoff));
-                log(Log.INFO, TAG, "Hooked Xiaomi local return-home handoff");
+                moduleLog(Log.INFO, TAG, "Hooked Xiaomi local return-home handoff");
                 return;
             }
         }
@@ -141,7 +141,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     .setId("miui_home_return_home_wallpaper_anim")
                     .intercept(this::observeMiuiHomeReturnHomeWallpaperAnim));
         }
-        log(Log.INFO, TAG, "Hooked Xiaomi return-home wallpaper ownership"
+        moduleLog(Log.INFO, TAG, "Hooked Xiaomi return-home wallpaper ownership"
                 + ", set=" + hookSet + ", anim=" + hookAnim);
     }
 
@@ -193,7 +193,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 .setId("miui_home_open_snapshot_targets")
                 .intercept(
                         this::captureMiuiHomeLauncherOpenSnapshotAfterTargetsBound));
-        log(Log.INFO, TAG,
+        moduleLog(Log.INFO, TAG,
                 "Hooked Xiaomi launcher OPEN remote-target binding");
     }
 
@@ -253,7 +253,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     .setId("miui_home_return_home_element_anim_type")
                     .intercept(this::observeMiuiHomeElementAnimType));
         }
-        log(Log.INFO, TAG, "Hooked MiuiHome transition continuity"
+        moduleLog(Log.INFO, TAG, "Hooked MiuiHome transition continuity"
                 + ", elementTransition=" + hookElementTransition
                 + ", elementLeashRearm=" + hookElementLeashRearm
                 + ", elementAnimType=" + hookElementAnimType);
@@ -294,7 +294,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     .setId("miui_home_return_home_finish_dispatch_apply")
                     .intercept(this::guardMiuiHomeUnifiedFinishDispatch));
         }
-        log(Log.INFO, TAG, "Hooked MiuiHome unified finish epochs"
+        moduleLog(Log.INFO, TAG, "Hooked MiuiHome unified finish epochs"
                 + ", animToConfig=" + hookAnimToConfig
                 + ", finishSource=" + hookFinishSource
                 + ", finishApply=" + hookFinishApply);
@@ -395,7 +395,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             try {
                 hookMiuiHomeNativeGeometryUpdate(classLoader);
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Failed to hook MiuiHome native geometry update", throwable);
             }
         }
@@ -403,12 +403,12 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             try {
                 hookMiuiHomeNativeGeometryApply(classLoader);
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Failed to hook MiuiHome native geometry apply",
                         throwable);
             }
         }
-        log(Log.INFO, TAG, "Installed MiuiHome native geometry hooks"
+        moduleLog(Log.INFO, TAG, "Installed MiuiHome native geometry hooks"
                 + ", onAnimUpdate=" + hookOnAnimUpdate
                 + ", applySurfaceParams=" + hookApplySurfaceParams);
     }
@@ -434,7 +434,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         recordHookHandle(hook(setupLeash)
                 .setId("miui_home_trace_transition_setup_leash")
                 .intercept(this::armMiuiHomeTransitionStartGeometry));
-        log(Log.INFO, TAG,
+        moduleLog(Log.INFO, TAG,
                 "Installed MiuiHome transition start-geometry hook");
     }
 
@@ -453,10 +453,10 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             recordHookHandle(hook(method)
                     .setId(hookPrefix + "apply_boolean")
                     .intercept(this::applyMiuiHomeStartGeometry));
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Installed MiuiHome start transaction apply hook");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to hook MiuiHome start transaction apply", throwable);
         }
     }
@@ -475,7 +475,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         recordHookHandle(hook(cancelDirect)
                 .setId("miui_home_return_home_cancel_direct")
                 .intercept(this::wrapMiuiHomeReturnHomeDirectCancel));
-        log(Log.INFO, TAG,
+        moduleLog(Log.INFO, TAG,
                 "Hooked Xiaomi direct same-icon return-home cancellation");
     }
 
@@ -492,7 +492,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         recordHookHandle(hook(cancelAnim)
                 .setId("miui_home_return_home_same_icon_parallel")
                 .intercept(this::routeMiuiHomeReturnHomeSameIconParallel));
-        log(Log.INFO, TAG,
+        moduleLog(Log.INFO, TAG,
                 "Hooked Xiaomi same-icon predictive CLOSE parallel routing");
     }
 
@@ -509,7 +509,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         recordHookHandle(hook(isOldElementReuseful)
                 .setId("miui_home_return_home_fresh_open")
                 .intercept(this::forceMiuiHomeReturnHomeFreshOpen));
-        log(Log.INFO, TAG,
+        moduleLog(Log.INFO, TAG,
                 "Hooked Xiaomi non-reusable same-icon fresh OPEN selection");
     }
 
@@ -536,7 +536,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     .setId("miui_home_freeform_back_touchability")
                     .intercept(this::restoreMiuiHomeFreeformBackTouchability));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "MiuiHome small-window back lifecycle unavailable",
+            moduleLog(Log.WARN, TAG, "MiuiHome small-window back lifecycle unavailable",
                     throwable);
         }
     }
@@ -553,7 +553,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         } catch (Throwable throwable) {
             // Editing callbacks are an additive launcher surface. Preserve all established
             // MiuiHome arbitration and return-home hooks on builds without this lifecycle point.
-            log(Log.WARN, TAG, "MiuiHome editing-state lifecycle unavailable", throwable);
+            moduleLog(Log.WARN, TAG, "MiuiHome editing-state lifecycle unavailable", throwable);
         }
     }
 
@@ -595,7 +595,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     animationListener, "this$0");
         } catch (Throwable throwable) {
             miuiHomeOpenBreakStateManager = null;
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to capture Xiaomi launcher OPEN StateManager",
                     throwable);
         }
@@ -663,7 +663,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             XposedInterface.Chain chain) throws Throwable {
         Object result = chain.proceed();
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Ignored Xiaomi launcher OPEN targets off main Looper"
                             + ", windowElement="
                             + shortObject(chain.getThisObject()));
@@ -694,7 +694,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     animationIdentity, nativeGeneration, callbackEpoch,
                     boundTaskId, "remoteTargetsBound");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to capture Xiaomi launcher OPEN bound targets",
                     throwable);
         }
@@ -710,7 +710,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 prepared = controller.prepareElementTransitionContinuity(
                         chain.getThisObject(), chain.getArg(0));
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to inspect Xiaomi element CLOSE takeover",
                         throwable);
             }
@@ -718,7 +718,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 controller.observeUnifiedCommitTransition(
                         chain.getThisObject(), chain.getArg(0));
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to observe Xiaomi element commit transition",
                         throwable);
             }
@@ -755,7 +755,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 controller.rearmElementLeashAfterNativeClear(
                         chain.getThisObject());
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to rearm predictive leash after Xiaomi clear",
                         throwable);
             }
@@ -776,7 +776,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                         controller.onUnifiedCommitAnimToEntryFailed(
                                 chain.getThisObject(), params,
                                 throwable);
-                log(Log.ERROR, TAG,
+                moduleLog(Log.ERROR, TAG,
                         "Failed Xiaomi final animTo entry gating"
                                 + ", terminalQueued="
                                 + terminalQueued,
@@ -791,7 +791,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 controller.prepareUnifiedHandoffBeforeAnimTo(
                         chain.getThisObject(), params);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to prepare Xiaomi predictive handoff status",
                         throwable);
             }
@@ -802,7 +802,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 controller.hideElementBoundaryProviderFloatingIcon(
                         chain.getThisObject(), params);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to hide transient Xiaomi provider icon",
                         throwable);
             }
@@ -812,7 +812,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 controller.adoptElementTransitionIfStarted(
                         chain.getThisObject(), params);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to verify Xiaomi element CLOSE adoption",
                         throwable);
             }
@@ -1049,7 +1049,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                             pending, null);
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to verify PermissionController CLOSE merge",
                         throwable);
             }
@@ -1058,7 +1058,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 // Xiaomi's existing handler-0/only-ActivityRecord branch applies and finishes
                 // this merge without cancelling the launcher OPEN. Reuse that branch verbatim.
                 routedArgs[1] = 0;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Preserved Xiaomi launcher OPEN across PermissionController CLOSE"
                                 + ", launcherGeneration="
                                 + pending.launcherOpen.generation
@@ -1073,7 +1073,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 return chain.proceed(routedArgs);
             }
             if (miuiHomePermissionMergeToken.compareAndSet(pending, null)) {
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Invalidated non-adjacent PermissionController merge"
                                 + ", launcherGeneration="
                                 + pending.launcherOpen.generation
@@ -1091,7 +1091,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                                 chain.getThisObject(), chain.getArg(0),
                                 snapshot);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to inspect adjacent PermissionController CLOSE merge",
                         throwable);
             }
@@ -1103,7 +1103,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             // Reuse Xiaomi's ActivityRecord branch so this merge finishes without cancelling
             // the still-running launcher animation.
             routedArgs[1] = 0;
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Preserved Xiaomi launcher OPEN across adjacent PermissionController CLOSE"
                             + ", launcherGeneration=" + snapshot.generation
                             + ", taskId=" + snapshot.mainTask.taskId
@@ -1131,7 +1131,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     }
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to inspect PermissionController OPEN merge",
                         throwable);
             }
@@ -1155,7 +1155,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                                 FLAG_ONLY_ACTIVITY_RECORD,
                                 latestSnapshot)
                                 : null;
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Rechecked PermissionController OPEN merge after native handler"
                                 + ", transitionDebugId="
                                 + readTransitionDebugId(chain.getArg(0))
@@ -1171,7 +1171,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     permissionOpenSource = "postProceedRecheck";
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to recheck PermissionController OPEN merge after native handler",
                         throwable);
             }
@@ -1190,7 +1190,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     if (replaced != null) {
                         replaced.consumed.compareAndSet(0, 1);
                     }
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Captured PermissionController ActivityRecord OPEN merge"
                                     + ", launcherGeneration="
                                     + permissionOpenSnapshot.generation
@@ -1203,7 +1203,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                                     + permissionOpenSource);
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to publish PermissionController OPEN token",
                         throwable);
             }
@@ -1223,7 +1223,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     nativeGeneration, callbackEpoch, -1,
                     "animationStartSettled");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to publish Xiaomi launcher OPEN snapshot",
                     throwable);
         }
@@ -1261,7 +1261,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         Object helper = invokeAnyMethod(compat,
                 "getCallbackHelper", new Object[0]);
         if (expectedHelper != null && helper != expectedHelper) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Ignored mismatched Xiaomi launcher OPEN targets"
                             + ", source=" + source
                             + ", expectedHelper="
@@ -1279,7 +1279,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 resolveLauncherOpenMainTask(mainInfo);
         if (mainToken == null || mainDebugId < 0
                 || compatDebugId != mainDebugId || mainTask == null) {
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Deferred Xiaomi launcher OPEN snapshot"
                             + ", source=" + source
                             + ", nativeGeneration=" + nativeGeneration
@@ -1290,7 +1290,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             return;
         }
         if (expectedTaskId >= 0 && mainTask.taskId != expectedTaskId) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Ignored Xiaomi launcher OPEN target/task mismatch"
                             + ", source=" + source
                             + ", boundTaskId=" + expectedTaskId
@@ -1321,7 +1321,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 miuiHomePermissionMergeToken.get();
         if (sameOwner && permissionToken != null
                 && permissionToken.launcherOpen == existing) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Kept Xiaomi launcher OPEN snapshot with active permission merge"
                             + ", generation=" + existing.generation
                             + ", source=" + source
@@ -1342,7 +1342,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         if (stalePermissionToken != null) {
             stalePermissionToken.consumed.compareAndSet(0, 1);
         }
-        log(Log.INFO, TAG, "Published Xiaomi launcher OPEN snapshot"
+        moduleLog(Log.INFO, TAG, "Published Xiaomi launcher OPEN snapshot"
                 + ", generation=" + snapshot.generation
                 + ", source=" + source
                 + ", nativeGeneration=" + nativeGeneration
@@ -1387,7 +1387,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     permissionToken, null)) {
                 permissionToken.consumed.compareAndSet(0, 1);
             }
-            log(Log.INFO, TAG, "Invalidated Xiaomi launcher OPEN snapshot"
+            moduleLog(Log.INFO, TAG, "Invalidated Xiaomi launcher OPEN snapshot"
                     + ", generation=" + snapshot.generation
                     + ", reason=" + reason);
             return;
@@ -1710,7 +1710,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             launcherOpenBarrier = controller.prepareLauncherOpenBarrier(
                     chain.getThisObject(), originalArgs);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to prepare Xiaomi CLOSE-to-OPEN handoff",
                     throwable);
         }
@@ -1720,7 +1720,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     controller.shouldRouteSameIconThroughNativeParallel(
                             chain.getThisObject(), originalArgs);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to inspect Xiaomi same-icon parallel routing",
                     throwable);
             routeThroughNativeParallel = false;
@@ -1741,7 +1741,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                                 launcherOpenBarrier);
             } catch (Throwable throwable) {
                 routeThroughNativeParallel = false;
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Failed to arm Xiaomi CLOSE-to-OPEN parallel boundary",
                         throwable);
             }
@@ -1782,7 +1782,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             // Xiaomi already selected its stock old-element behavior. Any inspection failure
             // must preserve that result instead of turning an unrelated launcher click into a
             // fresh remote transition.
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to inspect Xiaomi same-icon fresh OPEN selection",
                     throwable);
         }
@@ -1801,7 +1801,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             token = controller.prepareNativeDirectCancel(
                     chain.getThisObject(), originalArgs);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Failed to prepare direct Xiaomi return-home cancellation",
                     throwable);
             return chain.proceed();
@@ -1835,7 +1835,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     invokeAnyMethod(closingElement,
                             "isReusefulAnimRunning", new Object[0]));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to inspect reusable launcher CLOSE; proceeding native",
+            moduleLog(Log.WARN, TAG, "Failed to inspect reusable launcher CLOSE; proceeding native",
                     throwable);
             return chain.proceed();
         }
@@ -1857,7 +1857,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     && "OPEN_FROM_HOME".equals(
                     ((Enum<?>) currentAnimType).name());
             if (!openRunning || !openFromHome) {
-                log(Log.WARN, TAG, "Did not restore reused CLOSE-to-OPEN break state"
+                moduleLog(Log.WARN, TAG, "Did not restore reused CLOSE-to-OPEN break state"
                         + ", sameElement=" + sameElement
                         + ", openRunning=" + openRunning
                         + ", openFromHome=" + openFromHome
@@ -1870,7 +1870,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             Object animationIdentity = invokeAnyMethod(
                     openingElement, "getAnimSymbol", new Object[0]);
             if (animationIdentity == null) {
-                log(Log.WARN, TAG, "Cannot identify reused CLOSE-to-OPEN animation"
+                moduleLog(Log.WARN, TAG, "Cannot identify reused CLOSE-to-OPEN animation"
                         + ", animationIdentity=null"
                         + ", currentAnimType=" + currentAnimType
                         + ", windowElement=" + shortObject(openingElement));
@@ -1886,7 +1886,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
 
             Object controller = miuiHomeOpenBreakController;
             if (controller == null) {
-                log(Log.WARN, TAG, "Cannot restore reused CLOSE-to-OPEN break state"
+                moduleLog(Log.WARN, TAG, "Cannot restore reused CLOSE-to-OPEN break state"
                         + ", controller=null"
                         + ", currentAnimType=" + currentAnimType
                         + ", windowElement=" + shortObject(openingElement));
@@ -1902,7 +1902,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             invokeAnyMethod(controller, "enableBackBreakOpenAnim", new Object[0]);
             long generation = miuiHomeOpenBreakGeneration;
             if (generation == 0L || generation == previousGeneration) {
-                log(Log.WARN, TAG, "Cannot assign reused CLOSE-to-OPEN generation"
+                moduleLog(Log.WARN, TAG, "Cannot assign reused CLOSE-to-OPEN generation"
                         + ", previousGeneration=" + previousGeneration
                         + ", currentGeneration=" + generation
                         + ", currentAnimType=" + currentAnimType
@@ -1916,7 +1916,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             miuiHomeOpenBreakGenerationPrepared = false;
             miuiHomeOpenBreakAnimationActive = true;
             miuiHomeOpenBreakCommandPending = false;
-            log(Log.INFO, TAG, "Restored native launcher OPEN break for reused CLOSE animation"
+            moduleLog(Log.INFO, TAG, "Restored native launcher OPEN break for reused CLOSE animation"
                     + ", generation=" + generation
                     + ", currentAnimType=" + currentAnimType
                     + ", animationIdentity=" + shortObject(animationIdentity)
@@ -1934,7 +1934,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 try {
                     currentElement = readField(stateManager, "windowElement");
                 } catch (Throwable throwable) {
-                    log(Log.WARN, TAG, "Failed to verify reused CLOSE-to-OPEN element",
+                    moduleLog(Log.WARN, TAG, "Failed to verify reused CLOSE-to-OPEN element",
                             throwable);
                 }
                 if (currentElement != openingElement) {
@@ -1948,7 +1948,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         } catch (Throwable throwable) {
             // The native retarget already completed. A module-side bookkeeping failure must
             // never turn a successful launcher click into an exception for MiuiHome.
-            log(Log.ERROR, TAG, "Failed to restore reused CLOSE-to-OPEN break state",
+            moduleLog(Log.ERROR, TAG, "Failed to restore reused CLOSE-to-OPEN break state",
                     throwable);
         }
         return result;
@@ -1982,13 +1982,13 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     if (!isMiuiHomeOpenRunning(controller, "hotReloadRecovery")) {
                         miuiHomeOpenBreakStateManager = null;
                     } else {
-                        log(Log.INFO, TAG,
+                        moduleLog(Log.INFO, TAG,
                                 "Recovered Xiaomi launcher OPEN StateManager after hot reload"
                                         + ", stateManager=" + shortObject(stateManager));
                     }
                 } catch (Throwable throwable) {
                     miuiHomeOpenBreakStateManager = null;
-                    log(Log.WARN, TAG,
+                    moduleLog(Log.WARN, TAG,
                             "Failed to recover Xiaomi launcher OPEN StateManager after hot reload",
                             throwable);
                 }
@@ -1999,14 +1999,14 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
 
     protected void refreshMiuiHomeOpenBreakAvailability(Object controller, String reason) {
         if (controller == null) {
-            log(Log.INFO, TAG, "MiuiHome launcher OPEN break controller unavailable"
+            moduleLog(Log.INFO, TAG, "MiuiHome launcher OPEN break controller unavailable"
                     + ", reason=" + reason);
             return;
         }
         miuiHomeOpenBreakController = controller;
         Context context = resolveMiuiHomeOpenBreakContext(controller);
         if (context == null) {
-            log(Log.WARN, TAG, "Cannot publish MiuiHome launcher OPEN break state"
+            moduleLog(Log.WARN, TAG, "Cannot publish MiuiHome launcher OPEN break state"
                     + ", reason=" + reason
                     + ", controller=" + shortObject(controller));
             return;
@@ -2026,7 +2026,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             stateIntent.putExtra(EXTRA_LAUNCHER_OPEN_BREAK_AVAILABLE, available);
             stateIntent.putExtra(EXTRA_LAUNCHER_OPEN_BREAK_GENERATION, generation);
             sendAuthenticatedMiuiHomeState(context, stateIntent);
-            log(Log.INFO, TAG, "Published MiuiHome launcher OPEN break state"
+            moduleLog(Log.INFO, TAG, "Published MiuiHome launcher OPEN break state"
                     + ", active=" + active
                     + ", available=" + available
                     + ", receiverReady=" + receiverReady
@@ -2036,7 +2036,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     + ", reason=" + reason
                     + ", controller=" + shortObject(controller));
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to publish MiuiHome launcher OPEN break state"
+            moduleLog(Log.ERROR, TAG, "Failed to publish MiuiHome launcher OPEN break state"
                     + ", reason=" + reason, throwable);
         }
     }
@@ -2053,10 +2053,10 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 miuiHomeOpenBreakContext = context;
                 return context;
             }
-            log(Log.INFO, TAG, "MiuiHome NavStubView unavailable while resolving context"
+            moduleLog(Log.INFO, TAG, "MiuiHome NavStubView unavailable while resolving context"
                     + ", view=" + shortObject(navStubView));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to resolve MiuiHome OPEN break context", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to resolve MiuiHome OPEN break context", throwable);
         }
         return null;
     }
@@ -2080,7 +2080,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             return Boolean.TRUE.equals(invokeAnyMethod(
                     controller, "isOpenAnimRunning", new Object[0]));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to query native MiuiHome OPEN lifecycle"
+            moduleLog(Log.WARN, TAG, "Failed to query native MiuiHome OPEN lifecycle"
                     + ", reason=" + reason, throwable);
             return false;
         }
@@ -2091,7 +2091,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             return Boolean.TRUE.equals(invokeAnyMethod(controller,
                     "canUseBackGestureBreakOpenAnim", new Object[0]));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to query native MiuiHome OPEN break availability"
+            moduleLog(Log.WARN, TAG, "Failed to query native MiuiHome OPEN break availability"
                     + ", reason=" + reason, throwable);
             return false;
         }
@@ -2144,7 +2144,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     return;
                 }
                 if (!isOrderedBroadcast()) {
-                    log(Log.WARN, TAG, "Rejected unordered launcher OPEN break command");
+                    moduleLog(Log.WARN, TAG, "Rejected unordered launcher OPEN break command");
                     return;
                 }
                 setResultCode(LAUNCHER_OPEN_BREAK_RESULT_REJECTED);
@@ -2153,7 +2153,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 String senderPackage = getSentFromPackage();
                 if (!isTrustedSystemUiBroadcastSender(
                         receiverContext, senderUid, senderPackage)) {
-                    log(Log.WARN, TAG, "Rejected untrusted launcher OPEN break command"
+                    moduleLog(Log.WARN, TAG, "Rejected untrusted launcher OPEN break command"
                             + ", uid=" + senderUid
                             + ", package=" + senderPackage);
                     setResultData("untrustedSender");
@@ -2173,7 +2173,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                         || miuiHomeOpenBreakCommandPending
                         || controller == null
                         || !canUseMiuiHomeOpenBreak(controller, "command")) {
-                    log(Log.WARN, TAG, "Rejected stale launcher OPEN break command"
+                    moduleLog(Log.WARN, TAG, "Rejected stale launcher OPEN break command"
                             + ", commandGeneration=" + commandGeneration
                             + ", currentGeneration=" + miuiHomeOpenBreakGeneration
                             + ", attempt=" + attemptId
@@ -2195,7 +2195,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     invokeAnyMethod(controller, "breakOpenAnim", new Object[0]);
                     setResultCode(LAUNCHER_OPEN_BREAK_RESULT_ACCEPTED);
                     setResultData("accepted");
-                    log(Log.INFO, TAG, "Requested native MiuiHome launcher OPEN break"
+                    moduleLog(Log.INFO, TAG, "Requested native MiuiHome launcher OPEN break"
                             + ", uid=" + senderUid
                             + ", package=" + senderPackage
                             + ", generation=" + commandGeneration
@@ -2203,7 +2203,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                             + ", controller=" + shortObject(controller));
                 } catch (Throwable throwable) {
                     setResultData("nativeException");
-                    log(Log.ERROR, TAG, "Failed to request native MiuiHome launcher OPEN break",
+                    moduleLog(Log.ERROR, TAG, "Failed to request native MiuiHome launcher OPEN break",
                             throwable);
                 }
             }
@@ -2213,10 +2213,10 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             appContext.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
             miuiHomeOpenBreakCommandReceiverContext = appContext;
             miuiHomeOpenBreakCommandReceiver = receiver;
-            log(Log.INFO, TAG, "Registered MiuiHome launcher OPEN break command receiver");
+            moduleLog(Log.INFO, TAG, "Registered MiuiHome launcher OPEN break command receiver");
             return true;
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to register MiuiHome launcher OPEN break receiver",
+            moduleLog(Log.ERROR, TAG, "Failed to register MiuiHome launcher OPEN break receiver",
                     throwable);
             return false;
         }
@@ -2232,7 +2232,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             String[] packages = context.getPackageManager().getPackagesForUid(uid);
             return packages != null && Arrays.asList(packages).contains(SYSTEM_UI);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to validate SystemUI command sender uid=" + uid,
+            moduleLog(Log.WARN, TAG, "Failed to validate SystemUI command sender uid=" + uid,
                     throwable);
         }
         return false;
@@ -2248,9 +2248,9 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         }
         try {
             receiverContext.unregisterReceiver(receiver);
-            log(Log.INFO, TAG, "Unregistered MiuiHome launcher OPEN break receiver");
+            moduleLog(Log.INFO, TAG, "Unregistered MiuiHome launcher OPEN break receiver");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to unregister MiuiHome launcher OPEN break receiver",
+            moduleLog(Log.WARN, TAG, "Failed to unregister MiuiHome launcher OPEN break receiver",
                     throwable);
         }
     }
@@ -2262,7 +2262,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         Object contextObject = chain.getArg(0);
         boolean overviewVisible = Boolean.TRUE.equals(chain.getArg(1));
         if (!(contextObject instanceof Context)) {
-            log(Log.WARN, TAG, "Cannot mirror MiuiHome Recents state: context="
+            moduleLog(Log.WARN, TAG, "Cannot mirror MiuiHome Recents state: context="
                     + shortObject(contextObject));
             return result;
         }
@@ -2270,11 +2270,11 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             Intent stateIntent = new Intent(MODULE_MIUI_OVERVIEW_STATE_CHANGE);
             stateIntent.putExtra("overview_visible", overviewVisible);
             sendAuthenticatedMiuiHomeState((Context) contextObject, stateIntent);
-            log(Log.INFO, TAG, "Mirrored MiuiHome actual Recents state"
+            moduleLog(Log.INFO, TAG, "Mirrored MiuiHome actual Recents state"
                     + ", overviewVisible=" + overviewVisible
                     + ", container=" + shortObject(container));
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to mirror MiuiHome actual Recents state",
+            moduleLog(Log.ERROR, TAG, "Failed to mirror MiuiHome actual Recents state",
                     throwable);
         }
         return result;
@@ -2289,15 +2289,15 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 stateIntent.putExtra("overview_visible", false);
                 stateIntent.putExtra("task_launch_started", true);
                 sendAuthenticatedMiuiHomeState(((View) taskView).getContext(), stateIntent);
-                log(Log.INFO, TAG, "Mirrored MiuiHome Recents task launch start"
+                moduleLog(Log.INFO, TAG, "Mirrored MiuiHome Recents task launch start"
                         + ", overviewVisible=false"
                         + ", taskView=" + shortObject(taskView));
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to mirror MiuiHome Recents task launch start",
+                moduleLog(Log.ERROR, TAG, "Failed to mirror MiuiHome Recents task launch start",
                         throwable);
             }
         } else {
-            log(Log.WARN, TAG, "Cannot mirror MiuiHome task launch: taskView="
+            moduleLog(Log.WARN, TAG, "Cannot mirror MiuiHome task launch: taskView="
                     + shortObject(taskView));
         }
         // Notify SystemUI before Xiaomi's original onClick() starts the task transition.
@@ -2310,7 +2310,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         Object contextObject = chain.getArg(0);
         Object stateObject = chain.getArg(1);
         if (!(contextObject instanceof Context) || !(stateObject instanceof String)) {
-            log(Log.WARN, TAG, "Cannot mirror MiuiHome fullscreen state"
+            moduleLog(Log.WARN, TAG, "Cannot mirror MiuiHome fullscreen state"
                     + ", context=" + shortObject(contextObject)
                     + ", state=" + shortObject(stateObject));
             return result;
@@ -2320,10 +2320,10 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             stateIntent.putExtra("state", (String) stateObject);
             stateIntent.putExtra("fullscreen_state", true);
             sendAuthenticatedMiuiHomeState((Context) contextObject, stateIntent);
-            log(Log.INFO, TAG, "Mirrored MiuiHome fullscreen state"
+            moduleLog(Log.INFO, TAG, "Mirrored MiuiHome fullscreen state"
                     + ", state=" + stateObject);
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to mirror MiuiHome fullscreen state", throwable);
+            moduleLog(Log.ERROR, TAG, "Failed to mirror MiuiHome fullscreen state", throwable);
         }
         return result;
     }
@@ -2348,15 +2348,15 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 Intent stateIntent = new Intent(MODULE_MIUI_OVERVIEW_STATE_CHANGE);
                 stateIntent.putExtra("drawer_visible", drawerVisible);
                 sendAuthenticatedMiuiHomeState((Context) launcher, stateIntent);
-                log(Log.INFO, TAG, "Mirrored MiuiHome drawer state"
+                moduleLog(Log.INFO, TAG, "Mirrored MiuiHome drawer state"
                         + ", drawerVisible=" + drawerVisible
                         + ", target=" + shortObject(targetState));
             } else {
-                log(Log.WARN, TAG, "Cannot mirror MiuiHome drawer state: launcher="
+                moduleLog(Log.WARN, TAG, "Cannot mirror MiuiHome drawer state: launcher="
                         + shortObject(launcher));
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to mirror MiuiHome drawer state", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to mirror MiuiHome drawer state", throwable);
         }
         return chain.proceed();
     }
@@ -2385,12 +2385,12 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             Object helper = getInstance.invoke(null);
             if (helper != null && Boolean.TRUE.equals(invokeAnyMethod(
                     helper, "isInSmallWindowMode", new Object[0]))) {
-                log(Log.INFO, TAG, "Kept native MiuiHome back stubs enabled"
+                moduleLog(Log.INFO, TAG, "Kept native MiuiHome back stubs enabled"
                         + ", reason=activeSmallWindowOverHome");
                 return chain.proceed(new Object[]{Boolean.TRUE, source});
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to inspect native MiuiHome small-window state; "
+            moduleLog(Log.WARN, TAG, "Failed to inspect native MiuiHome small-window state; "
                     + "preserving launcher decision", throwable);
         }
         return chain.proceed();
@@ -2411,7 +2411,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             return;
         }
         if (!(launcher instanceof Context)) {
-            log(Log.WARN, TAG, "Cannot mirror MiuiHome editing state: launcher="
+            moduleLog(Log.WARN, TAG, "Cannot mirror MiuiHome editing state: launcher="
                     + shortObject(launcher));
             return;
         }
@@ -2423,7 +2423,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             getLauncher.setAccessible(true);
             Object activeLauncher = getLauncher.invoke(null);
             if (activeLauncher != launcher) {
-                log(Log.INFO, TAG, "Ignored stale MiuiHome editing-state callback"
+                moduleLog(Log.INFO, TAG, "Ignored stale MiuiHome editing-state callback"
                         + ", reason=" + reason
                         + ", callbackLauncher=" + shortObject(launcher)
                         + ", activeLauncher=" + shortObject(activeLauncher));
@@ -2442,12 +2442,12 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             sendAuthenticatedMiuiHomeState((Context) launcher, stateIntent);
             miuiLauncherEditing = editing;
             miuiHomeEditingStatePublished = true;
-            log(Log.INFO, TAG, "Mirrored MiuiHome editing state"
+            moduleLog(Log.INFO, TAG, "Mirrored MiuiHome editing state"
                     + ", editing=" + editing
                     + ", reason=" + reason
                     + ", launcher=" + shortObject(launcher));
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to mirror MiuiHome editing state", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to mirror MiuiHome editing state", throwable);
         }
     }
 
@@ -2462,11 +2462,11 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 if (launcher != null) {
                     publishMiuiHomeEditingState(launcher, reason);
                 } else {
-                    log(Log.INFO, TAG,
+                    moduleLog(Log.INFO, TAG,
                             "Deferred MiuiHome editing-state backfill until Launcher is ready");
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to backfill MiuiHome editing state", throwable);
+                moduleLog(Log.WARN, TAG, "Failed to backfill MiuiHome editing state", throwable);
             }
         });
     }
@@ -2477,14 +2477,14 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         Object result = chain.proceed();
         Object bundleObject = chain.getArg(0);
         if (!(bundleObject instanceof Bundle)) {
-            log(Log.WARN, TAG, "Cannot register launcher back animation: bundle="
+            moduleLog(Log.WARN, TAG, "Cannot register launcher back animation: bundle="
                     + shortObject(bundleObject));
             return result;
         }
         IBinder shellBackAnimation =
                 ((Bundle) bundleObject).getBinder(SHELL_BACK_ANIMATION_DESCRIPTOR);
         if (shellBackAnimation == null) {
-            log(Log.WARN, TAG, "Launcher initialization omitted Shell IBackAnimation"
+            moduleLog(Log.WARN, TAG, "Launcher initialization omitted Shell IBackAnimation"
                     + ", keys=" + ((Bundle) bundleObject).keySet());
             return result;
         }
@@ -2543,7 +2543,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             IBinder shellBackAnimation, ClassLoader classLoader, Context context,
             String reason) {
         if (shellBackAnimation == null || classLoader == null) {
-            log(Log.WARN, TAG, "Cannot attach MiuiHome return-to-home runner"
+            moduleLog(Log.WARN, TAG, "Cannot attach MiuiHome return-to-home runner"
                     + ", reason=" + reason
                     + ", binder=" + shortObject(shellBackAnimation)
                     + ", classLoader=" + classLoader);
@@ -2556,7 +2556,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 existing.context = context.getApplicationContext();
             }
             miuiHomeReturnHomeBinder = shellBackAnimation;
-            log(Log.INFO, TAG, "Kept existing MiuiHome return-to-home runner"
+            moduleLog(Log.INFO, TAG, "Kept existing MiuiHome return-to-home runner"
                     + ", reason=" + reason
                     + ", binder=" + shortObject(shellBackAnimation));
             return;
@@ -2569,7 +2569,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             pendingMiuiHomeReturnHomeReason = reason;
             existing.beginDeferredControllerReplacement(
                     "replace:" + reason);
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Deferred Shell return-to-home controller replacement"
                             + ", reason=" + reason
                             + ", oldBinder="
@@ -2597,7 +2597,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         miuiHomeReturnHomeController = replacement;
         miuiHomeReturnHomeBinder = shellBackAnimation;
         clearPendingMiuiHomeReturnHomeAttachmentLocked();
-        log(Log.INFO, TAG, "Registered standard Shell return-to-home callback/runner"
+        moduleLog(Log.INFO, TAG, "Registered standard Shell return-to-home callback/runner"
                 + ", reason=" + reason
                 + ", type=" + TYPE_RETURN_TO_HOME
                 + ", binder=" + shortObject(shellBackAnimation)
@@ -2661,7 +2661,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     "deferred:" + (pendingReason == null
                             ? reason : pendingReason));
         } else {
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Retired Shell return-to-home controller without replacement"
                             + ", reason=" + reason
                             + ", oldBinder="
@@ -2679,7 +2679,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
     protected void restoreMiuiHomeReturnHomeAfterHotReload(ClassLoader classLoader) {
         IBinder binder = miuiHomeReturnHomeBinder;
         if (binder == null) {
-            log(Log.INFO, TAG, "No saved Shell IBackAnimation after hot reload; "
+            moduleLog(Log.INFO, TAG, "No saved Shell IBackAnimation after hot reload; "
                     + "waiting for launcher reinitialization");
             return;
         }
@@ -2713,7 +2713,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     return ((Context) application).getApplicationContext();
                 }
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to resolve MiuiHome context for return-to-home",
+                moduleLog(Log.WARN, TAG, "Failed to resolve MiuiHome context for return-to-home",
                         throwable);
             }
         }
@@ -2757,7 +2757,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         appContext.sendOrderedBroadcast(commandIntent, null, options,
                 resultReceiver, new Handler(Looper.getMainLooper()),
                 LAUNCHER_OPEN_BREAK_RESULT_NO_RECEIVER, "noReceiver", null);
-        log(Log.INFO, TAG, "Sent authenticated MiuiHome launcher OPEN break command"
+        moduleLog(Log.INFO, TAG, "Sent authenticated MiuiHome launcher OPEN break command"
                 + ", generation=" + generation
                 + ", attempt=" + attemptId
                 + ", ordered=true");
@@ -2767,7 +2767,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         Object eventObject = chain.getArg(0);
         Object stubObject = chain.getArg(1);
         if (!(eventObject instanceof MotionEvent) || !(stubObject instanceof View)) {
-            log(Log.ERROR, TAG, "Blocked malformed MiuiHome gesture-processor call"
+            moduleLog(Log.ERROR, TAG, "Blocked malformed MiuiHome gesture-processor call"
                     + ", event=" + shortObject(eventObject)
                     + ", stub=" + shortObject(stubObject));
             return null;
@@ -2804,7 +2804,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                                 miuiHomeSystemUiInputArbiterGeneration);
                 miuiHomeAcceptedInputIdentity.set(inputIdentity);
                 sendAuthenticatedMiuiHomeState(stub.getContext(), acceptedIntent);
-                log(Log.INFO, TAG, "Published MiuiHome accepted input token"
+                moduleLog(Log.INFO, TAG, "Published MiuiHome accepted input token"
                         + ", eventId=" + eventId
                         + ", downTime=" + event.getDownTime()
                         + ", displayId=" + displayId
@@ -2812,7 +2812,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                         + ", generation="
                         + miuiHomeSystemUiInputArbiterGeneration);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to publish MiuiHome accepted input token; "
+                moduleLog(Log.WARN, TAG, "Failed to publish MiuiHome accepted input token; "
                         + "gesture remains fail-closed", throwable);
             }
         }
@@ -2852,7 +2852,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 String senderPackage = getSentFromPackage();
                 if (!isTrustedSystemUiBroadcastSender(
                         receiverContext, senderUid, senderPackage)) {
-                    log(Log.WARN, TAG, "Rejected untrusted SystemUI input-arbiter state"
+                    moduleLog(Log.WARN, TAG, "Rejected untrusted SystemUI input-arbiter state"
                             + ", uid=" + senderUid
                             + ", package=" + senderPackage);
                     return;
@@ -2876,7 +2876,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     miuiHomeSystemUiInputArbiterReady = ready;
                 }
                 if (stateUpdate) {
-                    log(Log.INFO, TAG, "SystemUI input arbiter state changed"
+                    moduleLog(Log.INFO, TAG, "SystemUI input arbiter state changed"
                             + ", ready=" + miuiHomeSystemUiInputArbiterReady
                             + ", generation="
                             + miuiHomeSystemUiInputArbiterGeneration
@@ -2942,7 +2942,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                             != miuiHomeSystemUiInputArbiterGeneration
                             || !miuiHomeSystemUiInputArbiterReady
                             || controller == null) {
-                        log(Log.WARN, TAG,
+                        moduleLog(Log.WARN, TAG,
                                 "Rejected stale standard return-home "
                                         + (finishReceipt
                                         ? "finish receipt" : "commit signal")
@@ -2987,10 +2987,10 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             miuiHomeInputArbiterReceiver = receiver;
             Intent query = new Intent(MODULE_MIUI_HOME_INPUT_ARBITER_QUERY);
             sendAuthenticatedMiuiHomeState(appContext, query);
-            log(Log.INFO, TAG, "Registered MiuiHome input-arbiter state receiver"
+            moduleLog(Log.INFO, TAG, "Registered MiuiHome input-arbiter state receiver"
                     + ", queriedSystemUi=true");
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG, "Failed to register MiuiHome input-arbiter receiver",
+            moduleLog(Log.ERROR, TAG, "Failed to register MiuiHome input-arbiter receiver",
                     throwable);
         }
     }
@@ -3008,9 +3008,9 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         }
         try {
             receiverContext.unregisterReceiver(receiver);
-            log(Log.INFO, TAG, "Unregistered MiuiHome input-arbiter receiver");
+            moduleLog(Log.INFO, TAG, "Unregistered MiuiHome input-arbiter receiver");
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to unregister MiuiHome input-arbiter receiver",
+            moduleLog(Log.WARN, TAG, "Failed to unregister MiuiHome input-arbiter receiver",
                     throwable);
         }
     }
@@ -3044,13 +3044,13 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     .setShareIdentityEnabled(true)
                     .toBundle();
             context.getApplicationContext().sendBroadcast(stateIntent, null, options);
-            log(Log.INFO, TAG, "Published SystemUI input-arbiter state"
+            moduleLog(Log.INFO, TAG, "Published SystemUI input-arbiter state"
                     + ", ready=" + ready
                     + ", generation=" + systemUiInputArbiterGeneration
                     + ", monitors=" + systemUiInputArbiterMonitorCount.get()
                     + ", reason=" + reason);
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to publish SystemUI input-arbiter state"
+            moduleLog(Log.WARN, TAG, "Failed to publish SystemUI input-arbiter state"
                     + ", reason=" + reason, throwable);
         }
     }
@@ -3072,7 +3072,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 || identity.controller != compositionController
                 || input.generation
                 != systemUiInputArbiterGeneration) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Could not publish standard return-home commit"
                             + ", attempt=" + attempt
                             + ", taskId=" + taskId
@@ -3097,7 +3097,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             runnerSession = captureReturnHomeRunnerSession(
                     compositionController);
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Could not capture exact Shell return-home runner session"
                             + ", attempt=" + attempt
                             + ", taskId=" + taskId
@@ -3121,7 +3121,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 finishCallback = readField(handler,
                         "mOnAnimationFinishCallback");
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Could not capture Shell return-home finish callback",
                         throwable);
             }
@@ -3141,7 +3141,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 identity.finishCallback.compareAndSet(
                         finishCallback, null);
             }
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Could not bind Shell return-home finish receipt"
                             + ", attempt=" + attempt
                             + ", taskId=" + taskId
@@ -3165,7 +3165,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     .setShareIdentityEnabled(true)
                     .toBundle();
             context.sendBroadcast(intent, null, options);
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Published standard predictive return-home commit"
                             + ", attempt=" + attempt
                             + ", taskId=" + taskId
@@ -3179,7 +3179,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                             + ", runnerSession="
                             + shortObject(runnerSession));
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to publish standard return-home commit"
                             + ", attempt=" + attempt
                             + ", taskId=" + taskId
@@ -3285,7 +3285,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             }
             cleanupComplete = preparedStateClear && !closeRequested;
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG,
+            moduleLog(Log.WARN, TAG,
                     "Could not prove completed Shell return-home cleanup",
                     throwable);
         }
@@ -3298,7 +3298,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 || !acceptingBackInputInstalls
                 || systemUiInputArbiterMonitorCount.get() <= 0) {
             if (signal != null && !cleanupComplete) {
-                log(Log.WARN, TAG,
+                moduleLog(Log.WARN, TAG,
                         "Withheld premature Shell return-home finish receipt"
                                 + ", attempt=" + signal.attempt
                                 + ", taskId=" + signal.taskId
@@ -3321,7 +3321,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             clearSystemUiReturnHomeCommitIdentity(
                     controller, shellSessionId,
                     "finishReceipt:" + reason);
-            log(Log.INFO, TAG,
+            moduleLog(Log.INFO, TAG,
                     "Published completed Shell return-home receipt"
                             + ", attempt=" + signal.attempt
                             + ", taskId=" + signal.taskId
@@ -3331,7 +3331,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                             + ", eventId=" + signal.eventId
                             + ", reason=" + reason);
         } catch (Throwable throwable) {
-            log(Log.ERROR, TAG,
+            moduleLog(Log.ERROR, TAG,
                     "Failed to publish completed Shell return-home receipt"
                             + ", attempt=" + signal.attempt
                             + ", taskId=" + signal.taskId
@@ -3355,7 +3355,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             }
             if (systemUiReturnHomeCommitIdentity.compareAndSet(
                     identity, null)) {
-                log(Log.INFO, TAG,
+                moduleLog(Log.INFO, TAG,
                         "Cleared committed return-home input identity"
                                 + ", taskId=" + identity.taskId
                                 + ", eventId="
@@ -3378,14 +3378,14 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 getApplication.setAccessible(true);
                 Object application = getApplication.invoke(null);
                 if (application == null) {
-                    log(Log.WARN, TAG, "Cannot restore MiuiHome GestureStubs: "
+                    moduleLog(Log.WARN, TAG, "Cannot restore MiuiHome GestureStubs: "
                             + "launcher application is null");
                     return;
                 }
                 Object recents = invokeAnyMethod(application, "getRecentsImpl",
                         new Object[0]);
                 if (recents == null) {
-                    log(Log.WARN, TAG, "Cannot restore MiuiHome GestureStubs: "
+                    moduleLog(Log.WARN, TAG, "Cannot restore MiuiHome GestureStubs: "
                             + "RecentsImpl is null");
                     return;
                 }
@@ -3399,10 +3399,10 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     Runnable recomputePolicy = () -> {
                         try {
                             invokeAnyMethod(recents, "adaptToTopActivity", new Object[0]);
-                            log(Log.INFO, TAG, "Recomputed native MiuiHome GestureStub policy "
+                            moduleLog(Log.INFO, TAG, "Recomputed native MiuiHome GestureStub policy "
                                     + "after hot reload");
                         } catch (Throwable throwable) {
-                            log(Log.WARN, TAG, "Failed to recompute native MiuiHome "
+                            moduleLog(Log.WARN, TAG, "Failed to recompute native MiuiHome "
                                     + "GestureStub policy", throwable);
                         }
                     };
@@ -3419,7 +3419,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 restoreMiuiHomeGestureStubOnOwner(left, "left", restored);
                 restoreMiuiHomeGestureStubOnOwner(right, "right", restored);
             } catch (Throwable throwable) {
-                log(Log.ERROR, TAG, "Failed to restore existing MiuiHome GestureStubs",
+                moduleLog(Log.ERROR, TAG, "Failed to restore existing MiuiHome GestureStubs",
                         throwable);
             }
         });
@@ -3428,7 +3428,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
     protected void restoreMiuiHomeGestureStubOnOwner(Object stubObject, String edge,
                                                      Runnable completion) {
         if (!(stubObject instanceof View)) {
-            log(Log.INFO, TAG, "MiuiHome GestureStub absent during hot reload"
+            moduleLog(Log.INFO, TAG, "MiuiHome GestureStub absent during hot reload"
                     + ", edge=" + edge);
             completion.run();
             return;
@@ -3453,12 +3453,12 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 }
                 stub.requestLayout();
                 stub.requestApplyInsets();
-                log(Log.INFO, TAG, "Restored existing MiuiHome GestureStub window"
+                moduleLog(Log.INFO, TAG, "Restored existing MiuiHome GestureStub window"
                         + ", edge=" + edge
                         + ", attached=" + stub.isAttachedToWindow()
                         + ", clearedNotTouchable=" + changed);
             } catch (Throwable throwable) {
-                log(Log.WARN, TAG, "Failed to restore MiuiHome GestureStub"
+                moduleLog(Log.WARN, TAG, "Failed to restore MiuiHome GestureStub"
                         + ", edge=" + edge, throwable);
             } finally {
                 completion.run();
@@ -3468,7 +3468,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         if (ownerHandler == null || ownerHandler.getLooper() == Looper.myLooper()) {
             restore.run();
         } else if (!ownerHandler.post(restore)) {
-            log(Log.WARN, TAG, "Failed to post MiuiHome GestureStub restore"
+            moduleLog(Log.WARN, TAG, "Failed to post MiuiHome GestureStub restore"
                     + ", edge=" + edge);
             completion.run();
         }
@@ -3509,7 +3509,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 }
             }
         } catch (Throwable throwable) {
-            log(Log.WARN, TAG, "Failed to restore MiuiHome gesture-stub window", throwable);
+            moduleLog(Log.WARN, TAG, "Failed to restore MiuiHome gesture-stub window", throwable);
         }
         return result;
     }
