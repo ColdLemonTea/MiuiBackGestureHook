@@ -19,9 +19,9 @@ import android.os.Process;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.Display;
+import android.view.HapticFeedbackConstants;
 import android.view.InsetsFrameProvider;
 import android.view.SurfaceControl;
-import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowManager;
@@ -34,7 +34,6 @@ import android.window.TransitionInfo;
 
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Array;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -1435,8 +1434,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     }
 
     protected void hookEdgeBackGestureHandler(ClassLoader classLoader,
-            boolean hookUpdateIsEnabled, boolean hookNavigationModeChanged,
-            boolean hookSetBackAnimation) {
+                                              boolean hookUpdateIsEnabled, boolean hookNavigationModeChanged,
+                                              boolean hookSetBackAnimation) {
         Class<?> handlerClass;
         try {
             handlerClass = Class.forName(EDGE_BACK_GESTURE_HANDLER, false, classLoader);
@@ -2602,7 +2601,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     }
 
     protected boolean isExactFreeformCrossActivityPair(Object closingTarget,
-                                                        Object enteringTarget)
+                                                       Object enteringTarget)
             throws Exception {
         int taskId = readIntFieldOrDefault(closingTarget, "taskId", -1);
         Object closingBounds = readFieldOrNull(closingTarget, "localBounds");
@@ -2738,7 +2737,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                                 new Object[]{candidate.rootLeash,
                                         candidate.rootCornerRadius});
                         donor.reparent((SurfaceControl) background,
-                                candidate.rootLeash)
+                                        candidate.rootLeash)
                                 .setCrop((SurfaceControl) background,
                                         rootLocalColorCrop)
                                 .setAlpha((SurfaceControl) background, 0.0f)
@@ -4261,8 +4260,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         boolean wallpaperMatches = wallpaperExpected
                 ? wallpaperLeash != null
-                && !surfacesAreSame(wallpaperLeash, appLeash)
-                && !surfacesAreSame(wallpaperLeash, homeLeash)
+                  && !surfacesAreSame(wallpaperLeash, appLeash)
+                  && !surfacesAreSame(wallpaperLeash, homeLeash)
                 : wallpaperLeash == null;
         if (appChange == null || appLeash == null || homeLeash == null
                 || !wallpaperMatches

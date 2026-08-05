@@ -16,15 +16,15 @@ public class InsetsFrameProvider {
         throw new RuntimeException("Stub");
     }
 
-    public void setInsetsSize(Insets insets) {
+    public InsetsFrameProvider setInsetsSize(Insets insets) {
         throw new RuntimeException("Stub");
     }
 
-    public void setInsetsSizeOverrides(InsetsSizeOverride[] overrides) {
+    public InsetsFrameProvider setInsetsSizeOverrides(InsetsSizeOverride[] overrides) {
         throw new RuntimeException("Stub");
     }
 
-    public void setMinimalInsetsSizeInDisplayCutoutSafe(Insets insets) {
+    public InsetsFrameProvider setMinimalInsetsSizeInDisplayCutoutSafe(Insets insets) {
         throw new RuntimeException("Stub");
     }
 
