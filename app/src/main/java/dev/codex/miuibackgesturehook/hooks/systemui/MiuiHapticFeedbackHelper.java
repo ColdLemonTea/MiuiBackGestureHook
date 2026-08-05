@@ -1,6 +1,7 @@
 package dev.codex.miuibackgesturehook.hooks.systemui;
 
 import android.content.Context;
+import android.os.SystemProperties;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -56,10 +57,7 @@ final class MiuiHapticFeedbackHelper {
         boolean resolvedSupported = false;
         boolean resolvedV2 = false;
         try {
-            Class<?> systemProperties = Class.forName("android.os.SystemProperties");
-            Object version = systemProperties
-                    .getMethod("get", String.class, String.class)
-                    .invoke(null, "sys.haptic.version", "1.0");
+            String version = SystemProperties.get("sys.haptic.version", "1.0");
             resolvedV2 = "2.0".equals(version);
 
             Class<?> utilClass = Class.forName("miui.util.HapticFeedbackUtil");

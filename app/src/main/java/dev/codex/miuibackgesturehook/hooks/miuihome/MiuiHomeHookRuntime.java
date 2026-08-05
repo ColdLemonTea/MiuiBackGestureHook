@@ -21,6 +21,8 @@ import android.view.MotionEvent;
 import android.view.SurfaceControl;
 import android.view.View;
 import android.view.WindowManager;
+import android.window.IRemoteTransitionFinishedCallback;
+import android.window.TransitionInfo;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
@@ -313,7 +315,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     && parameterTypes[2] == Object.class
                     && parameterTypes[3]
                     == SurfaceControl.Transaction.class
-                    && "android.window.IRemoteTransitionFinishedCallback".equals(
+                    && IRemoteTransitionFinishedCallback.class.getName().equals(
                     parameterTypes[4].getName())) {
                 handlerMethod = method;
                 break;
@@ -1420,27 +1422,24 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         if (info == null) {
             return null;
         }
-        Object typeObject = invokeAnyMethod(info, "getType", new Object[0]);
+        Object typeObject = readTransitionInfoType(info);
         if (!(typeObject instanceof Number)
                 || ((Number) typeObject).intValue() != TRANSIT_OPEN) {
             return null;
         }
-        Object changesObject = invokeAnyMethod(
-                info, "getChanges", new Object[0]);
+        Object changesObject = readTransitionInfoChanges(info);
         if (!(changesObject instanceof List<?>)) {
             return null;
         }
         LauncherOpenMainTask candidate = null;
         for (Object change : (List<?>) changesObject) {
-            Object taskInfo = invokeAnyMethod(
-                    change, "getTaskInfo", new Object[0]);
+            Object taskInfo = readTransitionChangeTaskInfo(change);
             if (taskInfo == null
                     || resolveTaskInfoActivityType(taskInfo)
                     != ACTIVITY_TYPE_STANDARD) {
                 continue;
             }
-            Object modeObject = invokeAnyMethod(
-                    change, "getMode", new Object[0]);
+            Object modeObject = readTransitionChangeMode(change);
             int mode = modeObject instanceof Number
                     ? ((Number) modeObject).intValue() : -1;
             if ((mode != TRANSIT_OPEN && mode != TRANSIT_TO_FRONT)
@@ -1451,8 +1450,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             int taskId = readIntFieldOrDefault(taskInfo, "taskId", -1);
             int displayId = readIntFieldOrDefault(
                     taskInfo, "displayId", -1);
-            Object boundsObject = invokeAnyMethod(
-                    change, "getEndAbsBounds", new Object[0]);
+            Object boundsObject = readTransitionChangeEndAbsBounds(change);
             ComponentName component = readTaskInfoComponent(taskInfo);
             if (taskId < 0 || displayId < 0
                     || !(boundsObject instanceof Rect)
@@ -1542,8 +1540,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 ? ((Number) infoFlagsObject).intValue() : Integer.MIN_VALUE;
         Object transitionInfo = invokeAnyMethod(
                 infoExpose, "unbox", new Object[0]);
-        Object typeObject = invokeAnyMethod(
-                transitionInfo, "getType", new Object[0]);
+        Object typeObject = readTransitionInfoType(transitionInfo);
         if (infoFlags != expectedInfoFlags || !(typeObject instanceof Number)
                 || ((Number) typeObject).intValue() != expectedMode) {
             return null;
@@ -1689,16 +1686,12 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             return -1;
         }
         try {
-            Object info = infoOrExpose;
-            if (!"android.window.TransitionInfo".equals(
-                    infoOrExpose.getClass().getName())) {
-                info = invokeAnyMethod(
-                        infoOrExpose, "unbox", new Object[0]);
+            Object infoObject = infoOrExpose;
+            if (!(infoObject instanceof TransitionInfo)) {
+                infoObject = invokeAnyMethod(infoObject, "unbox", new Object[0]);
             }
-            Object value = invokeAnyMethod(
-                    info, "getDebugId", new Object[0]);
-            return value instanceof Number
-                    ? ((Number) value).intValue() : -1;
+            return infoObject instanceof TransitionInfo
+                    ? ((TransitionInfo) infoObject).getDebugId() : -1;
         } catch (Throwable ignored) {
             return -1;
         }

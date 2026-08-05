@@ -38,7 +38,6 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
     protected static final int SERVER_FREEFORM_PREPARED_OPENING_FLAGS =
             FLAG_BACK_GESTURE_ANIMATED | FLAG_FILLS_TASK | FLAG_IS_OCCLUDED;
     protected volatile Field serverTransitionChangeInfoFlagsField;
-    protected volatile Method serverTransitionInfoChangeSetModeMethod;
 
     protected void installSystemServerHooks(ClassLoader classLoader) {
         try {
@@ -472,7 +471,6 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
 
     protected void hookFreeformCrossActivityPrepareRole(ClassLoader classLoader) {
         serverTransitionChangeInfoFlagsField = null;
-        serverTransitionInfoChangeSetModeMethod = null;
         try {
             Class<?> transitionClass = Class.forName(
                     "com.android.server.wm.Transition", false, classLoader);
@@ -502,7 +500,6 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                     "Transition.calculateTransitionInfo five-argument overload not found");
         } catch (Throwable throwable) {
             serverTransitionChangeInfoFlagsField = null;
-            serverTransitionInfoChangeSetModeMethod = null;
             log(Log.ERROR, TAG,
                     "Failed to hook server cross-activity predictive-back prepare role",
                     throwable);
@@ -515,28 +512,10 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                     "com.android.server.wm.Transition$ChangeInfo", false, classLoader);
             Field flags = changeInfoClass.getDeclaredField("mFlags");
             flags.setAccessible(true);
-            Class<?> transitionInfoChangeClass = Class.forName(
-                    "android.window.TransitionInfo$Change", false, classLoader);
-            Method setMode = null;
-            for (Method method : transitionInfoChangeClass.getDeclaredMethods()) {
-                Class<?>[] parameters = method.getParameterTypes();
-                if ("setMode".equals(method.getName())
-                        && parameters.length == 1
-                        && parameters[0] == int.class) {
-                    setMode = method;
-                    break;
-                }
-            }
-            if (setMode == null) {
-                throw new NoSuchMethodException("TransitionInfo.Change.setMode(int)");
-            }
-            setMode.setAccessible(true);
             serverTransitionChangeInfoFlagsField = flags;
-            serverTransitionInfoChangeSetModeMethod = setMode;
             return true;
         } catch (Throwable throwable) {
             serverTransitionChangeInfoFlagsField = null;
-            serverTransitionInfoChangeSetModeMethod = null;
             log(Log.ERROR, TAG,
                     "Server cross-activity prepare-role reflection unavailable", throwable);
             return false;
@@ -546,14 +525,12 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
     protected Object normalizeFreeformCrossActivityTransitionInfo(
             XposedInterface.Chain chain) throws Throwable {
         Field flagsField = serverTransitionChangeInfoFlagsField;
-        Method setModeMethod = serverTransitionInfoChangeSetModeMethod;
         Object closingChangeInfo = null;
         Object openingChangeInfo = null;
         int closingIndex = -1;
         try {
             Object type = chain.getArg(0);
             if (flagsField != null
-                    && setModeMethod != null
                     && type instanceof Number
                     && ((Number) type).intValue() == TRANSIT_PREDICTIVE_BACK) {
                 Object targetsObject = chain.getArg(2);
@@ -574,13 +551,12 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
         }
         Object result = chain.proceed();
         if (closingChangeInfo == null || openingChangeInfo == null
-                || closingIndex < 0 || setModeMethod == null) {
+                || closingIndex < 0) {
             return result;
         }
 
         try {
-            Object changesObject = invokeAnyMethod(
-                    result, "getChanges", new Object[0]);
+            Object changesObject = readTransitionInfoChanges(result);
             if (!(changesObject instanceof List<?>)) {
                 throw new IllegalStateException("TransitionInfo changes unavailable");
             }
@@ -591,14 +567,18 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             }
             Object closingChange = changes.get(closingIndex);
             Object openingChange = changes.get(1 - closingIndex);
-            int closingMode = ((Number) invokeAnyMethod(
-                    closingChange, "getMode", new Object[0])).intValue();
-            int openingMode = ((Number) invokeAnyMethod(
-                    openingChange, "getMode", new Object[0])).intValue();
-            int closingFlags = ((Number) invokeAnyMethod(
-                    closingChange, "getFlags", new Object[0])).intValue();
-            int openingFlags = ((Number) invokeAnyMethod(
-                    openingChange, "getFlags", new Object[0])).intValue();
+            Integer closingModeObject = readTransitionChangeMode(closingChange);
+            Integer openingModeObject = readTransitionChangeMode(openingChange);
+            Integer closingFlagsObject = readTransitionChangeFlags(closingChange);
+            Integer openingFlagsObject = readTransitionChangeFlags(openingChange);
+            if (closingModeObject == null || openingModeObject == null
+                    || closingFlagsObject == null || openingFlagsObject == null) {
+                throw new IllegalStateException("TransitionInfo changes unavailable");
+            }
+            int closingMode = closingModeObject;
+            int openingMode = openingModeObject;
+            int closingFlags = closingFlagsObject;
+            int openingFlags = openingFlagsObject;
             if ((closingMode != TRANSIT_TO_FRONT && closingMode != TRANSIT_CHANGE)
                     || openingMode != TRANSIT_TO_FRONT
                     || (closingFlags & SERVER_FREEFORM_PREPARED_CLOSING_FLAGS)
@@ -659,16 +639,23 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                         + ", layers=" + closingLayer + "/" + openingLayer);
             }
             if (closingMode == TRANSIT_TO_FRONT) {
-                setModeMethod.invoke(closingChange, TRANSIT_CHANGE);
+                if (!setTransitionChangeMode(closingChange, TRANSIT_CHANGE)) {
+                    throw new IllegalStateException("closing TransitionInfo change unavailable");
+                }
             }
-            int normalizedMode = ((Number) invokeAnyMethod(
-                    closingChange, "getMode", new Object[0])).intValue();
-            int normalizedFlags = ((Number) invokeAnyMethod(
-                    closingChange, "getFlags", new Object[0])).intValue();
-            int preservedOpeningMode = ((Number) invokeAnyMethod(
-                    openingChange, "getMode", new Object[0])).intValue();
-            int preservedOpeningFlags = ((Number) invokeAnyMethod(
-                    openingChange, "getFlags", new Object[0])).intValue();
+            Integer normalizedModeObject = readTransitionChangeMode(closingChange);
+            Integer normalizedFlagsObject = readTransitionChangeFlags(closingChange);
+            Integer preservedOpeningModeObject = readTransitionChangeMode(openingChange);
+            Integer preservedOpeningFlagsObject = readTransitionChangeFlags(openingChange);
+            if (normalizedModeObject == null || normalizedFlagsObject == null
+                    || preservedOpeningModeObject == null
+                    || preservedOpeningFlagsObject == null) {
+                throw new IllegalStateException("normalized TransitionInfo change unavailable");
+            }
+            int normalizedMode = normalizedModeObject;
+            int normalizedFlags = normalizedFlagsObject;
+            int preservedOpeningMode = preservedOpeningModeObject;
+            int preservedOpeningFlags = preservedOpeningFlagsObject;
             if (normalizedMode != TRANSIT_CHANGE
                     || normalizedFlags != closingFlags
                     || preservedOpeningMode != openingMode

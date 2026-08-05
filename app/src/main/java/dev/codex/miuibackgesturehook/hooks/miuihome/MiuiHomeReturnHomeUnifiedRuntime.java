@@ -2101,8 +2101,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     params, "getFinishCallback", new Object[0]);
             Object mainDebugObject = invokeAnyMethod(
                     params, "getMainInfoDebugId", new Object[0]);
-            Object infoTypeObject = info == null ? null
-                    : invokeAnyMethod(info, "getType", new Object[0]);
+            Object infoTypeObject = readTransitionInfoType(info);
             int transitionType = transitionTypeObject instanceof Number
                     ? ((Number) transitionTypeObject).intValue() : -1;
             int mainDebugId = mainDebugObject instanceof Number
@@ -2241,8 +2240,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     params, "getToken", new Object[0]);
             Object mainDebugObject = invokeAnyMethod(
                     params, "getMainInfoDebugId", new Object[0]);
-            Object infoTypeObject = invokeAnyMethod(
-                    info, "getType", new Object[0]);
+            Object infoTypeObject = readTransitionInfoType(info);
             int transitionType = transitionTypeObject instanceof Number
                     ? ((Number) transitionTypeObject).intValue() : -1;
             int mainDebugId = mainDebugObject instanceof Number
@@ -2275,8 +2273,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     || !session.closingLeash.isValid()) {
                 return false;
             }
-            Object changesObject = invokeAnyMethod(
-                    info, "getChanges", new Object[0]);
+            Object changesObject = readTransitionInfoChanges(info);
             if (!(changesObject instanceof List<?>)
                     || ((List<?>) changesObject).size() != 2) {
                 return false;
@@ -2286,18 +2283,14 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             SurfaceControl elementLeash = null;
             SurfaceControl appLeash = null;
             for (Object change : (List<?>) changesObject) {
-                Object modeObject = invokeAnyMethod(
-                        change, "getMode", new Object[0]);
-                Object flagsObject = invokeAnyMethod(
-                        change, "getFlags", new Object[0]);
+                Object modeObject = readTransitionChangeMode(change);
+                Object flagsObject = readTransitionChangeFlags(change);
                 int mode = modeObject instanceof Number
                         ? ((Number) modeObject).intValue() : -1;
                 int flags = flagsObject instanceof Number
                         ? ((Number) flagsObject).intValue() : 0;
-                Object taskInfo = invokeAnyMethod(
-                        change, "getTaskInfo", new Object[0]);
-                Object leashObject = invokeAnyMethod(
-                        change, "getLeash", new Object[0]);
+                Object taskInfo = readTransitionChangeTaskInfo(change);
+                Object leashObject = readTransitionChangeLeash(change);
                 if (mode != infoType
                         || !(leashObject instanceof SurfaceControl)
                         || !((SurfaceControl) leashObject).isValid()) {
@@ -2309,10 +2302,8 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     elementLeash = (SurfaceControl) leashObject;
                     continue;
                 }
-                Object startDisplayObject = invokeAnyMethod(
-                        change, "getStartDisplayId", new Object[0]);
-                Object endDisplayObject = invokeAnyMethod(
-                        change, "getEndDisplayId", new Object[0]);
+                Object startDisplayObject = readTransitionChangeStartDisplayId(change);
+                Object endDisplayObject = readTransitionChangeEndDisplayId(change);
                 int startDisplayId = startDisplayObject instanceof Number
                         ? ((Number) startDisplayObject).intValue() : -1;
                 int endDisplayId = endDisplayObject instanceof Number
@@ -2347,12 +2338,9 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     || surfacesAreSame(appLeash, session.closingLeash)) {
                 return false;
             }
-            Object appStartBounds = invokeAnyMethod(
-                    appChange, "getStartAbsBounds", new Object[0]);
-            Object appEndBounds = invokeAnyMethod(
-                    appChange, "getEndAbsBounds", new Object[0]);
-            Object elementEndBounds = invokeAnyMethod(
-                    elementChange, "getEndAbsBounds", new Object[0]);
+            Object appStartBounds = readTransitionChangeStartAbsBounds(appChange);
+            Object appEndBounds = readTransitionChangeEndAbsBounds(appChange);
+            Object elementEndBounds = readTransitionChangeEndAbsBounds(elementChange);
             if (!(appStartBounds instanceof Rect)
                     || !(appEndBounds instanceof Rect)
                     || !(elementEndBounds instanceof Rect)
@@ -3076,8 +3064,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 boolean ownerThread = handlerObject instanceof Handler
                         && ((Handler) handlerObject).getLooper()
                         == Looper.myLooper();
-                Object startBoundsObject = invokeAnyMethod(
-                        change, "getStartAbsBounds", new Object[0]);
+                Object startBoundsObject = readTransitionChangeStartAbsBounds(change);
                 boolean exact = ownerThread
                         && pendingElementLeashReuse.get() == token
                         && currentSession == session

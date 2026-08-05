@@ -18,6 +18,8 @@ import android.os.Parcel;
 import android.os.Process;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.Display;
+import android.view.InsetsFrameProvider;
 import android.view.SurfaceControl;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
@@ -28,6 +30,7 @@ import android.window.BackMotionEvent;
 import android.window.BackNavigationInfo;
 import android.window.BackProgressAnimator;
 import android.window.BackTouchTracker;
+import android.window.TransitionInfo;
 
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Array;
@@ -95,12 +98,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             Class<?> handlerClass = Class.forName(DEFAULT_TRANSITION_HANDLER, false,
                     classLoader);
-            Class<?> transitionInfoClass = Class.forName("android.window.TransitionInfo",
-                    false, classLoader);
+            Class<?> transitionInfoClass = TransitionInfo.class;
             Class<?> finishCallbackClass = Class.forName(
                     "com.android.wm.shell.transition.Transitions$TransitionFinishCallback",
                     false, classLoader);
-            resolveDefaultTransitionSnapshotReflection(handlerClass, transitionInfoClass);
+            resolveDefaultTransitionSnapshotReflection(handlerClass);
             Method startAnimation = handlerClass.getDeclaredMethod("startAnimation",
                     IBinder.class, transitionInfoClass, SurfaceControl.Transaction.class,
                     SurfaceControl.Transaction.class, finishCallbackClass);
@@ -116,30 +118,26 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     @SuppressLint("SoonBlockedPrivateApi")
     protected synchronized void resolveDefaultTransitionSnapshotReflection(
-            Class<?> handlerClass, Class<?> transitionInfoClass) throws ReflectiveOperationException {
+            Class<?> handlerClass) throws ReflectiveOperationException {
         if (defaultTransitionAnimationsField != null
                 && defaultTransitionAnimationSizeField != null
                 && defaultTransitionAnimExecutorField != null
-                && transitionInfoGetTypeMethod != null
                 && animatorCanReverseMethod != null) {
             return;
         }
         Field animationsField = handlerClass.getDeclaredField("mAnimations");
         Field animationSizeField = handlerClass.getDeclaredField("mAnimationSize");
         Field animExecutorField = handlerClass.getDeclaredField("mAnimExecutor");
-        Method getTypeMethod = transitionInfoClass.getDeclaredMethod("getType");
         // Animator.canReverse() is a boot-classpath hidden API. LSPosed loads this code inside
         // SystemUI with hidden-API access; the public SDK stub does not expose the method.
         Method canReverseMethod = Animator.class.getDeclaredMethod("canReverse");
         animationsField.setAccessible(true);
         animationSizeField.setAccessible(true);
         animExecutorField.setAccessible(true);
-        getTypeMethod.setAccessible(true);
         canReverseMethod.setAccessible(true);
         defaultTransitionAnimationsField = animationsField;
         defaultTransitionAnimationSizeField = animationSizeField;
         defaultTransitionAnimExecutorField = animExecutorField;
-        transitionInfoGetTypeMethod = getTypeMethod;
         animatorCanReverseMethod = canReverseMethod;
     }
 
@@ -164,9 +162,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         if (handler == null || token == null || info == null) {
             return;
         }
-        resolveDefaultTransitionSnapshotReflection(handler.getClass(), info.getClass());
-        Object type = transitionInfoGetTypeMethod.invoke(info);
-        if (!(type instanceof Number) || ((Number) type).intValue() != 1) {
+        resolveDefaultTransitionSnapshotReflection(handler.getClass());
+        if (!(info instanceof TransitionInfo) || ((TransitionInfo) info).getType() != 1) {
             return;
         }
         openSnapshotLifecycleEpoch.incrementAndGet();
@@ -349,8 +346,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     classLoader);
             Class<?> shellExecutorClass = Class.forName(
                     "com.android.wm.shell.common.ShellExecutor", false, classLoader);
-            Class<?> transitionInfoClass = Class.forName("android.window.TransitionInfo",
-                    false, classLoader);
+            Class<?> transitionInfoClass = TransitionInfo.class;
             Class<?> finishCallbackClass = Class.forName(
                     "com.android.wm.shell.transition.Transitions$TransitionFinishCallback",
                     false, classLoader);
@@ -618,16 +614,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             Context context = (Context) readField(navigationBar, "mContext");
             EdgeWidthSnapshot widths = readEdgeWidthSnapshot(edgeBackGestureHandler,
                     context.getResources().getDisplayMetrics().density);
-            Class<?> overrideClass = Class.forName(
-                    "android.view.InsetsFrameProvider$InsetsSizeOverride", false,
-                    navigationBar.getClass().getClassLoader());
-            Constructor<?> overrideConstructor = overrideClass.getDeclaredConstructor(
-                    int.class, Insets.class);
-            overrideConstructor.setAccessible(true);
-            Object imeOverride = overrideConstructor.newInstance(
-                    WindowManager.LayoutParams.TYPE_INPUT_METHOD, Insets.NONE);
-            Object imeOverrides = Array.newInstance(overrideClass, 1);
-            Array.set(imeOverrides, 0, imeOverride);
+            InsetsFrameProvider.InsetsSizeOverride imeOverride =
+                    new InsetsFrameProvider.InsetsSizeOverride(
+                            WindowManager.LayoutParams.TYPE_INPUT_METHOD, Insets.NONE);
+            InsetsFrameProvider.InsetsSizeOverride[] imeOverrides =
+                    new InsetsFrameProvider.InsetsSizeOverride[]{imeOverride};
 
             Object providers = readField(result, "providedInsets");
             if (providers == null || !providers.getClass().isArray()) {
@@ -637,17 +628,12 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             int systemGestureType = WindowInsets.Type.systemGestures();
             for (int i = 0; i < Array.getLength(providers); i++) {
                 Object provider = Array.get(providers, i);
-                Object type = provider == null ? null
-                        : invokeAnyMethod(provider, "getType", new Object[0]);
-                if (!(type instanceof Number)
-                        || ((Number) type).intValue() != systemGestureType) {
+                if (!(provider instanceof InsetsFrameProvider)
+                        || ((InsetsFrameProvider) provider).getType() != systemGestureType) {
                     continue;
                 }
-                Object index = invokeAnyMethod(provider, "getIndex", new Object[0]);
-                if (!(index instanceof Number)) {
-                    continue;
-                }
-                int providerIndex = ((Number) index).intValue();
+                InsetsFrameProvider typedProvider = (InsetsFrameProvider) provider;
+                int providerIndex = typedProvider.getIndex();
                 Insets size;
                 if (providerIndex == 0) {
                     size = Insets.of(widths.leftSensitivity, 0, 0, 0);
@@ -657,11 +643,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     continue;
                 }
                 // WMS also applies the cutout-safe minimum to overridden frames, so keep it zero.
-                invokeAnyMethod(provider, "setInsetsSizeOverrides",
-                        new Object[]{imeOverrides});
-                invokeAnyMethod(provider, "setMinimalInsetsSizeInDisplayCutoutSafe",
-                        new Object[]{Insets.NONE});
-                invokeAnyMethod(provider, "setInsetsSize", new Object[]{size});
+                typedProvider.setInsetsSizeOverrides(imeOverrides);
+                typedProvider.setMinimalInsetsSizeInDisplayCutoutSafe(Insets.NONE);
+                typedProvider.setInsetsSize(size);
                 restored++;
             }
             log(restored == 2 ? Log.INFO : Log.WARN, TAG,
@@ -842,10 +826,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         Object result = chain.proceed();
         Object display = chain.getArg(0);
         try {
-            Object displayId = display == null ? null
-                    : invokeAnyMethod(display, "getDisplayId", new Object[0]);
-            if (displayId instanceof Number
-                    && ((Number) displayId).intValue() == 0) {
+            if (display instanceof Display && ((Display) display).getDisplayId() == 0) {
                 scheduleHeadlessNavBarReconcile(chain.getThisObject(),
                         "createNavigationBar");
             }
@@ -1829,10 +1810,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     protected boolean isExactFreeformPreparedBackTransition(
             Object handler, Object navigation, Object info) throws Exception {
-        Object focusedTaskIdObject = invokeAnyMethod(
-                navigation, "getFocusedTaskId", new Object[0]);
-        int focusedTaskId = focusedTaskIdObject instanceof Number
-                ? ((Number) focusedTaskIdObject).intValue() : -1;
+        if (!(navigation instanceof BackNavigationInfo)) {
+            return false;
+        }
+        int focusedTaskId = ((BackNavigationInfo) navigation).getFocusedTaskId();
         if (focusedTaskId < 0) {
             return false;
         }
@@ -1857,10 +1838,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 configuration, "windowConfiguration");
         Object taskBoundsObject = invokeAnyMethod(
                 windowConfiguration, "getBounds", new Object[0]);
-        Object changesObject = invokeAnyMethod(
-                info, "getChanges", new Object[0]);
-        Object rootCountObject = invokeAnyMethod(
-                info, "getRootCount", new Object[0]);
+        Object changesObject = readTransitionInfoChanges(info);
+        Object rootCountObject = readTransitionInfoRootCount(info);
         if (displayId < 0 || !(taskBoundsObject instanceof Rect)
                 || ((Rect) taskBoundsObject).isEmpty()
                 || !(changesObject instanceof List<?>)
@@ -1876,12 +1855,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             + ", roots=" + shortObject(rootCountObject));
         }
         Rect taskBounds = (Rect) taskBoundsObject;
-        Object root = invokeAnyMethod(
-                info, "getRoot", new Object[]{0});
-        Object rootLeashObject = root == null ? null : invokeAnyMethod(
-                root, "getLeash", new Object[0]);
-        Object rootOffsetObject = root == null ? null : invokeAnyMethod(
-                root, "getOffset", new Object[0]);
+        Object root = readTransitionInfoRoot(info, 0);
+        Object rootLeashObject = readTransitionRootLeash(root);
+        Object rootOffsetObject = readTransitionRootOffset(root);
         if (!(rootLeashObject instanceof SurfaceControl)
                 || !((SurfaceControl) rootLeashObject).isValid()
                 || !(rootOffsetObject instanceof Point)
@@ -1905,24 +1881,15 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         SurfaceControl openingLeash = null;
         int changeIndex = 0;
         for (Object change : (List<?>) changesObject) {
-            Object modeObject = invokeAnyMethod(
-                    change, "getMode", new Object[0]);
-            Object flagsObject = invokeAnyMethod(
-                    change, "getFlags", new Object[0]);
-            Object changeTaskInfo = invokeAnyMethod(
-                    change, "getTaskInfo", new Object[0]);
-            Object component = invokeAnyMethod(
-                    change, "getActivityComponent", new Object[0]);
-            Object leashObject = invokeAnyMethod(
-                    change, "getLeash", new Object[0]);
-            Object startBoundsObject = invokeAnyMethod(
-                    change, "getStartAbsBounds", new Object[0]);
-            Object endBoundsObject = invokeAnyMethod(
-                    change, "getEndAbsBounds", new Object[0]);
-            Object startDisplayObject = invokeAnyMethod(
-                    change, "getStartDisplayId", new Object[0]);
-            Object endDisplayObject = invokeAnyMethod(
-                    change, "getEndDisplayId", new Object[0]);
+            Object modeObject = readTransitionChangeMode(change);
+            Object flagsObject = readTransitionChangeFlags(change);
+            Object changeTaskInfo = readTransitionChangeTaskInfo(change);
+            Object component = readTransitionChangeActivityComponent(change);
+            Object leashObject = readTransitionChangeLeash(change);
+            Object startBoundsObject = readTransitionChangeStartAbsBounds(change);
+            Object endBoundsObject = readTransitionChangeEndAbsBounds(change);
+            Object startDisplayObject = readTransitionChangeStartDisplayId(change);
+            Object endDisplayObject = readTransitionChangeEndDisplayId(change);
             int mode = modeObject instanceof Number
                     ? ((Number) modeObject).intValue() : -1;
             int flags = flagsObject instanceof Number
@@ -1984,7 +1951,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     BACK_TRANSITION_HANDLER, false, classLoader);
             Method startAnimation = requireExactDeclaredMethod(handlerClass,
                     "startAnimation", "boolean", IBinder.class.getName(),
-                    "android.window.TransitionInfo",
+                    TransitionInfo.class.getName(),
                     SurfaceControl.Transaction.class.getName(),
                     SurfaceControl.Transaction.class.getName(),
                     "com.android.wm.shell.transition.Transitions$TransitionFinishCallback");
@@ -2017,7 +1984,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         PreparedBackTransitionHold hold;
         try {
             Object info = chain.getArg(1);
-            Object type = invokeAnyMethod(info, "getType", new Object[0]);
+            Object type = readTransitionInfoType(info);
             if (!(type instanceof Number)
                     || ((Number) type).intValue() != TRANSIT_PREDICTIVE_BACK) {
                 return chain.proceed();
@@ -2044,8 +2011,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 return chain.proceed();
             }
             Object navigation = readField(controller, "mBackNavigationInfo");
-            Object navigationType = navigation == null ? null
-                    : invokeAnyMethod(navigation, "getType", new Object[0]);
+            Object navigationType = readBackNavigationType(navigation);
             if (!(navigationType instanceof Number)
                     || ((Number) navigationType).intValue()
                     != TYPE_CROSS_ACTIVITY) {
@@ -2246,8 +2212,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     protected boolean isHeldPreparedBackTransitionBase(
             PreparedBackTransitionHold hold) throws Exception {
-        Object type = invokeAnyMethod(
-                hold.transitionInfo, "getType", new Object[0]);
+        Object type = readTransitionInfoType(hold.transitionInfo);
         return readField(hold.handler, "this$0") == hold.controller
                 && readField(hold.controller, "mBackTransitionHandler")
                 == hold.handler
@@ -2315,8 +2280,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     CROSS_ACTIVITY_BACK_ANIMATION, false, classLoader);
             defaultClass = Class.forName(
                     DEFAULT_CROSS_ACTIVITY_BACK_ANIMATION, false, classLoader);
-            backMotionEventClass = Class.forName(
-                    "android.window.BackMotionEvent", false, classLoader);
+            backMotionEventClass = BackMotionEvent.class;
         } catch (Throwable throwable) {
             log(Log.ERROR, TAG, "Cross-activity animation classes unavailable",
                     throwable);
@@ -2656,15 +2620,13 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     }
 
     protected SurfaceControl resolveSingleTransitionRoot(Object info) throws Exception {
-        Object rootCount = invokeAnyMethod(info, "getRootCount", new Object[0]);
+        Object rootCount = readTransitionInfoRootCount(info);
         if (!(rootCount instanceof Number)
                 || ((Number) rootCount).intValue() != 1) {
             return null;
         }
-        Object root = invokeAnyMethod(info, "getRoot",
-                new Object[]{0});
-        Object leash = root == null ? null
-                : invokeAnyMethod(root, "getLeash", new Object[0]);
+        Object root = readTransitionInfoRoot(info, 0);
+        Object leash = readTransitionRootLeash(root);
         return leash instanceof SurfaceControl ? (SurfaceControl) leash : null;
     }
 
@@ -2745,10 +2707,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     throw new IllegalStateException(
                             "freeform color layers unavailable at first apply");
                 }
-                Object root = invokeAnyMethod(candidate.transitionInfo, "getRoot",
-                        new Object[]{0});
-                Object rootOffset = invokeAnyMethod(
-                        root, "getOffset", new Object[0]);
+                Object root = readTransitionInfoRoot(candidate.transitionInfo, 0);
+                Object rootOffset = readTransitionRootOffset(root);
                 Object colorBounds = readFieldOrNull(
                         candidate.closingTarget, "localBounds");
                 Object targetCrop = readFieldOrNull(animation, "cropRect");
@@ -2946,10 +2906,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             FreeformColorRootCandidate candidate, Object animation) throws Exception {
         Object controller = readField(candidate.handler, "this$0");
         Object navigationInfo = readField(controller, "mBackNavigationInfo");
-        Object navigationType = navigationInfo == null ? null
-                : invokeAnyMethod(navigationInfo, "getType", new Object[0]);
-        Object transitionType = invokeAnyMethod(
-                candidate.transitionInfo, "getType", new Object[0]);
+        Object navigationType = readBackNavigationType(navigationInfo);
+        Object transitionType = readTransitionInfoType(candidate.transitionInfo);
         if (readField(candidate.handler, "mPrepareOpenTransition")
                 != candidate.transitionToken
                 || readField(candidate.handler, "mOpenTransitionInfo")
@@ -3355,7 +3313,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected Method requireBackMergeAnimation(Class<?> handlerClass)
             throws NoSuchMethodException {
         return requireExactDeclaredMethod(handlerClass, "mergeAnimation", "void",
-                IBinder.class.getName(), "android.window.TransitionInfo",
+                IBinder.class.getName(), TransitionInfo.class.getName(),
                 SurfaceControl.Transaction.class.getName(),
                 SurfaceControl.Transaction.class.getName(), IBinder.class.getName(),
                 "com.android.wm.shell.transition.Transitions$TransitionFinishCallback");
@@ -3364,7 +3322,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected void captureFreeformColorRootCandidate(Object handler,
                                                      Object transitionToken,
                                                      Object info) throws Exception {
-        Object type = invokeAnyMethod(info, "getType", new Object[0]);
+        Object type = readTransitionInfoType(info);
         if (!(type instanceof Number)
                 || ((Number) type).intValue() != TRANSIT_PREDICTIVE_BACK
                 || readField(handler, "mPrepareOpenTransition") != transitionToken
@@ -3373,8 +3331,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         Object controller = readField(handler, "this$0");
         Object navigationInfo = readField(controller, "mBackNavigationInfo");
-        Object navigationType = navigationInfo == null ? null
-                : invokeAnyMethod(navigationInfo, "getType", new Object[0]);
+        Object navigationType = readBackNavigationType(navigationInfo);
         Object apps = readField(controller, "mApps");
         if (!(navigationType instanceof Number)
                 || ((Number) navigationType).intValue() != TYPE_CROSS_ACTIVITY
@@ -3446,7 +3403,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             Object handler = chain.getThisObject();
             Object info = chain.getArg(1);
-            Object type = invokeAnyMethod(info, "getType", new Object[0]);
+            Object type = readTransitionInfoType(info);
             if (!(type instanceof Number)
                     || ((Number) type).intValue() != TRANSIT_PREDICTIVE_BACK) {
                 return result;
@@ -3457,8 +3414,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             }
             Object controller = readField(handler, "this$0");
             Object navigationInfo = readField(controller, "mBackNavigationInfo");
-            Object navigationType = navigationInfo == null ? null
-                    : invokeAnyMethod(navigationInfo, "getType", new Object[0]);
+            Object navigationType = readBackNavigationType(navigationInfo);
             if (!(navigationType instanceof Number)
                     || ((Number) navigationType).intValue()
                     != TYPE_RETURN_TO_HOME) {
@@ -3492,10 +3448,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 throw new IllegalStateException(
                         "prepared return-home ownership changed after reparent");
             }
-            invokeAnyMethod(preparedShape.appChange, "setMode",
-                    new Object[]{TRANSIT_CHANGE});
-            Object normalizedModeObject = invokeAnyMethod(
-                    preparedShape.appChange, "getMode", new Object[0]);
+            if (!setTransitionChangeMode(preparedShape.appChange, TRANSIT_CHANGE)) {
+                throw new IllegalStateException("prepared return-home change is not framework Change");
+            }
+            Object normalizedModeObject = readTransitionChangeMode(
+                    preparedShape.appChange);
             int normalizedMode = normalizedModeObject instanceof Number
                     ? ((Number) normalizedModeObject).intValue() : -1;
             if (normalizedMode != TRANSIT_CHANGE) {
@@ -3601,8 +3558,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             Object currentApps = readField(candidate.controller, "mApps");
             Object navigationInfo = readField(candidate.controller,
                     "mBackNavigationInfo");
-            Object navigationType = navigationInfo == null ? null
-                    : invokeAnyMethod(navigationInfo, "getType", new Object[0]);
+            Object navigationType = readBackNavigationType(navigationInfo);
             Object animationFinishCallback = readField(candidate.handler,
                     "mOnAnimationFinishCallback");
             Object currentPrepareOpen = readField(candidate.handler,
@@ -3722,8 +3678,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         Object currentApps = readField(candidate.controller, "mApps");
         Object navigationInfo = readField(candidate.controller,
                 "mBackNavigationInfo");
-        Object navigationType = navigationInfo == null ? null
-                : invokeAnyMethod(navigationInfo, "getType", new Object[0]);
+        Object navigationType = readBackNavigationType(navigationInfo);
         boolean exact = "wmshell.main".equals(Thread.currentThread().getName())
                 && currentApps == composition.appsIdentity
                 && navigationType instanceof Number
@@ -3772,8 +3727,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         if (navigationInfo == null) {
             return null;
         }
-        Object navigationType = invokeAnyMethod(
-                navigationInfo, "getType", new Object[0]);
+        Object navigationType = readBackNavigationType(navigationInfo);
         if (!(navigationType instanceof Number)
                 || ((Number) navigationType).intValue() != TYPE_RETURN_TO_HOME) {
             return null;
@@ -3798,8 +3752,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 || previousAnimationFinishCallback != null) {
             return null;
         }
-        Object preparedTypeObject = invokeAnyMethod(
-                preparedOpenInfo, "getType", new Object[0]);
+        Object preparedTypeObject = readTransitionInfoType(preparedOpenInfo);
         if (!(preparedTypeObject instanceof Number)
                 || ((Number) preparedTypeObject).intValue()
                 != TRANSIT_PREDICTIVE_BACK) {
@@ -3822,8 +3775,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             + "non-standard prepared transition");
             return null;
         }
-        Object transitionTypeObject = invokeAnyMethod(
-                info, "getType", new Object[0]);
+        Object transitionTypeObject = readTransitionInfoType(info);
         int transitionType = transitionTypeObject instanceof Number
                 ? ((Number) transitionTypeObject).intValue() : -1;
         boolean supportedClosingType = transitionType == TRANSIT_CLOSE
@@ -3834,7 +3786,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             + "unexpected transition type=" + transitionType);
             return null;
         }
-        Object changesObject = invokeAnyMethod(info, "getChanges", new Object[0]);
+        Object changesObject = readTransitionInfoChanges(info);
         if (!(changesObject instanceof List<?>)) {
             return null;
         }
@@ -3844,26 +3796,24 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         boolean elementChangePresent = false;
         int matchCount = 0;
         for (Object change : (List<?>) changesObject) {
-            Object flagsObject = invokeAnyMethod(
-                    change, "getFlags", new Object[0]);
+            Object flagsObject = readTransitionChangeFlags(change);
             int flags = flagsObject instanceof Number
                     ? ((Number) flagsObject).intValue() : 0;
             if (flags == FLAG_IS_ELEMENT) {
                 elementChangePresent = true;
             }
-            Object taskInfo = invokeAnyMethod(change, "getTaskInfo", new Object[0]);
+            Object taskInfo = readTransitionChangeTaskInfo(change);
             if (readIntFieldOrDefault(taskInfo, "taskId", -1)
                     != composition.closingTaskId) {
                 continue;
             }
             matchCount++;
             matchingChange = change;
-            Object modeObject = invokeAnyMethod(change, "getMode", new Object[0]);
+            Object modeObject = readTransitionChangeMode(change);
             matchingMode = modeObject instanceof Number
                     ? ((Number) modeObject).intValue() : -1;
-            backGestureAnimated = Boolean.TRUE.equals(invokeAnyMethod(
-                    change, "hasFlags",
-                    new Object[]{FLAG_BACK_GESTURE_ANIMATED}));
+            backGestureAnimated = Boolean.TRUE.equals(hasTransitionChangeFlags(
+                    change, FLAG_BACK_GESTURE_ANIMATED));
         }
         if (matchCount != 1 || matchingChange == null
                 || matchingMode != transitionType
@@ -3880,8 +3830,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             + elementChangePresent);
             return null;
         }
-        Object changeLeashObject = invokeAnyMethod(
-                matchingChange, "getLeash", new Object[0]);
+        Object changeLeashObject = readTransitionChangeLeash(matchingChange);
         if (!(changeLeashObject instanceof SurfaceControl)
                 || !((SurfaceControl) changeLeashObject).isValid()
                 || surfacesAreSame((SurfaceControl) changeLeashObject,
@@ -3921,8 +3870,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         Object controller = readField(handler, "this$0");
         Object navigationInfo = readField(controller, "mBackNavigationInfo");
-        Object navigationType = navigationInfo == null ? null
-                : invokeAnyMethod(navigationInfo, "getType", new Object[0]);
+        Object navigationType = readBackNavigationType(navigationInfo);
         if (!(navigationType instanceof Number)
                 || ((Number) navigationType).intValue()
                 != TYPE_RETURN_TO_HOME) {
@@ -3970,10 +3918,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             return null;
         }
 
-        Object incomingTypeObject = invokeAnyMethod(
-                info, "getType", new Object[0]);
-        Object preparedTypeObject = invokeAnyMethod(
-                preparedOpenInfo, "getType", new Object[0]);
+        Object incomingTypeObject = readTransitionInfoType(info);
+        Object preparedTypeObject = readTransitionInfoType(preparedOpenInfo);
         int incomingType = incomingTypeObject instanceof Number
                 ? ((Number) incomingTypeObject).intValue() : -1;
         int preparedType = preparedTypeObject instanceof Number
@@ -4015,10 +3961,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         if (composition == null) {
             return null;
         }
-        Object focusedTaskIdObject = invokeAnyMethod(
-                navigationInfo, "getFocusedTaskId", new Object[0]);
-        if (!(focusedTaskIdObject instanceof Number)
-                || ((Number) focusedTaskIdObject).intValue()
+        if (!(navigationInfo instanceof BackNavigationInfo)
+                || ((BackNavigationInfo) navigationInfo).getFocusedTaskId()
                 != composition.closingTaskId) {
             return null;
         }
@@ -4031,8 +3975,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         Rect closingBounds = preparedShape.closingBounds;
         Rect openingBounds = preparedShape.openingBounds;
 
-        Object changesObject = invokeAnyMethod(
-                info, "getChanges", new Object[0]);
+        Object changesObject = readTransitionInfoChanges(info);
         if (!(changesObject instanceof List<?>)
                 || ((List<?>) changesObject).size() != 3) {
             return null;
@@ -4047,22 +3990,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         int elementStartDisplayId = Integer.MIN_VALUE;
         int elementEndDisplayId = Integer.MIN_VALUE;
         for (Object change : (List<?>) changesObject) {
-            Object modeObject = invokeAnyMethod(
-                    change, "getMode", new Object[0]);
-            Object flagsObject = invokeAnyMethod(
-                    change, "getFlags", new Object[0]);
-            Object taskInfo = invokeAnyMethod(
-                    change, "getTaskInfo", new Object[0]);
-            Object leashObject = invokeAnyMethod(
-                    change, "getLeash", new Object[0]);
-            Object startBoundsObject = invokeAnyMethod(
-                    change, "getStartAbsBounds", new Object[0]);
-            Object endBoundsObject = invokeAnyMethod(
-                    change, "getEndAbsBounds", new Object[0]);
-            Object startDisplayObject = invokeAnyMethod(
-                    change, "getStartDisplayId", new Object[0]);
-            Object endDisplayObject = invokeAnyMethod(
-                    change, "getEndDisplayId", new Object[0]);
+            Object modeObject = readTransitionChangeMode(change);
+            Object flagsObject = readTransitionChangeFlags(change);
+            Object taskInfo = readTransitionChangeTaskInfo(change);
+            Object leashObject = readTransitionChangeLeash(change);
+            Object startBoundsObject = readTransitionChangeStartAbsBounds(change);
+            Object endBoundsObject = readTransitionChangeEndAbsBounds(change);
+            Object startDisplayObject = readTransitionChangeStartDisplayId(change);
+            Object endDisplayObject = readTransitionChangeEndDisplayId(change);
             int mode = modeObject instanceof Number
                     ? ((Number) modeObject).intValue() : -1;
             int flags = flagsObject instanceof Number
@@ -4211,8 +4146,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected PreparedReturnHomeShape resolvePreparedReturnHomeShape(
             Object info, ReturnHomeComposition composition,
             int expectedAppMode) throws Exception {
-        Object typeObject = invokeAnyMethod(
-                info, "getType", new Object[0]);
+        Object typeObject = readTransitionInfoType(info);
         if (!(typeObject instanceof Number)
                 || ((Number) typeObject).intValue()
                 != TRANSIT_PREDICTIVE_BACK
@@ -4227,8 +4161,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         if (!closingBounds.equals(openingBounds)) {
             return null;
         }
-        Object changesObject = invokeAnyMethod(
-                info, "getChanges", new Object[0]);
+        Object changesObject = readTransitionInfoChanges(info);
         if (!(changesObject instanceof List<?>)) {
             return null;
         }
@@ -4247,22 +4180,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         SurfaceControl homeLeash = null;
         SurfaceControl wallpaperLeash = null;
         for (Object change : changes) {
-            Object modeObject = invokeAnyMethod(
-                    change, "getMode", new Object[0]);
-            Object flagsObject = invokeAnyMethod(
-                    change, "getFlags", new Object[0]);
-            Object taskInfo = invokeAnyMethod(
-                    change, "getTaskInfo", new Object[0]);
-            Object leashObject = invokeAnyMethod(
-                    change, "getLeash", new Object[0]);
-            Object startBoundsObject = invokeAnyMethod(
-                    change, "getStartAbsBounds", new Object[0]);
-            Object endBoundsObject = invokeAnyMethod(
-                    change, "getEndAbsBounds", new Object[0]);
-            Object startDisplayObject = invokeAnyMethod(
-                    change, "getStartDisplayId", new Object[0]);
-            Object endDisplayObject = invokeAnyMethod(
-                    change, "getEndDisplayId", new Object[0]);
+            Object modeObject = readTransitionChangeMode(change);
+            Object flagsObject = readTransitionChangeFlags(change);
+            Object taskInfo = readTransitionChangeTaskInfo(change);
+            Object leashObject = readTransitionChangeLeash(change);
+            Object startBoundsObject = readTransitionChangeStartAbsBounds(change);
+            Object endBoundsObject = readTransitionChangeEndAbsBounds(change);
+            Object startDisplayObject = readTransitionChangeStartDisplayId(change);
+            Object endDisplayObject = readTransitionChangeEndDisplayId(change);
             int mode = modeObject instanceof Number
                     ? ((Number) modeObject).intValue() : -1;
             int flags = flagsObject instanceof Number
@@ -4381,10 +4306,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     protected boolean isExactReturnHomeFinishTransferPostShape(
             ReturnHomeFinishTransferCandidate candidate) throws Exception {
-        Object typeObject = invokeAnyMethod(
-                candidate.transitionInfo, "getType", new Object[0]);
-        Object changesObject = invokeAnyMethod(
-                candidate.transitionInfo, "getChanges", new Object[0]);
+        Object typeObject = readTransitionInfoType(candidate.transitionInfo);
+        Object changesObject = readTransitionInfoChanges(candidate.transitionInfo);
         if (!(typeObject instanceof Number)
                 || ((Number) typeObject).intValue()
                 != candidate.transitionType
@@ -4395,22 +4318,14 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         boolean elementMatched = false;
         boolean appMatched = false;
         for (Object change : (List<?>) changesObject) {
-            Object modeObject = invokeAnyMethod(
-                    change, "getMode", new Object[0]);
-            Object flagsObject = invokeAnyMethod(
-                    change, "getFlags", new Object[0]);
-            Object taskInfo = invokeAnyMethod(
-                    change, "getTaskInfo", new Object[0]);
-            Object leashObject = invokeAnyMethod(
-                    change, "getLeash", new Object[0]);
-            Object startBoundsObject = invokeAnyMethod(
-                    change, "getStartAbsBounds", new Object[0]);
-            Object endBoundsObject = invokeAnyMethod(
-                    change, "getEndAbsBounds", new Object[0]);
-            Object startDisplayObject = invokeAnyMethod(
-                    change, "getStartDisplayId", new Object[0]);
-            Object endDisplayObject = invokeAnyMethod(
-                    change, "getEndDisplayId", new Object[0]);
+            Object modeObject = readTransitionChangeMode(change);
+            Object flagsObject = readTransitionChangeFlags(change);
+            Object taskInfo = readTransitionChangeTaskInfo(change);
+            Object leashObject = readTransitionChangeLeash(change);
+            Object startBoundsObject = readTransitionChangeStartAbsBounds(change);
+            Object endBoundsObject = readTransitionChangeEndAbsBounds(change);
+            Object startDisplayObject = readTransitionChangeStartDisplayId(change);
+            Object endDisplayObject = readTransitionChangeEndDisplayId(change);
             int mode = modeObject instanceof Number
                     ? ((Number) modeObject).intValue() : -1;
             int flags = flagsObject instanceof Number
@@ -4497,12 +4412,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             Object handler = chain.getThisObject();
             Object navigationInfo = readField(
                     candidate.controller, "mBackNavigationInfo");
-            Object navigationType = navigationInfo == null ? null
-                    : invokeAnyMethod(
-                    navigationInfo, "getType", new Object[0]);
-            Object focusedTaskId = navigationInfo == null ? null
-                    : invokeAnyMethod(navigationInfo,
-                    "getFocusedTaskId", new Object[0]);
+            Object navigationType = readBackNavigationType(navigationInfo);
+            Object focusedTaskId = navigationInfo instanceof BackNavigationInfo
+                    ? ((BackNavigationInfo) navigationInfo).getFocusedTaskId() : null;
             Object transitions = readField(handler, "mTransitions");
             Object remoteTransitionHandler = invokeAnyMethod(
                     transitions, "getRemoteTransitionHandler", new Object[0]);

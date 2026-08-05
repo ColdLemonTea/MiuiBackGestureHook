@@ -13,10 +13,15 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
+import android.view.IRemoteAnimationFinishedCallback;
+import android.view.IRemoteAnimationRunner;
 import android.view.MotionEvent;
 import android.view.SurfaceControl;
 import android.view.View;
 import android.window.BackNavigationInfo;
+import android.window.IOnBackInvokedCallback;
+import android.window.TransitionInfo;
+import android.window.WindowOnBackInvokedDispatcher;
 
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
@@ -88,7 +93,7 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected static final String SYSTEM_UI = "com.android.systemui";
     protected static final String MIUI_HOME = "com.miui.home";
     protected static final String WINDOW_ON_BACK_INVOKED_DISPATCHER =
-            "android.window.WindowOnBackInvokedDispatcher";
+            WindowOnBackInvokedDispatcher.class.getName();
     protected static final int APPLICATION_PREDICTIVE_BACK_ENABLE_FLAG = 0x8;
     protected static final int ACTIVITY_PREDICTIVE_BACK_ENABLE_FLAG = 0x4;
     protected static final int ACTIVITY_PREDICTIVE_BACK_DISABLE_FLAG = 0x8;
@@ -356,11 +361,11 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected static final String SHELL_BACK_ANIMATION_DESCRIPTOR =
             "com.android.wm.shell.back.IBackAnimation";
     protected static final String ON_BACK_INVOKED_CALLBACK_DESCRIPTOR =
-            "android.window.IOnBackInvokedCallback";
+            IOnBackInvokedCallback.class.getName();
     protected static final String REMOTE_ANIMATION_RUNNER_DESCRIPTOR =
-            "android.view.IRemoteAnimationRunner";
+            IRemoteAnimationRunner.class.getName();
     protected static final String REMOTE_ANIMATION_FINISHED_DESCRIPTOR =
-            "android.view.IRemoteAnimationFinishedCallback";
+            IRemoteAnimationFinishedCallback.class.getName();
     protected static final int SHELL_BACK_SET_LAUNCHER_CALLBACK_TRANSACTION = 1;
     protected static final int SHELL_BACK_CLEAR_LAUNCHER_CALLBACK_TRANSACTION = 2;
     protected static final int RETURN_HOME_TERMINAL_NONE = 0;
@@ -472,7 +477,6 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected volatile Field defaultTransitionAnimationsField;
     protected volatile Field defaultTransitionAnimationSizeField;
     protected volatile Field defaultTransitionAnimExecutorField;
-    protected volatile Method transitionInfoGetTypeMethod;
     protected volatile Method animatorCanReverseMethod;
     protected LegacyBackAttempt legacyBackAttempt;
     protected int legacyBackGuardPhase = BACK_GUARD_IDLE;
@@ -1299,6 +1303,105 @@ public abstract class HookRuntimeCore extends XposedModule {
         } catch (Throwable throwable) {
             log(Log.WARN, TAG, "Failed to force SystemUI callback progress", throwable);
         }
+    }
+
+    /**
+     * Reads the framework back target without routing a boot-classpath call through reflection.
+     * A non-framework object is deliberately treated as unavailable so wrapper/compatibility
+     * objects still fail closed at their existing callers.
+     */
+    protected Integer readBackNavigationType(Object navigation) {
+        return navigation instanceof BackNavigationInfo
+                ? ((BackNavigationInfo) navigation).getType() : null;
+    }
+
+    /**
+     * Reads a real framework TransitionInfo directly. Xiaomi's expose/wrapper objects are not
+     * accepted here and continue through their own reflective compatibility paths.
+     */
+    protected Integer readTransitionInfoType(Object info) {
+        return info instanceof TransitionInfo ? ((TransitionInfo) info).getType() : null;
+    }
+
+    protected List<?> readTransitionInfoChanges(Object info) {
+        return info instanceof TransitionInfo ? ((TransitionInfo) info).getChanges() : null;
+    }
+
+    protected Integer readTransitionInfoRootCount(Object info) {
+        return info instanceof TransitionInfo ? ((TransitionInfo) info).getRootCount() : null;
+    }
+
+    protected Object readTransitionInfoRoot(Object info, int index) {
+        return info instanceof TransitionInfo
+                ? ((TransitionInfo) info).getRoot(index) : null;
+    }
+
+    protected Object readTransitionRootLeash(Object root) {
+        return root instanceof TransitionInfo.Root
+                ? ((TransitionInfo.Root) root).getLeash() : null;
+    }
+
+    protected Object readTransitionRootOffset(Object root) {
+        return root instanceof TransitionInfo.Root
+                ? ((TransitionInfo.Root) root).getOffset() : null;
+    }
+
+    protected Integer readTransitionChangeMode(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getMode() : null;
+    }
+
+    protected Integer readTransitionChangeFlags(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getFlags() : null;
+    }
+
+    protected Boolean hasTransitionChangeFlags(Object change, int flags) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).hasFlags(flags) : null;
+    }
+
+    protected Object readTransitionChangeTaskInfo(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getTaskInfo() : null;
+    }
+
+    protected Object readTransitionChangeActivityComponent(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getActivityComponent() : null;
+    }
+
+    protected Object readTransitionChangeLeash(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getLeash() : null;
+    }
+
+    protected Object readTransitionChangeStartAbsBounds(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getStartAbsBounds() : null;
+    }
+
+    protected Object readTransitionChangeEndAbsBounds(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getEndAbsBounds() : null;
+    }
+
+    protected Integer readTransitionChangeStartDisplayId(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getStartDisplayId() : null;
+    }
+
+    protected Integer readTransitionChangeEndDisplayId(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getEndDisplayId() : null;
+    }
+
+    protected boolean setTransitionChangeMode(Object change, int mode) {
+        if (!(change instanceof TransitionInfo.Change)) {
+            return false;
+        }
+        ((TransitionInfo.Change) change).setMode(mode);
+        return true;
     }
 
     protected Object invokeMethod(Object target, String methodName,

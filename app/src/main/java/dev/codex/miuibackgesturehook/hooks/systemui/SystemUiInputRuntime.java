@@ -2669,9 +2669,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                     finishedController,
                                     "mReceivedNullNavigationInfo"))
                                     && animationFinishedCallback != null
-                                    && !Boolean.TRUE.equals(invokeAnyMethod(
-                                    session.tracker, "getTriggerBack",
-                                    new Object[0]));
+                                    && session.tracker instanceof BackTouchTracker
+                                    && !((BackTouchTracker) session.tracker)
+                                    .getTriggerBack();
                             if (resetNavigationLost) {
                                 // A focus-taking window can make AOSP reset an unfinished
                                 // tracker before UP. Its timeout then skips invokeOrCancelBack()
@@ -2856,8 +2856,12 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 // finger remains beyond the module's fixed 48dp threshold. The fixed threshold
                 // is still a necessary condition and may veto a native trigger, but it must not
                 // turn a native cancellation back into a commit.
-                boolean nativeTriggerBeforeThresholdVeto = Boolean.TRUE.equals(
-                        invokeAnyMethod(tracker, "getTriggerBack", new Object[0]));
+                if (!(tracker instanceof BackTouchTracker)) {
+                    throw new IllegalStateException("active tracker is not BackTouchTracker: "
+                            + shortObject(tracker));
+                }
+                boolean nativeTriggerBeforeThresholdVeto =
+                        ((BackTouchTracker) tracker).getTriggerBack();
                 if (!requestedTrigger && nativeTriggerBeforeThresholdVeto) {
                     invokeAnyMethod(releaseController, "setTriggerBack",
                             new Object[]{Boolean.FALSE});
@@ -2869,8 +2873,11 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             "postTriggerTrackerIdentityMismatch");
                     return;
                 }
-                boolean actualTrigger = Boolean.TRUE.equals(invokeAnyMethod(
-                        tracker, "getTriggerBack", new Object[0]));
+                if (!(tracker instanceof BackTouchTracker)) {
+                    throw new IllegalStateException("post-trigger tracker is not BackTouchTracker: "
+                            + shortObject(tracker));
+                }
+                boolean actualTrigger = ((BackTouchTracker) tracker).getTriggerBack();
                 log(Log.INFO, TAG, "Resolved Shell release trigger"
                         + ", fixedThresholdEligible=" + requestedTrigger
                         + ", nativeTriggerBeforeThresholdVeto="
@@ -2900,15 +2907,10 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (actualTrigger) {
                     Object observer = readField(releaseController,
                             "mBackTransitionObserver");
-                    Object focusedTaskIdObject = invokeAnyMethod(info,
-                            "getFocusedTaskId", new Object[0]);
-                    if (!(focusedTaskIdObject instanceof Number)) {
-                        throw new IllegalStateException("getFocusedTaskId returned "
-                                + shortObject(focusedTaskIdObject));
-                    }
+                    int focusedTaskIdObject = info.getFocusedTaskId();
                     writeField(observer, "mFocusedTaskId",
-                            ((Number) focusedTaskIdObject).intValue());
-                    focusedTaskId = ((Number) focusedTaskIdObject).intValue();
+                            focusedTaskIdObject);
+                    focusedTaskId = focusedTaskIdObject;
                 }
                 writeField(releaseController, "mThresholdCrossed", Boolean.FALSE);
                 writeField(releaseController, "mPointersPilfered", Boolean.FALSE);
