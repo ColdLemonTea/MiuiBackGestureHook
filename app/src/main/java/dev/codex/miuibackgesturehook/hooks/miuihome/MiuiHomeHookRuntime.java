@@ -1057,7 +1057,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 Object[] routedArgs = chain.getArgs().toArray();
                 // Xiaomi's existing handler-0/only-ActivityRecord branch applies and finishes
                 // this merge without cancelling the launcher OPEN. Reuse that branch verbatim.
-                routedArgs[1] = 0;
+                routedArgs[1] = Integer.valueOf(0);
                 moduleLog(Log.INFO, TAG,
                         "Preserved Xiaomi launcher OPEN across PermissionController CLOSE"
                                 + ", launcherGeneration="
@@ -1102,7 +1102,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             // In that case Shell emits only the CLOSE immediately after the launcher OPEN.
             // Reuse Xiaomi's ActivityRecord branch so this merge finishes without cancelling
             // the still-running launcher animation.
-            routedArgs[1] = 0;
+            routedArgs[1] = Integer.valueOf(0);
             moduleLog(Log.INFO, TAG,
                     "Preserved Xiaomi launcher OPEN across adjacent PermissionController CLOSE"
                             + ", launcherGeneration=" + snapshot.generation
@@ -3214,7 +3214,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         Object registry = readField(controller, "mShellBackAnimationRegistry");
         Object definitions = readField(registry, "mAnimationDefinition");
         Object runner = invokeAnyMethod(definitions, "get",
-                new Object[]{TYPE_RETURN_TO_HOME});
+                new Object[]{Integer.valueOf(TYPE_RETURN_TO_HOME)});
         Object remoteCallback = runner == null ? null
                 : readField(runner, "mRemoteCallback");
         Object runnerApps = runner == null ? null : readField(runner, "mApps");

@@ -147,7 +147,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             try {
                 invokeAnyMethod(session.nativeWindowElement,
                         "setMDisableStateManagerListener",
-                        new Object[]{disabled});
+                        new Object[]{Boolean.valueOf(disabled)});
                 Object actual = invokeAnyMethod(
                         session.nativeWindowElement,
                         "getMDisableStateManagerListener",
@@ -166,7 +166,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
             try {
                 writeField(session.nativeWindowElement,
                         "mDisableStateManagerListener",
-                        disabled);
+                        Boolean.valueOf(disabled));
                 Object actual = readField(
                         session.nativeWindowElement,
                         "mDisableStateManagerListener");
@@ -551,7 +551,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         "cancelAnim", new Object[]{
                                 "MiuiBackGestureHook:" + snapshot.reason,
                                 Boolean.FALSE, null,
-                                toHome, callback});
+                                Boolean.valueOf(toHome), callback});
                 Runnable guard = () ->
                         completeUnifiedNativeTerminalFailure(
                                 snapshot, "nativeCancelGuard");
@@ -572,7 +572,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 try {
                     invokeAnyMethod(snapshot.windowElement,
                             "finishTransition", new Object[]{
-                                    toHome,
+                                    Boolean.valueOf(toHome),
                                     Boolean.FALSE});
                 } catch (Throwable finishFailure) {
                     snapshot.failure.addSuppressed(finishFailure);
@@ -1948,8 +1948,8 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                 status = invokeAnyMethod(companion,
                         "getAnimParamFromRect",
                         new Object[]{new RectF(session.currentRect),
-                                session.currentCornerRadius,
-                                1.0f});
+                                Float.valueOf(session.currentCornerRadius),
+                                Float.valueOf(1.0f)});
                 if (status == null) {
                     throw new IllegalStateException(
                             "could not create unified local handoff status");
@@ -2533,13 +2533,13 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                                     + ", ownerThread=" + ownerThread);
                 }
                 invokeAnyMethod(helper, "tempSaveOpenLeash",
-                        new Object[]{token.taskId,
+                        new Object[]{Integer.valueOf(token.taskId),
                                 token.closingLeash});
                 Object savedLeash = invokeAnyMethod(
                         helper, "getOpenLeash", new Object[0]);
                 boolean containsTask = Boolean.TRUE.equals(invokeAnyMethod(
                         helper, "containsTaskId",
-                        new Object[]{token.taskId}));
+                        new Object[]{Integer.valueOf(token.taskId)}));
                 if (!(savedLeash instanceof SurfaceControl)
                         || !containsTask || !surfacesAreSame(
                         (SurfaceControl) savedLeash, token.closingLeash)) {
@@ -2563,7 +2563,8 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                             helper, "getOpenLeash", new Object[0]);
                     boolean containsTask = Boolean.TRUE.equals(
                             invokeAnyMethod(helper, "containsTaskId",
-                                    new Object[]{token.taskId}));
+                                    new Object[]{Integer.valueOf(
+                                            token.taskId)}));
                     if (containsTask && savedLeash instanceof SurfaceControl
                             && surfacesAreSame((SurfaceControl) savedLeash,
                             token.closingLeash)) {
@@ -3094,7 +3095,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         token.helper, "getOpenLeash", new Object[0]);
                 boolean containsTask = Boolean.TRUE.equals(invokeAnyMethod(
                         token.helper, "containsTaskId",
-                        new Object[]{token.taskId}));
+                        new Object[]{Integer.valueOf(token.taskId)}));
                 if (!(savedLeash instanceof SurfaceControl)
                         || !containsTask
                         || !surfacesAreSame((SurfaceControl) savedLeash,
@@ -3239,7 +3240,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                         token.helper, "getOpenLeash", new Object[0]);
                 boolean containsTask = Boolean.TRUE.equals(invokeAnyMethod(
                         token.helper, "containsTaskId",
-                        new Object[]{token.taskId}));
+                        new Object[]{Integer.valueOf(token.taskId)}));
                 if (!(savedLeash instanceof SurfaceControl)
                         || !containsTask
                         || !surfacesAreSame((SurfaceControl) savedLeash,
@@ -3312,7 +3313,7 @@ abstract class MiuiHomeReturnHomeUnifiedRuntime
                     && Math.abs(radii[2] - radii[3]) <= 0.01f;
             if (uniform) {
                 invokeAnyMethod(transaction, "setCornerRadius",
-                        new Object[]{surface, radii[0]});
+                        new Object[]{surface, Float.valueOf(radii[0])});
                 return;
             }
             float[] miRadii = new float[]{

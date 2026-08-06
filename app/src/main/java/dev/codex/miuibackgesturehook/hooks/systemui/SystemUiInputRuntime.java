@@ -188,7 +188,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         int displayId = readIntFieldOrDefault(
                 edgeBackGestureHandler, "mDisplayId", 0);
         Object monitor = invokeAnyMethod(inputManager, "monitorGestureInput",
-                new Object[]{"miui-aosp-back", displayId});
+                new Object[]{"miui-aosp-back", Integer.valueOf(displayId)});
         if (!(monitor instanceof InputMonitor)) {
             throw new IllegalStateException("monitorGestureInput returned "
                     + shortObject(monitor));
@@ -879,7 +879,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                     + ", displayId=" + displayId
                                     + ", flags=0x" + Long.toHexString(flags));
                 }
-                return flags;
+                return Long.valueOf(flags);
             } catch (Throwable throwable) {
                 moduleLog(Log.WARN, TAG,
                         "Failed to inspect AOSP immersive gesture visibility policy",
@@ -2111,9 +2111,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     }
                     startInvoked = true;
                     invokeAnyMethod(owner.controller, "onGestureStarted",
-                            new Object[]{startX,
-                                    startY,
-                                    startEdge});
+                            new Object[]{Float.valueOf(startX),
+                                    Float.valueOf(startY),
+                                    Integer.valueOf(startEdge)});
                     Object tracker = invokeAnyMethod(owner.controller,
                             "getActiveTracker", new Object[0]);
                     if (tracker != null) {
@@ -3032,7 +3032,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (commitLegacyBack) {
                     Object observer = readField(releaseController,
                             "mBackTransitionObserver");
-                    writeField(observer, "mFocusedTaskId", -1);
+                    writeField(observer, "mFocusedTaskId", Integer.valueOf(-1));
                 }
                 writeField(releaseController, "mThresholdCrossed", Boolean.FALSE);
                 writeField(releaseController, "mPointersPilfered", Boolean.FALSE);
@@ -3054,7 +3054,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     injectLegacyBackKey(releaseController);
                 }
                 invokeAnyMethod(releaseController, "finishBackNavigation",
-                        new Object[]{commitLegacyBack});
+                        new Object[]{Boolean.valueOf(commitLegacyBack)});
             }
             completeShellSessionOnOwner(session,
                     commitLegacyBack ? "null-navigation-commit"
@@ -3141,7 +3141,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         "mShellBackAnimationRegistry");
                 Object definitions = readField(registry, "mAnimationDefinition");
                 Object runner = invokeAnyMethod(definitions, "get",
-                        new Object[]{info.getType()});
+                        new Object[]{Integer.valueOf(info.getType())});
                 if (runner == null) {
                     return REMOTE_RUNNER_MISSING;
                 }
@@ -3175,7 +3175,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 Object timeout = readField(releaseController,
                         "mAnimationTimeoutRunnable");
                 invokeAnyMethod(executor, "executeDelayed",
-                        new Object[]{timeout, 2000L});
+                        new Object[]{timeout, Long.valueOf(2000L)});
             } catch (Throwable throwable) {
                 moduleLog(Log.ERROR, TAG, "Failed to schedule required Shell animation timeout",
                         throwable);
@@ -3368,7 +3368,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         if (triggerChanged) {
                             invokeAnyMethod(session.controller,
                                     "setTriggerBack", new Object[]{
-                                            newTriggerBack});
+                                            Boolean.valueOf(newTriggerBack)});
                         }
                     } catch (Throwable throwable) {
                         session.moveFailed.set(true);
@@ -3436,7 +3436,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 boolean downSent = false;
                 try {
                     invokeAnyMethod(injectionController, "sendBackEvent",
-                            new Object[]{KEY_ACTION_DOWN});
+                            new Object[]{Integer.valueOf(KEY_ACTION_DOWN)});
                     downSent = true;
                 } catch (Throwable throwable) {
                     moduleLog(Log.ERROR, TAG, "Failed to inject legacy BACK down", throwable);
@@ -3444,7 +3444,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     if (downSent) {
                         try {
                             invokeAnyMethod(injectionController, "sendBackEvent",
-                                    new Object[]{KEY_ACTION_UP});
+                                    new Object[]{Integer.valueOf(KEY_ACTION_UP)});
                             moduleLog(Log.INFO, TAG, "Injected legacy back key via sendBackEvent");
                         } catch (Throwable throwable) {
                             moduleLog(Log.ERROR, TAG, "Failed to inject legacy BACK up", throwable);
@@ -3495,7 +3495,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
                 invokeMethod(plugin, "setIsLeftPanel",
                         new Class<?>[]{boolean.class},
-                        new Object[]{edge == EDGE_LEFT});
+                        new Object[]{Boolean.valueOf(edge == EDGE_LEFT)});
                 screenEvent = MotionEvent.obtain(event);
                 screenEvent.setLocation(event.getRawX(), event.getRawY());
                 invokeMethod(plugin, "onMotionEvent",

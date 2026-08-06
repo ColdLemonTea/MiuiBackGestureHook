@@ -953,12 +953,12 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                             + shortObject(token.originalCallback) + "}";
                 }
                 if ("hashCode".equals(method.getName())) {
-                    return System.identityHashCode(proxy);
+                    return Integer.valueOf(System.identityHashCode(proxy));
                 }
                 if ("equals".equals(method.getName())) {
-                    return invocationArgs != null
+                    return Boolean.valueOf(invocationArgs != null
                             && invocationArgs.length == 1
-                            && proxy == invocationArgs[0];
+                            && proxy == invocationArgs[0]);
                 }
             }
             if (!"onFinish".equals(method.getName())
@@ -1868,12 +1868,12 @@ abstract class MiuiHomeReturnHomeLifecycleRuntime
                             + shortObject(token.originalCallback) + "}";
                 }
                 if ("hashCode".equals(method.getName())) {
-                    return System.identityHashCode(proxy);
+                    return Integer.valueOf(System.identityHashCode(proxy));
                 }
                 if ("equals".equals(method.getName())) {
-                    return invocationArgs != null
+                    return Boolean.valueOf(invocationArgs != null
                             && invocationArgs.length == 1
-                            && proxy == invocationArgs[0];
+                            && proxy == invocationArgs[0]);
                 }
             }
             if ("onFinish".equals(method.getName())

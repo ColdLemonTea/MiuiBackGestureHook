@@ -1934,7 +1934,8 @@ abstract class MiuiHomeReturnHomeUnifiedCommitRuntime
                         boolean containsTask = Boolean.TRUE.equals(
                                 invokeAnyMethod(token.helper,
                                         "containsTaskId",
-                                        new Object[]{token.taskId}));
+                                        new Object[]{Integer.valueOf(
+                                                token.taskId)}));
                         if (containsTask
                                 && savedLeash instanceof SurfaceControl
                                 && surfacesAreSame(
@@ -2080,7 +2081,7 @@ abstract class MiuiHomeReturnHomeUnifiedCommitRuntime
             }
             for (Object callback : (List<?>) callbackCollection) {
                 invokeAnyMethod(callback, "invoke",
-                        new Object[]{enabled});
+                        new Object[]{Boolean.valueOf(enabled)});
             }
             session.unifiedNativePreviewSpringEndHeld = !enabled;
             moduleLog(Log.INFO, TAG,
@@ -2138,25 +2139,25 @@ abstract class MiuiHomeReturnHomeUnifiedCommitRuntime
                     session.unifiedNativeCurrentRotation,
                     session.unifiedNativeHomeRotation, explicitStartRect);
             Object startRadii = nativeCornerRadiiConstructor.newInstance(
-                    session.currentCornerRadius);
+                    Float.valueOf(session.currentCornerRadius));
             Object endRadii = nativeCornerRadiiConstructor.newInstance(
-                    endRadius);
+                    Float.valueOf(endRadius));
             Object windowParams =
                     nativeWindowAnimParamsConstructor.newInstance(
                             nativeStartRect, nativeTargetRect,
                             startRadii, endRadii,
-                            1.0f, 1.0f);
+                            Float.valueOf(1.0f), Float.valueOf(1.0f));
             return nativeRectFParamsConstructor.newInstance(
                     session.unifiedNativeTargetSet, windowParams, animType,
-                    Boolean.TRUE, needFinish, Boolean.FALSE,
+                    Boolean.TRUE, Boolean.valueOf(needFinish), Boolean.FALSE,
                     null, null, session.unifiedNativeClipHelper,
                     Boolean.TRUE,
-                    session.unifiedNativeCurrentRotation,
-                    session.unifiedNativeHomeRotation, null,
-                    needFinish, 0,
+                    Integer.valueOf(session.unifiedNativeCurrentRotation),
+                    Integer.valueOf(session.unifiedNativeHomeRotation), null,
+                    Boolean.valueOf(needFinish), Integer.valueOf(0),
                     Boolean.FALSE, Boolean.FALSE,
-                    session.unifiedNativeTaskId,
-                    2, needFinish,
+                    Integer.valueOf(session.unifiedNativeTaskId),
+                    Integer.valueOf(2), Boolean.valueOf(needFinish),
                     Boolean.FALSE, Boolean.FALSE);
         }
 
@@ -2165,8 +2166,8 @@ abstract class MiuiHomeReturnHomeUnifiedCommitRuntime
                 throws Exception {
             ensureUnifiedNativePreviewReflection();
             Object result = nativeCoordinateTransformMethod.invoke(
-                    null, currentRotation,
-                    homeRotation, new RectF(displayRect));
+                    null, Integer.valueOf(currentRotation),
+                    Integer.valueOf(homeRotation), new RectF(displayRect));
             if (!(result instanceof RectF) || ((RectF) result).isEmpty()) {
                 throw new IllegalStateException(
                         "invalid Xiaomi Home-coordinate transform");
@@ -2283,7 +2284,7 @@ abstract class MiuiHomeReturnHomeUnifiedCommitRuntime
                 Array.set(previewApps, 0, closingCompat);
                 Object emptyTargets = Array.newInstance(compatClass, 0);
                 Object targetSet = nativeTargetSetConstructor.newInstance(
-                        previewApps, 1, emptyTargets);
+                        previewApps, Integer.valueOf(1), emptyTargets);
                 session.unifiedNativeTaskId = taskId;
                 Object firstTarget = resolveUnifiedNativeClosingTarget(
                         session, targetSet);

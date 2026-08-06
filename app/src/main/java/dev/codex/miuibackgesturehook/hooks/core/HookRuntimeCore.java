@@ -1180,7 +1180,7 @@ public abstract class HookRuntimeCore extends XposedModule {
                 return false;
             }
             invokeAnyMethod(definitions, "set",
-                    new Object[]{type, runner});
+                    new Object[]{Integer.valueOf(type), runner});
             moduleLog(Log.INFO, TAG, "Added " + label + " runner to registry, type=" + type
                     + ", runner=" + shortObject(runner));
             return true;

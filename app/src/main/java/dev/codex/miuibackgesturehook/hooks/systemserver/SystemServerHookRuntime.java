@@ -152,7 +152,8 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
             int privateFlagsExt = ((Number) readField(
                     applicationInfo, "privateFlagsExt")).intValue();
             predictiveBackApplicationMetadataFailureLogged = false;
-            return (privateFlagsExt & APPLICATION_PREDICTIVE_BACK_ENABLE_FLAG) != 0;
+            return Boolean.valueOf(
+                    (privateFlagsExt & APPLICATION_PREDICTIVE_BACK_ENABLE_FLAG) != 0);
         } catch (Throwable throwable) {
             if (!predictiveBackApplicationMetadataFailureLogged) {
                 predictiveBackApplicationMetadataFailureLogged = true;
@@ -874,7 +875,7 @@ public abstract class SystemServerHookRuntime extends MiuiHomeHookRuntime {
                             + ", preparedClose="
                             + shortObject(preparedCloseTransition)
                             + ", backType=" + TYPE_RETURN_TO_HOME);
-            return TOUCH_OCCLUSION_MODE_ALLOW;
+            return Integer.valueOf(TOUCH_OCCLUSION_MODE_ALLOW);
         } catch (Throwable throwable) {
             moduleLog(Log.WARN, TAG,
                     "Failed to verify committed return-home touch ownership"

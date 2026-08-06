@@ -121,18 +121,18 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         }
         nativeInputMonitors.clear();
         param.setSavedInstanceState(new Object[]{
-                inputState, savedMiuiOverviewVisible,
-                savedMiuiOverviewDismissDeadline,
+                inputState, Boolean.valueOf(savedMiuiOverviewVisible),
+                Long.valueOf(savedMiuiOverviewDismissDeadline),
                 savedMiuiHomeOpenBreakController, savedMiuiHomeOpenBreakContext,
-                savedMiuiHomeOpenBreakGeneration,
+                Long.valueOf(savedMiuiHomeOpenBreakGeneration),
                 savedMiuiHomeOpenBreakAnimationIdentity,
-                savedMiuiHomeOpenBreakGenerationPrepared,
-                savedMiuiHomeOpenBreakAnimationActive,
-                savedMiuiHomeOpenBreakCommandPending,
-                savedMiuiDrawerVisible,
+                Boolean.valueOf(savedMiuiHomeOpenBreakGenerationPrepared),
+                Boolean.valueOf(savedMiuiHomeOpenBreakAnimationActive),
+                Boolean.valueOf(savedMiuiHomeOpenBreakCommandPending),
+                Boolean.valueOf(savedMiuiDrawerVisible),
                 savedMiuiHomeReturnHomeBinder,
                 savedHeadlessState,
-                savedMiuiLauncherEditing
+                Boolean.valueOf(savedMiuiLauncherEditing)
         });
         return true;
     }
