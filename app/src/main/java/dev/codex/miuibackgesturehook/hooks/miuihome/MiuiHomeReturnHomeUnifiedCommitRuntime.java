@@ -2985,10 +2985,12 @@ abstract class MiuiHomeReturnHomeUnifiedCommitRuntime
                 return;
             }
             Object currentElement = null;
+            boolean currentElementRead = false;
             try {
                 currentElement = invokeAnyMethod(
                         session.stateManager,
                         "getCurrentWindowElement", new Object[0]);
+                currentElementRead = true;
             } catch (Throwable throwable) {
                 moduleLog(Log.WARN, TAG,
                         "Could not verify timed-out Xiaomi cancel element"
@@ -3017,8 +3019,100 @@ abstract class MiuiHomeReturnHomeUnifiedCommitRuntime
                             + ", fullscreen="
                             + inspection.fullscreen,
                     inspection.failure);
+            if (currentElementRead
+                    && finishUnifiedNativeCancelAtTerminalOwner(
+                    session, inspection, currentElement,
+                    animToEpoch, reason)) {
+                return;
+            }
             scheduleUnifiedNativeCancelTimeout(
                     session, animToEpoch, reason);
+        }
+
+        /**
+         * Xiaomi can complete APP_TO_APP cancellation after clearing the remote target and
+         * before dispatching the StateManager animation-end callback.  The owner is still
+         * unambiguous at this boundary: the same configured animTo epoch and animation
+         * identity report a stopped, fullscreen, finish-complete APP_TO_APP animation.
+         * Consume that terminal state without rearming the native owner.
+         */
+        protected boolean finishUnifiedNativeCancelAtTerminalOwner(
+                ReturnHomeSession session,
+                UnifiedNativeRetargetInspection inspection,
+                Object currentElement, long animToEpoch, String reason) {
+            UnifiedNativeConfiguredAnimToSnapshot configured = session == null
+                    ? null : session.unifiedNativeConfiguredAnimTo.get();
+            if (session == null || inspection == null
+                    || inspection.failure != null
+                    || currentSession != session
+                    || session.finished.get() != 0
+                    || session.unifiedNativeCleanupVerified
+                    || !session.unifiedNativeCancelPending
+                    || session.unifiedNativeCancelAnimToEpoch != animToEpoch
+                    || session.unifiedNativeActiveAnimToEpoch != animToEpoch
+                    || !inspection.sameAnimation
+                    || inspection.animationIdentity
+                    != session.unifiedNativeAnimationIdentity
+                    || !"APP_TO_APP".equals(inspection.actualType)
+                    || inspection.running
+                    || !inspection.finishComplete
+                    || !inspection.fullscreen
+                    || !isExactUnifiedConfiguredAnimTo(
+                    session, configured, session.nativeWindowElement,
+                    inspection.animationIdentity, "APP_TO_APP")) {
+                return false;
+            }
+
+            String currentElementType = null;
+            if (currentElement != null) {
+                try {
+                    currentElementType = readNativeAnimationType(currentElement);
+                } catch (Throwable throwable) {
+                    moduleLog(Log.WARN, TAG,
+                            "Could not verify current Xiaomi element at cancel terminal"
+                                    + ", generation=" + session.generation
+                                    + ", animToEpoch=" + animToEpoch,
+                            throwable);
+                    return false;
+                }
+                // A reused CLOSE-to-OPEN must be handed to the launcher OPEN owner first.
+                if (currentElement == session.nativeWindowElement
+                        && isMiuiHomeLauncherOpenType(currentElementType)) {
+                    return false;
+                }
+            }
+
+            Runnable timeout = session.unifiedNativeCancelTimeout;
+            if (timeout != null) {
+                handler.removeCallbacks(timeout);
+            }
+            session.unifiedNativeCancelTimeout = null;
+            session.unifiedNativeCancelPending = false;
+            session.unifiedNativeCancelRetargeted = false;
+            session.unifiedNativeCancelEndObserved = true;
+
+            boolean sameElement = currentElement == session.nativeWindowElement;
+            if (!sameElement) {
+                // The old WindowElement is terminal, but the current StateManager element
+                // may already belong to Xiaomi's replacement/open path.  Do not restore
+                // the old surface, callback gate, blur, or target set over that owner.
+                session.unifiedNativePreviewSpringEndHeld = false;
+                session.unifiedNativeOwnerAbandoned = true;
+            }
+            session.unifiedNativeCleanupVerified = true;
+            moduleLog(Log.WARN, TAG,
+                    "Finished Xiaomi cancel at terminal native owner without StateManager end"
+                            + ", generation=" + session.generation
+                            + ", attempt=" + inspection.attempt
+                            + ", animToEpoch=" + animToEpoch
+                            + ", sameElement=" + sameElement
+                            + ", currentElementType=" + currentElementType
+                            + ", exactTarget=" + inspection.exactTarget
+                            + ", running=" + inspection.running
+                            + ", finishComplete=" + inspection.finishComplete
+                            + ", fullscreen=" + inspection.fullscreen);
+            finishSession(session, "cancelTerminalOwnerCompleted:" + reason);
+            return true;
         }
 
         protected void acceptUnifiedNativeCancel(
@@ -3122,6 +3216,10 @@ abstract class MiuiHomeReturnHomeUnifiedCommitRuntime
             session.unifiedNativeCancelTimeout = null;
             session.unifiedNativeCancelPending = false;
             session.unifiedNativeCancelRetargeted = false;
+            // The same WindowElement has already been adopted by Xiaomi's OPEN owner.  The
+            // return-home session must finish without restoring or releasing that Surface.
+            session.unifiedNativeOwnerAbandoned = true;
+            session.unifiedNativePreviewSpringEndHeld = false;
             session.unifiedNativeCleanupVerified = true;
             moduleLog(Log.INFO, TAG,
                     "Finished cancelled return-home owner at reused launcher OPEN"
