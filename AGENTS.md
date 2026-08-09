@@ -61,8 +61,7 @@ launcher interruption path.
 - Mirror `BackGestureBreakController`/`StateManager` native availability to SystemUI. Query
   it on the next main-Looper turn after the StateManager start callback, guarded by the
   animation identity and generation; the synchronous callback state is premature.
-- Keep gesture input, the native `BackPanelController` indicator, pilfering, and the fixed
-  `48dp` trigger threshold in SystemUI.
+- Keep gesture input, the native `BackPanelController` indicator, and pilfering in SystemUI.
 - Snapshot the active MiuiHome generation on `ACTION_DOWN`. Accept a commit command only if
   it still matches the active generation.
 - Use explicit identity-sharing broadcasts in both directions. Validate the shared caller
@@ -172,8 +171,8 @@ Same-activity and input rules:
 - Use the fixed `8dp` outward threshold together with Xiaomi's non-terminal intent gate
   (`outward >= abs(vertical) / 2`) to pilfer the accepted MiuiHome stream and start a deferred
   Shell navigation. A vertical-leading sample remains pending so later horizontal motion can
-  qualify; never terminal-cancel it on direction alone. Retain the fixed `48dp` trigger threshold,
-  native `BackPanelController` dispatch, and release-time invoke/cancel.
+  qualify; never terminal-cancel it on direction alone. Retain native `BackPanelController`
+  dispatch and release-time invoke/cancel.
 - Apply AOSP's bar-visibility eligibility at `ACTION_DOWN`, before BackPanel, Shell, or pilfering.
   Snapshot the matching display's existing `SysUiState`: when `SYSUI_STATE_NAV_BAR_HIDDEN` is set
   and `SYSUI_STATE_ALLOW_GESTURE_IGNORING_BAR_VISIBILITY` (bit 17) is clear, leave the stream
@@ -200,9 +199,10 @@ Same-activity and input rules:
   transfer it. An accepted stream with no ready SystemUI arbiter fails closed rather than
   reviving MiuiHome's deprecated gesture processor.
 - Use display width for callback progress. Do not restore the old fixed `220dp` distance.
-- Treat `48dp` as a necessary commit condition, never as permission to overwrite cancellation.
-  On a Shell path, preserve the active tracker's ordered trigger after `BackPanelController`
-  callbacks; distance may veto native `true` but must never turn native `false` back to `true`.
+- On a Shell path, preserve the active tracker's ordered trigger after `BackPanelController`
+  callbacks; do not override the native commit decision with a fixed pointer-distance threshold.
+  An invalid release caused by cancellation, owner replacement, or MOVE failure may still force
+  the tracker to cancel.
   On an OPEN-interruption path with no Shell tracker, accept only a proven terminal native-panel
   commit after release; missing or unknown panel state fails closed.
 - Do not intercept `setTriggerBack(false)` or recompute a cancelled release from pointer distance.
@@ -275,8 +275,8 @@ Remote-animation rules:
   `mReceivedNullNavigationInfo` into `true` while producing a null `BackNavigationInfo`. Keep
   that physical stream and the native panel; on the Shell executor, publish
   `INVALID_TASK_ID` to the back transition observer and inject
-  exactly one BACK DOWN/UP pair only when the ordered native tracker commits and the fixed
-  `48dp` condition also passes, then finish navigation with the same trigger. Cancellation
+  exactly one BACK DOWN/UP pair only when the ordered native tracker commits, then finish
+  navigation with the same trigger. Cancellation
   sends no key. Launcher Overview, shade, drawer, editing and
   other callback-only probes, Shell-busy or stale state, unaccepted/redirected streams,
   reflection uncertainty, and every other null-navigation path still cancel and clean with

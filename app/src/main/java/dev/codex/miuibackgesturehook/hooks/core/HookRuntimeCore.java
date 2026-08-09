@@ -331,7 +331,7 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected static final int WINDOWING_MODE_FREEFORM = 5;
     protected static final float EDGE_TOUCH_WIDTH_DP = 24.0f;
     protected static final float PILFER_THRESHOLD_DP = 8.0f;
-    protected static final float TRIGGER_THRESHOLD_DP = 48.0f;
+    protected static final float RETURN_HOME_PREVIEW_BLUR_DISTANCE_DP = 48.0f;
     protected static final float MIUI_STYLE_SWIPE_START_PX = 20.0f;
     protected static final float MIUI_STYLE_ARROW_SHOW_PX = 180.0f;
     protected static final float AOSP_PROGRESS_THRESHOLD_DP = 412.0f;

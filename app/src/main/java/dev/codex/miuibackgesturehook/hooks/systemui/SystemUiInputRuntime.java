@@ -1239,7 +1239,6 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         protected volatile boolean shellOwnerUncertain;
         protected boolean gestureActive;
         protected boolean thresholdCrossed;
-        protected boolean triggerBack;
         protected boolean shellGestureStarted;
         protected boolean shellGestureStartDeferred;
         protected volatile boolean gestureSuppressed;
@@ -1496,7 +1495,6 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             launcherEditingGesture = launcherEditingCandidate;
             recentsVisualOnlyGesture = false;
             thresholdCrossed = false;
-            triggerBack = false;
             activeEdge = edge;
             downX = event.getRawX();
             downY = event.getRawY();
@@ -1625,19 +1623,15 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             if (!thresholdCrossed && intentQualified) {
                 crossedNow = crossIntentThreshold(distance);
             }
-            boolean shouldTrigger = thresholdCrossed
-                    && distance > dp(TRIGGER_THRESHOLD_DP);
-            boolean triggerChanged = updateTriggerBack(shouldTrigger);
             if (!shellGestureStartDeferred
                     && !legacyInterruptGesture && !launcherOpenBreakGesture) {
                 ShellGestureSession session = activeShellSession;
                 if (session == null || !queueShellMove(session,
                         event.getRawX(), event.getRawY(), distance,
                         crossedNow, thresholdCrossed
-                                && !aospNullNavigationGesture,
-                        triggerChanged, shouldTrigger)) {
+                                && !aospNullNavigationGesture)) {
                     cancelLocalGesture(event,
-                            "failed to queue fixed Shell-owner MOVE");
+                            "failed to queue Shell-owner MOVE");
                     return false;
                 }
             }
@@ -1790,8 +1784,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 clearControllerTriggerAfterVisualOnlyGesture();
                 moduleLog(Log.INFO, TAG, "Finished visual-only Recents edge gesture"
                         + ", releaseDistance=" + releaseDistance
-                        + ", wouldPassCommitThreshold="
-                        + (allowTrigger && releaseDistance > dp(TRIGGER_THRESHOLD_DP))
+                        + ", nativeReleaseDelivered=" + allowTrigger
                         + ", inputRemainedUnpilfered=true");
                 clearLocalGestureState();
                 return false;
@@ -1804,9 +1797,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             float releaseDistance = activeEdge == EDGE_LEFT
                     ? event.getRawX() - downX
                     : downX - event.getRawX();
-            boolean trigger = allowTrigger
-                    && thresholdCrossed
-                    && releaseDistance > dp(TRIGGER_THRESHOLD_DP);
+            boolean releaseAllowed = allowTrigger && thresholdCrossed;
             ShellGestureSession session = activeShellSession;
             if (session == null || session.edge != activeEdge) {
                 cancelLocalGesture(event,
@@ -1815,7 +1806,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             }
             boolean ownerStillCurrent = isShellSessionOwnerCurrent(session);
             if (!ownerStillCurrent) {
-                trigger = false;
+                releaseAllowed = false;
                 moduleLog(Log.WARN, TAG,
                         "Forced Shell release cancellation after owner changed"
                                 + ", shellSessionId=" + session.id
@@ -1828,20 +1819,19 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                 + ", currentInputEpoch="
                                 + inputMonitorEpoch.get());
             }
-            triggerBack = trigger;
             MiuiHomeAcceptedInputToken releaseInputIdentity =
                     session.inputIdentity.get();
             boolean queued = queueShellReleaseTransaction(
                     session,
                     event.getRawX(), event.getRawY(), releaseDistance,
-                    thresholdCrossed, trigger, activeEdge,
+                    thresholdCrossed, releaseAllowed, activeEdge,
                     launcherOverviewGesture, launcherShadeGesture, launcherDrawerGesture,
                     launcherEditingGesture, aospNullNavigationGesture,
                     session.inputEpoch,
                     releaseInputIdentity);
             moduleLog(queued ? Log.INFO : Log.ERROR, TAG,
                     "SystemUI gesture driver release queued=" + queued
-                    + ", requestedTrigger=" + trigger
+                    + ", releaseAllowed=" + releaseAllowed
                     + ", recentsShellCallback=" + launcherOverviewGesture
                     + ", shadeShellCallback=" + launcherShadeGesture
                     + ", drawerShellCallback=" + launcherDrawerGesture
@@ -1862,9 +1852,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             float releaseDistance = activeEdge == EDGE_LEFT
                     ? event.getRawX() - downX
                     : downX - event.getRawX();
-            boolean fixedThresholdEligible = allowTrigger
-                    && thresholdCrossed
-                    && releaseDistance > dp(TRIGGER_THRESHOLD_DP);
+            boolean releaseAllowed = allowTrigger && thresholdCrossed;
             Boolean nativePanelTrigger = resolveNativePanelReleaseTrigger(
                     panelStateAfterRelease, panelReleaseDelivered);
             Object releaseController = isShellOwnerCurrent(gestureOwner)
@@ -1873,10 +1861,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     && isCurrentAcceptedInputIdentity(
                     acceptedInputIdentity, activeEdge, releaseController,
                     gestureOwner.inputEpoch);
-            boolean trigger = fixedThresholdEligible
+            boolean trigger = releaseAllowed
                     && exactReleaseOwner
                     && Boolean.TRUE.equals(nativePanelTrigger);
-            updateTriggerBack(trigger);
             if (trigger) {
                 // A normal BACK creates the incoming CLOSE/TO_BACK transition. Xiaomi's
                 // TransitionControllerImpl tags a consecutive inverse transition pair and
@@ -1884,7 +1871,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 dispatchLegacyInterruptBack(releaseController);
             }
             moduleLog(Log.INFO, TAG, "Finished MIUI in-app interrupt gesture"
-                    + ", fixedThresholdEligible=" + fixedThresholdEligible
+                    + ", releaseAllowed=" + releaseAllowed
                     + ", nativePanelTrigger=" + nativePanelTrigger
                     + ", exactReleaseOwner=" + exactReleaseOwner
                     + ", panelStateBeforeRelease="
@@ -1924,9 +1911,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             float releaseDistance = activeEdge == EDGE_LEFT
                     ? event.getRawX() - downX
                     : downX - event.getRawX();
-            boolean fixedThresholdEligible = allowTrigger
-                    && thresholdCrossed
-                    && releaseDistance > dp(TRIGGER_THRESHOLD_DP);
+            boolean releaseAllowed = allowTrigger && thresholdCrossed;
             Boolean nativePanelTrigger = resolveNativePanelReleaseTrigger(
                     panelStateAfterRelease, panelReleaseDelivered);
             Object releaseController = isShellOwnerCurrent(gestureOwner)
@@ -1935,10 +1920,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     && isCurrentAcceptedInputIdentity(
                     acceptedInputIdentity, activeEdge, releaseController,
                     gestureOwner.inputEpoch);
-            boolean trigger = fixedThresholdEligible
+            boolean trigger = releaseAllowed
                     && exactReleaseOwner
                     && Boolean.TRUE.equals(nativePanelTrigger);
-            updateTriggerBack(trigger);
             // This gesture never starts a Shell tracker. Clear any trigger value posted by
             // BackPanelController after its release event, then hand a committed gesture to
             // MiuiHome's own BackGestureBreakController.
@@ -1966,8 +1950,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     + ", generation=" + launcherOpenBreakGeneration
                     + ", attempt=" + launcherOpenBreakAttemptId
                     + ", releaseDistance=" + releaseDistance
-                    + ", fixedThresholdEligible="
-                    + fixedThresholdEligible
+                    + ", releaseAllowed=" + releaseAllowed
                     + ", nativePanelTrigger=" + nativePanelTrigger
                     + ", exactReleaseOwner=" + exactReleaseOwner
                     + ", panelStateBeforeRelease="
@@ -2546,7 +2529,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     launcherEditingGesture, false, 0L, null);
             moduleLog(queued ? Log.INFO : Log.ERROR, TAG,
                     "Rejected Shell navigation cancellation queued=" + queued
-                            + ", requestedTrigger=false"
+                            + ", releaseAllowed=false"
                             + ", recentsProbe=" + launcherOverviewGesture
                             + ", shadeProbe=" + launcherShadeGesture
                             + ", drawerProbe=" + launcherDrawerGesture
@@ -2601,7 +2584,6 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             acceptedInputIdentity = null;
             gestureOwner = null;
             thresholdCrossed = false;
-            triggerBack = false;
         }
 
         protected void cancelLocalGesture(MotionEvent event, String reason) {
@@ -2761,7 +2743,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                                        float rawX, float rawY,
                                                        float releaseDistance,
                                                        boolean dispatchFinalProgress,
-                                                       boolean requestedTrigger,
+                                                       boolean releaseAllowed,
                                                        int releaseEdge,
                                                        boolean recentsCallback,
                                                        boolean shadeCallback,
@@ -2778,7 +2760,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             try {
                 session.executor.execute(() -> finishGestureOnShellExecutor(
                         session, rawX, rawY, releaseDistance,
-                        dispatchFinalProgress, requestedTrigger, releaseEdge,
+                        dispatchFinalProgress, releaseAllowed, releaseEdge,
                         recentsCallback, shadeCallback, drawerCallback, editingCallback,
                         aospNullFallback, aospNullInputEpoch, inputIdentity));
                 return true;
@@ -2798,7 +2780,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                                    float rawX, float rawY,
                                                   float releaseDistance,
                                                   boolean dispatchFinalProgress,
-                                                  boolean requestedTrigger,
+                                                  boolean releaseAllowed,
                                                   int releaseEdge,
                                                   boolean recentsCallback,
                                                   boolean shadeCallback,
@@ -2812,13 +2794,13 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             Object tracker = null;
             try {
                 if (session.moveFailed.get()) {
-                    requestedTrigger = false;
+                    releaseAllowed = false;
                     moduleLog(Log.WARN, TAG,
                             "Forced Shell release cancellation after MOVE failure"
                                     + ", shellSessionId=" + session.id);
                 }
                 if (!isShellSessionOwnerCurrent(session)) {
-                    if (requestedTrigger) {
+                    if (releaseAllowed) {
                         moduleLog(Log.WARN, TAG,
                                 "Forced Shell release cancellation after owner changed on executor"
                                         + ", shellSessionId=" + session.id
@@ -2831,7 +2813,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                         + ", currentInputEpoch="
                                         + inputMonitorEpoch.get());
                     }
-                    requestedTrigger = false;
+                    releaseAllowed = false;
                 }
                 tracker = invokeAnyMethod(releaseController,
                         "getActiveTracker", new Object[0]);
@@ -2850,19 +2832,17 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 applyProgressThresholds(tracker, session.linearDistance,
                         session.maxDistance, session.nonLinearFactor);
                 ((BackTouchTracker) tracker).update(rawX, rawY);
-                // BackPanelController posts its terminal ACTIVE/INACTIVE decision through
+                // BackPanelController posts its terminal ACTIVE/INACTIVE/FLUNG decision through
                 // BackAnimationImpl before this release transaction. Preserve that ordered
-                // decision: an INACTIVE panel has already supplied trigger=false even when the
-                // finger remains beyond the module's fixed 48dp threshold. The fixed threshold
-                // is still a necessary condition and may veto a native trigger, but it must not
-                // turn a native cancellation back into a commit.
+                // native decision. Only an invalid release (ACTION_CANCEL, owner replacement, or
+                // MOVE failure) may veto it; pointer distance does not redefine native commit.
                 if (!(tracker instanceof BackTouchTracker)) {
                     throw new IllegalStateException("active tracker is not BackTouchTracker: "
                             + shortObject(tracker));
                 }
-                boolean nativeTriggerBeforeThresholdVeto =
+                boolean nativeTriggerBeforeSafetyVeto =
                         ((BackTouchTracker) tracker).getTriggerBack();
-                if (!requestedTrigger && nativeTriggerBeforeThresholdVeto) {
+                if (!releaseAllowed && nativeTriggerBeforeSafetyVeto) {
                     invokeAnyMethod(releaseController, "setTriggerBack",
                             new Object[]{Boolean.FALSE});
                 }
@@ -2879,9 +2859,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
                 boolean actualTrigger = ((BackTouchTracker) tracker).getTriggerBack();
                 moduleLog(Log.INFO, TAG, "Resolved Shell release trigger"
-                        + ", fixedThresholdEligible=" + requestedTrigger
-                        + ", nativeTriggerBeforeThresholdVeto="
-                        + nativeTriggerBeforeThresholdVeto
+                        + ", releaseAllowed=" + releaseAllowed
+                        + ", nativeTriggerBeforeSafetyVeto="
+                        + nativeTriggerBeforeSafetyVeto
                         + ", actualTrigger=" + actualTrigger);
                 if (dispatchFinalProgress && !aospNullFallback) {
                     dispatchExplicitProgressOnShell(session, tracker,
@@ -2898,7 +2878,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         ? (BackNavigationInfo) infoObject : null;
                 if (info == null) {
                     finishNullNavigationOnShellExecutor(
-                            session, tracker, requestedTrigger,
+                            session, tracker, releaseAllowed,
                             actualTrigger, releaseEdge, aospNullFallback,
                             aospNullInputEpoch, inputIdentity);
                     return;
@@ -2963,7 +2943,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     invokeAnyMethod(releaseController, "invokeOrCancelBack",
                             new Object[]{tracker});
                     ((BackTouchTracker) tracker).reset();
-                    logShellReleaseResult(info, requestedTrigger, actualTrigger,
+                    logShellReleaseResult(info, releaseAllowed, actualTrigger,
                             "direct-callback", releaseEdge,
                             recentsCallback, shadeCallback, drawerCallback, editingCallback);
                     completeShellSessionOnOwner(session,
@@ -2978,7 +2958,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     invokeAnyMethod(releaseController, "invokeOrCancelBack",
                             new Object[]{tracker});
                     ((BackTouchTracker) tracker).reset();
-                    logShellReleaseResult(info, requestedTrigger, actualTrigger,
+                    logShellReleaseResult(info, releaseAllowed, actualTrigger,
                             runnerState == REMOTE_RUNNER_MISSING
                                     ? "runner-missing" : "runner-cancelled",
                             releaseEdge, recentsCallback, shadeCallback,
@@ -2991,7 +2971,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (runnerState == REMOTE_RUNNER_WAITING
                         || runnerState == REMOTE_RUNNER_UNKNOWN) {
                     scheduleShellAnimationTimeout(releaseController);
-                    logShellReleaseResult(info, requestedTrigger, actualTrigger,
+                    logShellReleaseResult(info, releaseAllowed, actualTrigger,
                             runnerState == REMOTE_RUNNER_WAITING
                                     ? "runner-waiting" : "runner-unknown",
                             releaseEdge, recentsCallback, shadeCallback,
@@ -3003,7 +2983,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
                 invokeAnyMethod(releaseController,
                         "startPostCommitAnimation", new Object[0]);
-                logShellReleaseResult(info, requestedTrigger, actualTrigger,
+                logShellReleaseResult(info, releaseAllowed, actualTrigger,
                         "post-commit", releaseEdge,
                         recentsCallback, shadeCallback, drawerCallback, editingCallback);
             } catch (Throwable throwable) {
@@ -3015,7 +2995,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
 
         protected void finishNullNavigationOnShellExecutor(
                 ShellGestureSession session, Object tracker,
-                boolean requestedTrigger, boolean actualTrigger,
+                boolean releaseAllowed, boolean actualTrigger,
                 int releaseEdge, boolean aospNullFallback,
                 long aospNullInputEpoch,
                 MiuiHomeAcceptedInputToken inputIdentity) throws Exception {
@@ -3028,7 +3008,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         inputIdentity, releaseEdge, releaseController,
                         aospNullInputEpoch);
                 commitLegacyBack = authenticatedFallback
-                        && requestedTrigger && actualTrigger;
+                        && releaseAllowed && actualTrigger;
                 if (commitLegacyBack) {
                     Object observer = readField(releaseController,
                             "mBackTransitionObserver");
@@ -3061,7 +3041,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             : "null-navigation-cancel");
             moduleLog(commitLegacyBack ? Log.INFO : Log.WARN, TAG,
                     "Finished released gesture with null navigation"
-                            + ", requestedTrigger=" + requestedTrigger
+                            + ", releaseAllowed=" + releaseAllowed
                             + ", actualTrigger=" + actualTrigger
                             + ", aospFallbackRequested=" + aospNullFallback
                             + ", authenticatedFallback=" + authenticatedFallback
@@ -3274,7 +3254,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         }
 
         protected void logShellReleaseResult(BackNavigationInfo info,
-                                           boolean requestedTrigger,
+                                           boolean releaseAllowed,
                                            boolean actualTrigger,
                                            String outcome, int releaseEdge,
                                            boolean recentsCallback,
@@ -3283,7 +3263,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                            boolean editingCallback) {
             moduleLog(Log.INFO, TAG, "Completed Shell release transaction"
                     + ", type=" + info.getType()
-                    + ", requestedTrigger=" + requestedTrigger
+                    + ", releaseAllowed=" + releaseAllowed
                     + ", actualTrigger=" + actualTrigger
                     + ", outcome=" + outcome
                     + ", recentsShellCallback=" + recentsCallback
@@ -3303,21 +3283,10 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             return value * context.getResources().getDisplayMetrics().density;
         }
 
-        protected boolean updateTriggerBack(boolean newTriggerBack) {
-            if (triggerBack == newTriggerBack) {
-                return false;
-            }
-            triggerBack = newTriggerBack;
-            moduleLog(Log.INFO, TAG,
-                    "SystemUI gesture driver triggerBack=" + newTriggerBack);
-            return true;
-        }
-
         protected boolean queueShellMove(
                 ShellGestureSession session, float rawX, float rawY,
                 float distance, boolean crossedNow,
-                boolean dispatchProgress, boolean triggerChanged,
-                boolean newTriggerBack) {
+                boolean dispatchProgress) {
             if (session == null || session.completionConsumed.get()
                     || session.releaseQueued.get()
                     || session.moveFailed.get()) {
@@ -3365,15 +3334,10 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             dispatchExplicitProgressOnShell(
                                     session, tracker, distance);
                         }
-                        if (triggerChanged) {
-                            invokeAnyMethod(session.controller,
-                                    "setTriggerBack", new Object[]{
-                                            Boolean.valueOf(newTriggerBack)});
-                        }
                     } catch (Throwable throwable) {
                         session.moveFailed.set(true);
                         moduleLog(Log.ERROR, TAG,
-                                "Fixed Shell-owner MOVE failed; cancelling"
+                                "Shell-owner MOVE failed; cancelling"
                                         + ", shellSessionId=" + session.id,
                                 throwable);
                         if (session.releaseQueued.compareAndSet(
@@ -3386,7 +3350,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             } catch (Throwable throwable) {
                 session.moveFailed.set(true);
                 moduleLog(Log.ERROR, TAG,
-                        "Failed to queue fixed Shell-owner MOVE"
+                        "Failed to queue Shell-owner MOVE"
                                 + ", shellSessionId=" + session.id,
                         throwable);
                 cleanupRejectedShellGesture(session);

@@ -1184,9 +1184,10 @@ abstract class MiuiHomeReturnHomePreviewRuntime
             }
             float displayWidth = Math.max(1.0f,
                     session.previewProgressDistancePx);
-            float triggerProgress = clamp01(dp(TRIGGER_THRESHOLD_DP) / displayWidth);
-            float normalized = triggerProgress <= 0.0f
-                    ? 1.0f : clamp01(smoothedProgress / triggerProgress);
+            float fullBlurProgress = clamp01(
+                    dp(RETURN_HOME_PREVIEW_BLUR_DISTANCE_DP) / displayWidth);
+            float normalized = fullBlurProgress <= 0.0f
+                    ? 1.0f : clamp01(smoothedProgress / fullBlurProgress);
             float blurFraction = normalized * normalized
                     * (3.0f - (2.0f * normalized));
             int radius = Math.round(lerp(session.previewBlurInitialRadius,
