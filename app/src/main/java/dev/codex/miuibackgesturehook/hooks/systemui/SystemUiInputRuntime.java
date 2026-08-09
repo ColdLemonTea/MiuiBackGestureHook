@@ -67,6 +67,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     protected volatile SharedPreferences hyperOsIndicatorPreferences;
     protected volatile boolean hyperOsIndicatorPreferencesFailureLogged;
     protected volatile MiuiHapticFeedbackHelper hyperOsBackHapticHelper;
+    protected volatile SharedPreferences gestureTriggerPreferences;
+    protected volatile boolean gestureTriggerPreferencesFailureLogged;
 
     protected boolean isHyperOsIndicatorEnabled() {
         return readHyperOsBooleanPreference(
@@ -626,8 +628,84 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             }
         }
 
+        protected float currentDisplayHeight() {
+            try {
+                return Math.max(1.0f, context.getSystemService(WindowManager.class)
+                        .getCurrentWindowMetrics().getBounds().height());
+            } catch (Throwable ignored) {
+                return Math.max(1.0f,
+                        context.getResources().getDisplayMetrics().heightPixels);
+            }
+        }
+
+        /**
+         * MiuiHome owns the physical side window. Keep the SystemUI spy on the same vertical
+         * bounds so shrinking that native window cannot leave a second, larger SystemUI-owned
+         * trigger area behind it.
+         */
+        protected boolean isWithinConfiguredGestureTriggerArea(MotionEvent event) {
+            try {
+                SharedPreferences preferences = gestureTriggerPreferences;
+                if (preferences == null) {
+                    synchronized (SystemUiInputRuntime.this) {
+                        preferences = gestureTriggerPreferences;
+                        if (preferences == null) {
+                            preferences = getRemotePreferences(
+                                    PredictiveBackPreferences.GROUP);
+                            gestureTriggerPreferences = preferences;
+                        }
+                    }
+                }
+                int heightPercent = preferences.getInt(
+                        PredictiveBackPreferences.KEY_GESTURE_TRIGGER_HEIGHT_PERCENT,
+                        PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_HEIGHT_PERCENT);
+                int positionPercent = preferences.getInt(
+                        PredictiveBackPreferences.KEY_GESTURE_TRIGGER_POSITION_PERCENT,
+                        PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_POSITION_PERCENT);
+                if (heightPercent < PredictiveBackPreferences.MIN_GESTURE_TRIGGER_HEIGHT_PERCENT
+                        || heightPercent
+                        > PredictiveBackPreferences.MAX_GESTURE_TRIGGER_HEIGHT_PERCENT
+                        || positionPercent
+                        < PredictiveBackPreferences.MIN_GESTURE_TRIGGER_POSITION_PERCENT
+                        || positionPercent
+                        > PredictiveBackPreferences.MAX_GESTURE_TRIGGER_POSITION_PERCENT) {
+                    return true;
+                }
+                if (heightPercent
+                        == PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_HEIGHT_PERCENT
+                        && positionPercent
+                        == PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_POSITION_PERCENT) {
+                    gestureTriggerPreferencesFailureLogged = false;
+                    return true;
+                }
+                float displayHeight = currentDisplayHeight();
+                float configuredHeight = displayHeight * heightPercent / 100.0f;
+                float availableTravel = Math.max(0.0f, displayHeight - configuredHeight);
+                float top = availableTravel * positionPercent / 100.0f;
+                float y = event.getRawY();
+                boolean inside = y >= top && y < top + configuredHeight;
+                gestureTriggerPreferencesFailureLogged = false;
+                return inside;
+            } catch (Throwable throwable) {
+                if (!gestureTriggerPreferencesFailureLogged) {
+                    gestureTriggerPreferencesFailureLogged = true;
+                    moduleLog(Log.WARN, TAG,
+                            "Gesture trigger configuration unavailable; preserving native area",
+                            throwable);
+                }
+                return true;
+            }
+        }
+
         protected boolean canStartBackGesture(MotionEvent event, int edge) {
             if (event.getPointerCount() != 1) {
+                return false;
+            }
+            if (!isWithinConfiguredGestureTriggerArea(event)) {
+                moduleLog(Log.INFO, TAG, "Ignored native back outside configured trigger area"
+                        + ", x=" + event.getRawX()
+                        + ", y=" + event.getRawY()
+                        + ", edge=" + edge);
                 return false;
             }
             if (!isNativeBackInputActive()) {

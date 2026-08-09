@@ -66,7 +66,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -112,12 +111,9 @@ import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurColors
-import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.layerBackdrop
-import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
+import dev.codex.miuibackgesturehook.util.miuixBlurEffect
+import dev.codex.miuibackgesturehook.util.rememberMiuixBlurBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
 import top.yukonga.miuix.kmp.icon.extended.Back
@@ -997,32 +993,6 @@ private fun MiuixDropdown(
 
 private val DropdownWithStartMarginProvider =
     ListPopupDefaults.dropdownPositionProvider(12.dp, 8.dp)
-
-@Composable
-private fun rememberMiuixBlurBackdrop(): LayerBackdrop {
-    val surfaceColor = MiuixTheme.colorScheme.surface
-    return rememberLayerBackdrop {
-        drawRect(surfaceColor)
-        drawContent()
-    }
-}
-
-@Composable
-private fun Modifier.miuixBlurEffect(
-    backdrop: LayerBackdrop,
-): Modifier {
-    val blendColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.8f)
-    return then(
-        Modifier.textureBlur(
-            backdrop = backdrop,
-            shape = RectangleShape,
-            blurRadius = 25f,
-            colors = BlurColors(
-                blendColors = listOf(BlendColorEntry(color = blendColor)),
-            ),
-        ),
-    )
-}
 
 private val ArrowUpIcon: ImageVector by lazy {
     ImageVector.Builder(

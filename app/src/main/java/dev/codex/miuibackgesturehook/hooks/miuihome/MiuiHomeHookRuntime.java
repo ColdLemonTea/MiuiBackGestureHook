@@ -1,5 +1,7 @@
 package dev.codex.miuibackgesturehook.hooks.miuihome;
 
+import dev.codex.miuibackgesturehook.PredictiveBackPreferences;
+
 import android.annotation.SuppressLint;
 import android.app.BroadcastOptions;
 import android.app.KeyguardManager;
@@ -8,8 +10,10 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Region;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -17,6 +21,9 @@ import android.os.IInterface;
 import android.os.Looper;
 import android.os.Process;
 import android.util.Log;
+import android.util.DisplayMetrics;
+import android.view.Display;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.SurfaceControl;
 import android.view.View;
@@ -26,15 +33,58 @@ import android.window.TransitionInfo;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.github.libxposed.api.XposedInterface;
 
 public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
+    protected final Object miuiHomeGestureTriggerPreferenceLock = new Object();
+    protected final Object miuiHomeGestureTriggerStubLock = new Object();
+    protected final Set<View> miuiHomeGestureTriggerStubs =
+            Collections.newSetFromMap(new WeakHashMap<>());
+    protected volatile SharedPreferences miuiHomeGestureTriggerPreferences;
+    protected volatile boolean miuiHomeGestureTriggerPreferenceFailureLogged;
+    protected volatile boolean miuiHomeGestureTriggerTouchRegionFailureLogged;
+    protected final SharedPreferences.OnSharedPreferenceChangeListener
+            miuiHomeGestureTriggerPreferenceListener = (preferences, key) -> {
+                if (!PredictiveBackPreferences.KEY_GESTURE_TRIGGER_HEIGHT_PERCENT.equals(key)
+                        && !PredictiveBackPreferences.KEY_GESTURE_TRIGGER_POSITION_PERCENT
+                        .equals(key)) {
+                    return;
+                }
+                refreshMiuiHomeGestureTriggerStubs("preference:" + key);
+            };
 
+    protected void hookMiuiHomeGestureStubTriggerRegion(Class<?> gestureStubClass)
+            throws NoSuchMethodException {
+        Method method = gestureStubClass.getDeclaredMethod("getGestureStubWindowParam");
+        method.setAccessible(true);
+        recordHookHandle(hook(method)
+                .setId("miui_home_gesture_stub_trigger_region")
+                .intercept(this::customizeMiuiHomeGestureStubTriggerRegion));
+    }
+
+    protected void hookMiuiHomeGestureStubTriggerTouchRegion(Class<?> gestureStubClass)
+            throws NoSuchMethodException {
+        for (Method method : gestureStubClass.getDeclaredMethods()) {
+            if (!"updateTouchRegion".equals(method.getName())
+                    || method.getParameterCount() != 1) {
+                continue;
+            }
+            method.setAccessible(true);
+            recordHookHandle(hook(method)
+                    .setId("miui_home_gesture_stub_trigger_touch_region")
+                    .intercept(this::customizeMiuiHomeGestureStubTriggerTouchRegion));
+            return;
+        }
+        throw new NoSuchMethodException(MIUI_HOME_GESTURE_STUB + ".updateTouchRegion/1");
+    }
 
     protected void hookMiuiHomeGestureStubShow(Class<?> gestureStubClass)
             throws NoSuchMethodException {
@@ -3434,6 +3484,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             return;
         }
         View stub = (View) stubObject;
+        trackMiuiHomeGestureTriggerStub(stub);
         Runnable restore = () -> {
             try {
                 ensureMiuiHomeInputArbiterReceiver(stub.getContext());
@@ -3448,6 +3499,8 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 boolean changed = (params.flags
                         & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) != 0;
                 params.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                boolean triggerRegionChanged =
+                        applyMiuiHomeGestureTriggerRegion(stub, params);
                 if (stub.isAttachedToWindow()) {
                     ((WindowManager) windowManagerObject).updateViewLayout(stub, params);
                 }
@@ -3456,7 +3509,8 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                 moduleLog(Log.INFO, TAG, "Restored existing MiuiHome GestureStub window"
                         + ", edge=" + edge
                         + ", attached=" + stub.isAttachedToWindow()
-                        + ", clearedNotTouchable=" + changed);
+                        + ", clearedNotTouchable=" + changed
+                        + ", triggerRegionApplied=" + triggerRegionChanged);
             } catch (Throwable throwable) {
                 moduleLog(Log.WARN, TAG, "Failed to restore MiuiHome GestureStub"
                         + ", edge=" + edge, throwable);
@@ -3472,6 +3526,340 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                     + ", edge=" + edge);
             completion.run();
         }
+    }
+
+    protected Object customizeMiuiHomeGestureStubTriggerRegion(
+            XposedInterface.Chain chain) throws Throwable {
+        Object result = chain.proceed();
+        if (!(result instanceof WindowManager.LayoutParams)
+                || !(chain.getThisObject() instanceof View)) {
+            return result;
+        }
+        View stub = (View) chain.getThisObject();
+        trackMiuiHomeGestureTriggerStub(stub);
+        applyMiuiHomeGestureTriggerRegion(stub, (WindowManager.LayoutParams) result);
+        return result;
+    }
+
+    protected Object customizeMiuiHomeGestureStubTriggerTouchRegion(
+            XposedInterface.Chain chain) throws Throwable {
+        Object result = chain.proceed();
+        if (!(chain.getThisObject() instanceof View) || chain.getArgs().isEmpty()) {
+            return result;
+        }
+        trackMiuiHomeGestureTriggerStub((View) chain.getThisObject());
+        int[] configuration = readMiuiHomeGestureTriggerConfiguration();
+        if (configuration == null) {
+            return result;
+        }
+        Object insetsInfo = chain.getArg(0);
+        if (insetsInfo == null) {
+            return result;
+        }
+        try {
+            Region region = buildMiuiHomeGestureTriggerTouchRegion(
+                    (View) chain.getThisObject(), configuration);
+            invokeAnyMethod(insetsInfo, "setTouchableInsets",
+                    new Object[]{Integer.valueOf(3)});
+            invokeAnyMethod(insetsInfo, "setTouchableRegion",
+                    new Object[]{region});
+            miuiHomeGestureTriggerTouchRegionFailureLogged = false;
+        } catch (Throwable throwable) {
+            if (!miuiHomeGestureTriggerTouchRegionFailureLogged) {
+                miuiHomeGestureTriggerTouchRegionFailureLogged = true;
+                moduleLog(Log.WARN, TAG,
+                        "Failed to apply MiuiHome gesture trigger touch region",
+                        throwable);
+            }
+        }
+        return result;
+    }
+
+    protected Region buildMiuiHomeGestureTriggerTouchRegion(
+            View stub, int[] configuration) {
+        int displayHeight = readMiuiHomeGestureDisplayHeight(stub);
+        if (displayHeight <= 0) {
+            throw new IllegalStateException("Invalid gesture trigger display height="
+                    + displayHeight);
+        }
+        int configuredHeight = Math.max(1, Math.min(displayHeight, Math.round(
+                displayHeight * configuration[0] / 100.0f)));
+        int availableTravel = Math.max(0, displayHeight - configuredHeight);
+        int configuredTop = Math.max(0, Math.min(availableTravel, Math.round(
+                availableTravel * configuration[1] / 100.0f)));
+        int width = stub.getWidth();
+        if (width <= 0) {
+            width = stub.getMeasuredWidth();
+        }
+        WindowManager.LayoutParams params = null;
+        try {
+            Object paramsObject = readField(stub, "mGestureStubParams");
+            if (paramsObject instanceof WindowManager.LayoutParams) {
+                params = (WindowManager.LayoutParams) paramsObject;
+                if (width <= 0 && params.width > 0) {
+                    width = params.width;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        if (width <= 0) {
+            throw new IllegalStateException("Invalid GestureStub width=" + width);
+        }
+
+        int viewHeight = stub.getHeight();
+        if (viewHeight <= 0) {
+            viewHeight = stub.getMeasuredHeight();
+        }
+        int localTop = configuredTop;
+        int localBottom = configuredTop + configuredHeight;
+        Integer configuredWindowY = params == null ? null
+                : resolveMiuiHomeGestureStubLayoutY(
+                params.gravity, displayHeight, configuredHeight, configuredTop);
+        boolean configuredWindow = params != null
+                && configuredWindowY != null
+                && params.height == configuredHeight
+                && params.y == configuredWindowY.intValue();
+        if (configuredWindow || (viewHeight > 0 && viewHeight <= configuredHeight)) {
+            // The window LayoutParams already carries the display-space offset. Insets regions
+            // are local to the GestureStub view, so cover its complete current height.
+            localTop = 0;
+            localBottom = viewHeight > 0 ? viewHeight : configuredHeight;
+        } else if (viewHeight > 0) {
+            // During a relayout the old full-height view can still be present. In that case the
+            // region itself must carry the display-space offset until the new frame is applied.
+            localBottom = Math.min(localBottom, viewHeight);
+        }
+        if (localBottom <= localTop) {
+            throw new IllegalStateException("Invalid GestureStub touch region"
+                    + ", top=" + localTop + ", bottom=" + localBottom
+                    + ", viewHeight=" + viewHeight
+                    + ", configuredHeight=" + configuredHeight);
+        }
+        return new Region(new Rect(0, localTop, width, localBottom));
+    }
+
+    /**
+     * Applies the user-selected vertical window bounds without replacing any Xiaomi window
+     * flags or GestureStub lifecycle. The touchable region is owned by the companion
+     * updateTouchRegion hook. Returning false means that a missing or malformed preference left
+     * the native layout untouched.
+     */
+    protected boolean applyMiuiHomeGestureTriggerRegion(
+            View stub, WindowManager.LayoutParams params) {
+        int[] configuration = readMiuiHomeGestureTriggerConfiguration();
+        if (configuration == null) {
+            return false;
+        }
+        int displayHeight = readMiuiHomeGestureDisplayHeight(stub);
+        if (displayHeight <= 0) {
+            return false;
+        }
+        int height = Math.max(1, Math.min(displayHeight, Math.round(
+                displayHeight * configuration[0] / 100.0f)));
+        int availableTravel = Math.max(0, displayHeight - height);
+        int configuredTop = Math.max(0, Math.min(availableTravel, Math.round(
+                availableTravel * configuration[1] / 100.0f)));
+        Integer layoutY = resolveMiuiHomeGestureStubLayoutY(
+                params.gravity, displayHeight, height, configuredTop);
+        if (layoutY == null) {
+            moduleLog(Log.WARN, TAG, "Unsupported MiuiHome GestureStub vertical gravity"
+                    + ", gravity=" + params.gravity
+                    + ", verticalGravity="
+                    + (params.gravity & Gravity.VERTICAL_GRAVITY_MASK));
+            return false;
+        }
+        params.height = height;
+        params.y = layoutY.intValue();
+        return true;
+    }
+
+    /**
+     * Converts a display-space top coordinate into WindowManager.LayoutParams.y without
+     * replacing Xiaomi's native gravity. Gravity with no vertical bits is centered, so its y
+     * value is an offset from the centered frame rather than an offset from the display top.
+     */
+    protected Integer resolveMiuiHomeGestureStubLayoutY(
+            int gravity, int displayHeight, int height, int configuredTop) {
+        int availableTravel = Math.max(0, displayHeight - height);
+        int verticalGravity = gravity & Gravity.VERTICAL_GRAVITY_MASK;
+        if (verticalGravity == Gravity.TOP) {
+            return Integer.valueOf(configuredTop);
+        }
+        if (verticalGravity == Gravity.BOTTOM) {
+            return Integer.valueOf(availableTravel - configuredTop);
+        }
+        if (verticalGravity == 0 || verticalGravity == Gravity.CENTER_VERTICAL) {
+            return Integer.valueOf(configuredTop - availableTravel / 2);
+        }
+        return null;
+    }
+
+    protected int[] readMiuiHomeGestureTriggerConfiguration() {
+        try {
+            SharedPreferences preferences = ensureMiuiHomeGestureTriggerPreferences();
+            int height = preferences.getInt(
+                    PredictiveBackPreferences.KEY_GESTURE_TRIGGER_HEIGHT_PERCENT,
+                    PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_HEIGHT_PERCENT);
+            int position = preferences.getInt(
+                    PredictiveBackPreferences.KEY_GESTURE_TRIGGER_POSITION_PERCENT,
+                    PredictiveBackPreferences.DEFAULT_GESTURE_TRIGGER_POSITION_PERCENT);
+            if (height < PredictiveBackPreferences.MIN_GESTURE_TRIGGER_HEIGHT_PERCENT
+                    || height > PredictiveBackPreferences.MAX_GESTURE_TRIGGER_HEIGHT_PERCENT
+                    || position < PredictiveBackPreferences.MIN_GESTURE_TRIGGER_POSITION_PERCENT
+                    || position > PredictiveBackPreferences.MAX_GESTURE_TRIGGER_POSITION_PERCENT) {
+                return null;
+            }
+            miuiHomeGestureTriggerPreferenceFailureLogged = false;
+            return new int[]{height, position};
+        } catch (Throwable throwable) {
+            if (!miuiHomeGestureTriggerPreferenceFailureLogged) {
+                miuiHomeGestureTriggerPreferenceFailureLogged = true;
+                moduleLog(Log.WARN, TAG,
+                        "Gesture trigger configuration unavailable; preserving native area",
+                        throwable);
+            }
+            return null;
+        }
+    }
+
+    protected SharedPreferences ensureMiuiHomeGestureTriggerPreferences() {
+        SharedPreferences preferences = miuiHomeGestureTriggerPreferences;
+        if (preferences != null) {
+            return preferences;
+        }
+        synchronized (miuiHomeGestureTriggerPreferenceLock) {
+            preferences = miuiHomeGestureTriggerPreferences;
+            if (preferences != null) {
+                return preferences;
+            }
+            preferences = getRemotePreferences(PredictiveBackPreferences.GROUP);
+            preferences.registerOnSharedPreferenceChangeListener(
+                    miuiHomeGestureTriggerPreferenceListener);
+            miuiHomeGestureTriggerPreferences = preferences;
+            return preferences;
+        }
+    }
+
+    protected void trackMiuiHomeGestureTriggerStub(View stub) {
+        if (stub == null) {
+            return;
+        }
+        synchronized (miuiHomeGestureTriggerStubLock) {
+            miuiHomeGestureTriggerStubs.add(stub);
+        }
+        try {
+            ensureMiuiHomeGestureTriggerPreferences();
+            miuiHomeGestureTriggerPreferenceFailureLogged = false;
+        } catch (Throwable throwable) {
+            if (!miuiHomeGestureTriggerPreferenceFailureLogged) {
+                miuiHomeGestureTriggerPreferenceFailureLogged = true;
+                moduleLog(Log.WARN, TAG,
+                        "Gesture trigger preference listener unavailable; "
+                                + "live window refresh disabled",
+                        throwable);
+            }
+        }
+    }
+
+    protected void refreshMiuiHomeGestureTriggerStubs(String reason) {
+        List<View> stubs;
+        synchronized (miuiHomeGestureTriggerStubLock) {
+            stubs = new ArrayList<>(miuiHomeGestureTriggerStubs);
+        }
+        for (View stub : stubs) {
+            refreshMiuiHomeGestureTriggerStubOnOwner(stub, reason);
+        }
+    }
+
+    protected void refreshMiuiHomeGestureTriggerStubOnOwner(View stub, String reason) {
+        if (stub == null) {
+            return;
+        }
+        Runnable refresh = () -> {
+            try {
+                if (!stub.isAttachedToWindow()) {
+                    return;
+                }
+                Object paramsObject = readField(stub, "mGestureStubParams");
+                Object windowManagerObject = readField(stub, "mWindowManager");
+                if (!(paramsObject instanceof WindowManager.LayoutParams)
+                        || !(windowManagerObject instanceof WindowManager)) {
+                    throw new IllegalStateException("Missing native GestureStub window state");
+                }
+                WindowManager.LayoutParams params =
+                        (WindowManager.LayoutParams) paramsObject;
+                if (!applyMiuiHomeGestureTriggerRegion(stub, params)) {
+                    return;
+                }
+                ((WindowManager) windowManagerObject).updateViewLayout(stub, params);
+                stub.requestLayout();
+                stub.requestApplyInsets();
+            } catch (Throwable throwable) {
+                moduleLog(Log.WARN, TAG,
+                        "Failed to refresh MiuiHome GestureStub trigger region"
+                                + ", reason=" + reason,
+                        throwable);
+            }
+        };
+        Handler ownerHandler = stub.getHandler();
+        if (ownerHandler == null) {
+            return;
+        }
+        if (ownerHandler.getLooper() == Looper.myLooper()) {
+            refresh.run();
+        } else if (!ownerHandler.post(refresh)) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to post MiuiHome GestureStub trigger refresh"
+                            + ", reason=" + reason);
+        }
+    }
+
+    protected void releaseMiuiHomeGestureTriggerPreferenceListener() {
+        synchronized (miuiHomeGestureTriggerPreferenceLock) {
+            SharedPreferences preferences = miuiHomeGestureTriggerPreferences;
+            miuiHomeGestureTriggerPreferences = null;
+            if (preferences != null) {
+                try {
+                    preferences.unregisterOnSharedPreferenceChangeListener(
+                            miuiHomeGestureTriggerPreferenceListener);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        synchronized (miuiHomeGestureTriggerStubLock) {
+            miuiHomeGestureTriggerStubs.clear();
+        }
+    }
+
+    protected int readMiuiHomeGestureDisplayHeight(View stub) {
+        try {
+            Display display = stub.getDisplay();
+            if (display == null) {
+                WindowManager windowManager = stub.getContext().getSystemService(
+                        WindowManager.class);
+                display = windowManager == null ? null : windowManager.getDefaultDisplay();
+            }
+            if (display != null) {
+                DisplayMetrics metrics = new DisplayMetrics();
+                display.getRealMetrics(metrics);
+                if (metrics.heightPixels > 0) {
+                    return metrics.heightPixels;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            WindowManager windowManager = stub.getContext().getSystemService(
+                    WindowManager.class);
+            if (windowManager != null) {
+                int height = windowManager.getCurrentWindowMetrics().getBounds().height();
+                if (height > 0) {
+                    return height;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return Math.max(0, stub.getResources().getDisplayMetrics().heightPixels);
     }
 
     protected Object restoreMiuiHomeGestureStubTouchableLayout(XposedInterface.Chain chain)
@@ -3490,22 +3878,28 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
         try {
             Object view = chain.getThisObject();
             if (view instanceof View) {
+                trackMiuiHomeGestureTriggerStub((View) view);
                 ensureMiuiHomeInputArbiterReceiver(((View) view).getContext());
                 Object params = readField(view, "mGestureStubParams");
                 Object windowManager = readField(view, "mWindowManager");
                 if (params instanceof WindowManager.LayoutParams
-                        && windowManager instanceof WindowManager
-                        && ((((WindowManager.LayoutParams) params).flags
-                        & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) != 0)) {
+                        && windowManager instanceof WindowManager) {
                     WindowManager.LayoutParams layoutParams =
                             (WindowManager.LayoutParams) params;
+                    boolean wasNotTouchable = (layoutParams.flags
+                            & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) != 0;
                     layoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-                    if (((View) view).isAttachedToWindow()) {
+                    boolean triggerRegionChanged = applyMiuiHomeGestureTriggerRegion(
+                            (View) view, layoutParams);
+                    if (((View) view).isAttachedToWindow()
+                            && (wasNotTouchable || triggerRegionChanged)) {
                         ((WindowManager) windowManager).updateViewLayout(
                                 (View) view, layoutParams);
                     }
-                    ((View) view).requestLayout();
-                    ((View) view).requestApplyInsets();
+                    if (wasNotTouchable || triggerRegionChanged) {
+                        ((View) view).requestLayout();
+                        ((View) view).requestApplyInsets();
+                    }
                 }
             }
         } catch (Throwable throwable) {

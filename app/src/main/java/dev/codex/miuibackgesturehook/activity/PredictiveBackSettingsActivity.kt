@@ -32,11 +32,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.codex.miuibackgesturehook.BuildConfig
 import dev.codex.miuibackgesturehook.ModuleApplication
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences
 import dev.codex.miuibackgesturehook.R
@@ -54,12 +54,9 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurColors
-import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.layerBackdrop
-import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
+import dev.codex.miuibackgesturehook.util.miuixBlurEffect
+import dev.codex.miuibackgesturehook.util.rememberMiuixBlurBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -86,6 +83,14 @@ class PredictiveBackSettingsActivity :
                     service = xposedService,
                     serviceStateObserved = serviceStateObserved,
                     onClose = { finish() },
+                    onOpenGestureTriggerSettings = {
+                        startActivity(
+                            Intent(
+                                this,
+                                GestureTriggerSettingsActivity::class.java,
+                            ),
+                        )
+                    },
                     onOpenAppList = {
                         startActivity(
                             Intent(
@@ -131,6 +136,7 @@ private fun PredictiveBackSettingsScreen(
     service: XposedService?,
     serviceStateObserved: Boolean,
     onClose: () -> Unit,
+    onOpenGestureTriggerSettings: () -> Unit,
     onOpenAppList: () -> Unit,
 ) {
     val configurationErrorMessage = stringResource(R.string.predictive_back_config_error)
@@ -373,6 +379,7 @@ private fun PredictiveBackSettingsScreen(
                 color = Color.Transparent,
                 scrollBehavior = scrollBehavior,
                 title = stringResource(R.string.predictive_back_title),
+                subtitle = "v${BuildConfig.VERSION_NAME}",
                 navigationIcon = {
                     IconButton(onClick = onClose) {
                         Icon(
@@ -421,6 +428,14 @@ private fun PredictiveBackSettingsScreen(
                     moduleLogging = moduleLogging,
                     configurationEnabled = configurationEnabled,
                     onModuleLoggingToggle = persistModuleLogging,
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 8.dp),
+                )
+            }
+            item(key = "gesture_trigger_navigation") {
+                GestureTriggerNavigationCard(
+                    onClick = onOpenGestureTriggerSettings,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 8.dp),
@@ -546,6 +561,23 @@ private fun AppListNavigationCard(
 }
 
 @Composable
+private fun GestureTriggerNavigationCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        insideMargin = PaddingValues(0.dp),
+    ) {
+        ArrowPreference(
+            title = stringResource(R.string.gesture_trigger_entry_title),
+            summary = stringResource(R.string.gesture_trigger_entry_summary),
+            onClick = onClick,
+        )
+    }
+}
+
+@Composable
 private fun ModuleLoggingCard(
     moduleLogging: Boolean,
     configurationEnabled: Boolean,
@@ -564,30 +596,4 @@ private fun ModuleLoggingCard(
             onCheckedChange = onModuleLoggingToggle,
         )
     }
-}
-
-@Composable
-private fun rememberMiuixBlurBackdrop(): LayerBackdrop {
-    val surfaceColor = MiuixTheme.colorScheme.surface
-    return rememberLayerBackdrop {
-        drawRect(surfaceColor)
-        drawContent()
-    }
-}
-
-@Composable
-private fun Modifier.miuixBlurEffect(
-    backdrop: LayerBackdrop,
-): Modifier {
-    val blendColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.8f)
-    return then(
-        Modifier.textureBlur(
-            backdrop = backdrop,
-            shape = RectangleShape,
-            blurRadius = 25f,
-            colors = BlurColors(
-                blendColors = listOf(BlendColorEntry(color = blendColor)),
-            ),
-        ),
-    )
 }

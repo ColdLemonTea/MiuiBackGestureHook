@@ -26,5 +26,8 @@
         <activity
             android:name=".activity.PredictiveBackAppListActivity"
             android:exported="false" />
+        <activity
+            android:name=".activity.GestureTriggerSettingsActivity"
+            android:exported="false" />
     </application>
 </manifest>

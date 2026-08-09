@@ -106,6 +106,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         unregisterMiuiOverviewStateReceiver();
         unregisterMiuiHomeOpenBreakCommandReceiver();
         unregisterMiuiHomeInputArbiterReceiver();
+        releaseMiuiHomeGestureTriggerPreferenceListener();
         Object[][] inputState = new Object[nativeInputMonitors.size()][2];
         int index = 0;
         for (Map.Entry<Object, NativeBackInputMonitor> entry
@@ -412,6 +413,24 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             try {
                 Class<?> gestureStubClass = Class.forName(MIUI_HOME_GESTURE_STUB, false,
                         hotReloadClassLoader);
+                if (!oldHookIds.contains("miui_home_gesture_stub_trigger_region")) {
+                    try {
+                        hookMiuiHomeGestureStubTriggerRegion(gestureStubClass);
+                    } catch (Throwable throwable) {
+                        moduleLog(Log.WARN, TAG,
+                                "MiuiHome trigger-region customization unavailable",
+                                throwable);
+                    }
+                }
+                if (!oldHookIds.contains("miui_home_gesture_stub_trigger_touch_region")) {
+                    try {
+                        hookMiuiHomeGestureStubTriggerTouchRegion(gestureStubClass);
+                    } catch (Throwable throwable) {
+                        moduleLog(Log.WARN, TAG,
+                                "MiuiHome trigger touch-region customization unavailable",
+                                throwable);
+                    }
+                }
                 if (!oldHookIds.contains("miui_home_gesture_stub_show")) {
                     hookMiuiHomeGestureStubShow(gestureStubClass);
                 }
@@ -590,6 +609,10 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::reconcileAfterNavigationModeChanged;
             case "miui_home_gesture_stub_layout_params":
                 return this::restoreMiuiHomeGestureStubTouchableLayout;
+            case "miui_home_gesture_stub_trigger_region":
+                return this::customizeMiuiHomeGestureStubTriggerRegion;
+            case "miui_home_gesture_stub_trigger_touch_region":
+                return this::customizeMiuiHomeGestureStubTriggerTouchRegion;
             case "miui_home_gesture_stub_show":
                 return this::restoreMiuiHomeGestureStubShow;
             case "miui_home_gesture_input_arbiter":
@@ -867,6 +890,20 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         try {
             Class<?> gestureStubClass = Class.forName(MIUI_HOME_GESTURE_STUB, false,
                     classLoader);
+            try {
+                hookMiuiHomeGestureStubTriggerRegion(gestureStubClass);
+            } catch (Throwable throwable) {
+                moduleLog(Log.WARN, TAG,
+                        "MiuiHome trigger-region customization unavailable",
+                        throwable);
+            }
+            try {
+                hookMiuiHomeGestureStubTriggerTouchRegion(gestureStubClass);
+            } catch (Throwable throwable) {
+                moduleLog(Log.WARN, TAG,
+                        "MiuiHome trigger touch-region customization unavailable",
+                        throwable);
+            }
             hookMiuiHomeGestureStubShow(gestureStubClass);
             Class<?> processorClass = Class.forName(
                     MIUI_HOME_GESTURE_PROCESSOR, false, classLoader);

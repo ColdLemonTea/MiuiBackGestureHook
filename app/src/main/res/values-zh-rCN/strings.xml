@@ -1,5 +1,5 @@
 <resources>
-    <string name="predictive_back_title">启用预测性返回</string>
+    <string name="predictive_back_title">返回手势管理</string>
     <string name="predictive_back_apps_title">选择应用</string>
     <string name="predictive_back_apps_entry_title">应用列表</string>
     <string name="predictive_back_apps_entry_summary">选择需要启用完整预测性返回协议的应用</string>
@@ -26,6 +26,14 @@
     <string name="hyperos_slide_animation_summary">以全宽侧滑替代 AOSP 预测性返回</string>
     <string name="module_logging_title">详细模块日志</string>
     <string name="module_logging_summary">保留信息日志；关闭后仍保留警告和错误日志</string>
+    <string name="gesture_trigger_title">两侧触发区域</string>
+    <string name="gesture_trigger_entry_title">两侧触发区域</string>
+    <string name="gesture_trigger_entry_summary">调整左右两侧触发区域的高度和垂直位置</string>
+    <string name="gesture_trigger_height_title">区域高度</string>
+    <string name="gesture_trigger_height_summary">左右两侧共用的触发区域高度</string>
+    <string name="gesture_trigger_position_title">垂直位置</string>
+    <string name="gesture_trigger_position_summary">将区域从顶部移动到底部</string>
+    <string name="gesture_trigger_apply_note">设置会立即应用到左右两侧的返回手势触发区域。</string>
     <string name="back">返回</string>
     <string name="close">关闭</string>
     <string name="more_options">更多选项</string>

@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name" translatable="false">Miui Back Gesture Hook</string>
     <string name="module_description" translatable="false">Hooks Xiaomi back gesture behavior with LSPosed API 102.</string>
-    <string name="predictive_back_title">Enable predictive back</string>
+    <string name="predictive_back_title">Back gesture management</string>
     <string name="predictive_back_apps_title">Choose apps</string>
     <string name="predictive_back_apps_entry_title">App selection</string>
     <string name="predictive_back_apps_entry_summary">Choose apps that should use the complete predictive-back protocol</string>
@@ -28,6 +28,14 @@
     <string name="hyperos_slide_animation_summary">Full-width slide instead of the AOSP predictive back</string>
     <string name="module_logging_title">Detailed module logs</string>
     <string name="module_logging_summary">Keep informational logs enabled; warnings and errors are always kept</string>
+    <string name="gesture_trigger_title">Side trigger area</string>
+    <string name="gesture_trigger_entry_title">Side trigger area</string>
+    <string name="gesture_trigger_entry_summary">Adjust the height and vertical position of both side trigger areas</string>
+    <string name="gesture_trigger_height_title">Area height</string>
+    <string name="gesture_trigger_height_summary">Height shared by the left and right trigger areas</string>
+    <string name="gesture_trigger_position_title">Vertical position</string>
+    <string name="gesture_trigger_position_summary">Move the area from the top toward the bottom</string>
+    <string name="gesture_trigger_apply_note">Changes apply immediately to the back gesture trigger areas on both sides.</string>
     <string name="back">Back</string>
     <string name="close">Close</string>
     <string name="more_options">More options</string>
