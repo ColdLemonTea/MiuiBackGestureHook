@@ -61,6 +61,11 @@ system
 
 The Google App scope is inert unless the Live Translate option is enabled.
 
+`com.miui.home` remains in the static list for Android 16. On Android 17 and newer,
+the module exits before installing any MiuiHome-process LSPosed hook; hot reload also removes
+old MiuiHome hook handles instead of replacing them. Launcher-side Android 17 work is isolated
+to the native ZN experiment.
+
 ## Compatibility
 
 The Android 17 native MiuiHome integration targets Xiaomi System Launcher build `4371` only.
