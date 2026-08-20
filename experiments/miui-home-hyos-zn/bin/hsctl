@@ -20,7 +20,7 @@ usage: hsctl status
        hsctl help
 
 The Zygisk Next module enabled state is the only runtime gate. Exact Android 17
-MiuiHome 4371 and 5334 profiles are compiled in; the host deployment script
+MiuiHome 4371, 5334, and 5402 profiles are compiled in; the host deployment script
 requires an explicit matching profile confirmation.
 activate performs one bounded hyos_spawner replacement, verifies injection,
 starts the normal Home Activity, and verifies that Launcher maps this module.

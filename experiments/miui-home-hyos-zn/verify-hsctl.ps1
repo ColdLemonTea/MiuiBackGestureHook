@@ -54,8 +54,10 @@ $RequiredDeploy = @(
     "[ValidateSet('Status', 'Deploy', 'Rollback', 'Capture')]",
     "ExpectedVersionCode = '801024371'",
     "ExpectedVersionCode5334 = '801025334'",
+    "ExpectedVersionCode5402 = '801025402'",
     '[switch]$Confirm5334',
-    'exactly one of -Confirm4371 or -Confirm5334',
+    '[switch]$Confirm5402',
+    'exactly one of -Confirm4371, -Confirm5334, or -Confirm5402',
     'Get-FileHash -Algorithm SHA256',
     '.next-$ShortHash',
     'Get-ModuleMappedPids',
@@ -182,11 +184,12 @@ if ($Manifest.schema_version -ne 1) {
 }
 $Profiles = @($Manifest.profiles)
 $ProfileIds = (@($Profiles | ForEach-Object { $_.id } | Sort-Object) -join ',')
-if ($Profiles.Count -ne 2 -or $ProfileIds -ne '4371,5334') {
-    throw 'The launcher profile manifest must contain exactly 4371 and 5334.'
+if ($Profiles.Count -ne 3 -or $ProfileIds -ne '4371,5334,5402') {
+    throw 'The launcher profile manifest must contain exactly 4371, 5334, and 5402.'
 }
 $Profile4371 = @($Profiles | Where-Object { $_.id -eq '4371' })[0]
 $Profile5334 = @($Profiles | Where-Object { $_.id -eq '5334' })[0]
+$Profile5402 = @($Profiles | Where-Object { $_.id -eq '5402' })[0]
 if ($Profile4371.hook_topology -ne 'legacy_three_stage' -or
         $Profile4371.entry_offset -ne '0x885d00' -or
         $Profile4371.side_handler.offset -ne '0xc6e954' -or
@@ -201,6 +204,20 @@ if ($Profile5334.hook_topology -ne 'side_boundary_only' -or
         $Profile5334.abi.runtime_state_offset -ne '0x132ab80' -or
         $Profile5334.abi.runtime_ready_value -ne 0) {
     throw '5334 launcher profile no longer matches the reviewed static boundary.'
+}
+if ($Profile5402.version_code -ne 801025402 -or
+        $Profile5402.version_name -ne 'RELEASE-8.01.02.5402-260807-08181825-R' -or
+        $Profile5402.library_sha256 -ne
+            '053b3b6ad84815fb319b2f87e766f67cbf1a22fcfe7f7ed2cd03502e569e0f98' -or
+        $Profile5402.hook_topology -ne 'side_boundary_only' -or
+        $Profile5402.entry_offset -ne '0xc94b14' -or
+        $Profile5402.side_handler.offset -ne '0x810010' -or
+        $Profile5402.side_handler.edge_field_offset -ne '0xf4' -or
+        $Profile5402.abi.rstring_vtable_offset -ne '0x12b8450' -or
+        $Profile5402.abi.runtime_pointer_offset -ne '0x132fa00' -or
+        $Profile5402.abi.runtime_state_offset -ne '0x132fa08' -or
+        $Profile5402.abi.runtime_ready_value -ne 0) {
+    throw '5402 launcher profile no longer matches the reviewed static boundary.'
 }
 foreach ($Needle in @(
         'launcher-profiles.json',

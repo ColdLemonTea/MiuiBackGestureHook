@@ -75,6 +75,39 @@
         "runtime_state_offset": "0x132ab80",
         "runtime_ready_value": 0
       }
+    },
+    {
+      "id": "5402",
+      "version_code": 801025402,
+      "version_name": "RELEASE-8.01.02.5402-260807-08181825-R",
+      "library_sha256": "053b3b6ad84815fb319b2f87e766f67cbf1a22fcfe7f7ed2cd03502e569e0f98",
+      "image_span": "0x1400000",
+      "entry_offset": "0xc94b14",
+      "identity_fingerprints": [
+        {
+          "name": "app_entry_point",
+          "offset": "0xc94b14",
+          "bytes": "ff c3 04 d1 fd 7b 0d a9 fc 6f 0e a9 fa 67 0f a9 f8 5f 10 a9 f6 57 11 a9 f4 4f 12 a9 fd 43 03 91 f9 03 08 aa 21 18 eb 97 c0 00 00 36 c1 18 eb 97"
+        }
+      ],
+      "hook_topology": "side_boundary_only",
+      "side_handler": {
+        "offset": "0x810010",
+        "bytes": "ff 03 06 d1 ea 8b 00 fd e9 a3 11 6d fd fb 12 a9 fc 9f 00 f9 fa 67 14 a9 f8 5f 15 a9 f6 57 16 a9",
+        "edge_field_offset": "0xf4"
+      },
+      "pilfer": {
+        "accepted_return_offset": "0x0",
+        "home_return_offset": "0x0",
+        "accepted_caller_bytes": ""
+      },
+      "abi": {
+        "rstring_vtable_offset": "0x12b8450",
+        "filter_rstring_vtable_offset": "0x0",
+        "runtime_pointer_offset": "0x132fa00",
+        "runtime_state_offset": "0x132fa08",
+        "runtime_ready_value": 0
+      }
     }
   ]
 }

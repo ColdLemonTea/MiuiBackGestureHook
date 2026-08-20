@@ -7,14 +7,15 @@ its immutable input identity to the companion SystemUI hook. SystemUI then owns
 the indicator, pilfering, Shell navigation, and predictive-back animation.
 
 This is no longer an observation-only probe. It contains device-proven profiles
-for MiuiHome `4371` and `5334`.
+for MiuiHome `4371` and `5334`, plus a statically reviewed and device-tested
+`5402` profile.
 
 ## Requirements and scope
 
 - Android 17 HyperOS with the exact supported `hyos_spawner` build below.
 - arm64 device with Zygisk Next.
-- MiuiHome `4371` or `5334`, selected automatically from immutable native
-  identity. The ZIP contains both profiles.
+- MiuiHome `4371`, `5334`, or `5402`, selected automatically from immutable native
+  identity. The ZIP contains all three profiles.
 - The companion LSPosed module enabled for its existing Android 17 SystemUI
   and `system` scopes. This ZN module alone does not create an AOSP gesture.
 
@@ -39,17 +40,17 @@ Shared native runtime:
 ```text
 hyos_spawner path:       /system_ext/bin/hyos_spawner
 hyos_spawner Build ID:   87f2632e7d68fda0226366fda5346c2d
-broadcast private IDs:   7f186b331ec39d84e6016daeba65366f (Xiaomi 17 Pro Max, OS4.0.0.20)
-                         c4fec5d3d810f76eff819d9379517a4a (Redmi K90, OS4.0.0.18)
 launcher process:        /proc/self/cmdline == com.miui.home
 entry symbol:            app_entry_point
 ```
 
-The broadcast-private dylib is per-ROM Build ID while its mangled symbols and
-GOT layout stay identical, so the arbiter-bridge gate accepts either ID. The
-`5334` profile has been validated on both the author's device and a Redmi K90
-(`annibale`, `OS4.0.0.18.XPKCNXM`, `MiuiSystemUI 17.03.260226.r`) with the
-full `verify-launcher-profiles.py` PASS.
+The broadcast-private dylib has different Build IDs across ROMs even when its
+hooked symbol and GOT layout are identical. The arbiter bridge therefore gates
+the mutation on the exact loaded image path, resolved symbol RVA, GOT RVA and
+current GOT value instead of a per-ROM Build ID allowlist. The `5334` launcher
+profile has been validated on both the author's device and a Redmi K90
+(`annibale`, `OS4.0.0.18.XPKCNXM`, `MiuiSystemUI 17.03.260226.r`) with the full
+`verify-launcher-profiles.py` PASS.
 
 Launcher profiles:
 
@@ -57,6 +58,7 @@ Launcher profiles:
 | --- | --- | --- | --- |
 | `4371` | `801024371` / `RELEASE-8.01.02.4371-260727-08131546-R` | SHA-256 `a84365f864f88f85165b086bc03ba563efd09386c72f0c21926788fd90a028f9`; entry `0x885d00`; side boundary `0xc6e954`; edge `+0xec` | `legacy_three_stage` |
 | `5334` | `801025334` / `RELEASE-8.01.02.5334-260807-08151151-R` | SHA-256 `a67fe9e3ef3880f920cce92eb1c006c7fe12a83c0632f2397b118e6915043091`; entry `0xc8ffd8`; side boundary `0x80c3bc`; edge `+0xf4` | `side_boundary_only` |
+| `5402` | `801025402` / `RELEASE-8.01.02.5402-260807-08181825-R` | SHA-256 `053b3b6ad84815fb319b2f87e766f67cbf1a22fcfe7f7ed2cd03502e569e0f98`; entry `0xc94b14`; side boundary `0x810010`; edge `+0xf4` | `side_boundary_only` |
 
 Package version is enforced by the host deployment script. At runtime the
 module validates the exact `app_entry_point` RVA and the profile's immutable
@@ -69,8 +71,9 @@ compatible build. The library SHA-256 is an offline profile-verification input;
 runtime selection uses the exact entry address and fingerprints.
 
 `4371` keeps two transparent legacy diagnostic hooks around the side boundary.
-`5334` uses only the proven side boundary because Xiaomi inlined the older
-processor stages. Both profiles hand off only a launcher-accepted BACK stream.
+`5334` and `5402` use only the reviewed side boundary because Xiaomi inlined
+the older processor stages. All profiles hand off only a launcher-accepted BACK
+stream.
 
 ## Loader path
 
@@ -118,13 +121,14 @@ source. [`generate-launcher-profiles.py`](generate-launcher-profiles.py)
 validates it and emits the C++ registry into the build directory. The device
 does not parse a writable JSON or XML profile at runtime.
 
-When locally retained launcher ELFs are available, verify both profiles without
+When locally retained launcher ELFs are available, verify profiles without
 adding those proprietary binaries or decompiler projects to Git:
 
 ```powershell
 python .\experiments\miui-home-hyos-zn\verify-launcher-profiles.py `
   --library 4371=<4371-libapp_launcher.so> `
-  --library 5334=<5334-libapp_launcher.so>
+  --library 5334=<5334-libapp_launcher.so> `
+  --library 5402=<5402-libapp_launcher.so>
 ```
 
 The verifier checks the recorded digest, translates every RVA through the ELF
@@ -212,13 +216,17 @@ Deploy one exact profile:
 .\experiments\miui-home-hyos-zn\safe-device-test.ps1 `
   -Action Deploy -Serial <adb-serial> `
   -PackageZip <debug-zip> -Confirm5334
+
+.\experiments\miui-home-hyos-zn\safe-device-test.ps1 `
+  -Action Deploy -Serial <adb-serial> `
+  -PackageZip <debug-zip> -Confirm5402
 ```
 
 Rollback uses the matching confirmation:
 
 ```powershell
 .\experiments\miui-home-hyos-zn\safe-device-test.ps1 `
-  -Action Rollback -Serial <adb-serial> -Confirm5334
+  -Action Rollback -Serial <adb-serial> -Confirm5402
 ```
 
 After `Deploy`:

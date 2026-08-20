@@ -6,7 +6,8 @@ param(
     [string]$Serial,
     [string]$PackageZip,
     [switch]$Confirm4371,
-    [switch]$Confirm5334
+    [switch]$Confirm5334,
+    [switch]$Confirm5402
 )
 
 Set-StrictMode -Version Latest
@@ -21,6 +22,8 @@ $ExpectedVersionCode = '801024371'
 $ExpectedVersionName = 'RELEASE-8.01.02.4371-260727-08131546-R'
 $ExpectedVersionCode5334 = '801025334'
 $ExpectedVersionName5334 = 'RELEASE-8.01.02.5334-260807-08151151-R'
+$ExpectedVersionCode5402 = '801025402'
+$ExpectedVersionName5402 = 'RELEASE-8.01.02.5402-260807-08181825-R'
 $ExpectedNativeSha256 =
     '10388972d3fed052285710d7b3de8b895f3f6bac71f711fee9dab32530599d78'
 $EvidenceRoot = Join-Path $PSScriptRoot 'out\device-tests'
@@ -76,8 +79,13 @@ function Assert-Device {
 }
 
 function Get-ConfirmedProfile {
-    if ($Confirm4371 -eq $Confirm5334) {
-        throw 'Mutation requires exactly one of -Confirm4371 or -Confirm5334.'
+    $confirmationCount = @(
+        $Confirm4371.IsPresent,
+        $Confirm5334.IsPresent,
+        $Confirm5402.IsPresent
+    ).Where({ $_ }).Count
+    if ($confirmationCount -ne 1) {
+        throw 'Mutation requires exactly one of -Confirm4371, -Confirm5334, or -Confirm5402.'
     }
     if ($Confirm4371) {
         return [pscustomobject]@{
@@ -86,10 +94,17 @@ function Get-ConfirmedProfile {
             VersionName = $ExpectedVersionName
         }
     }
+    if ($Confirm5334) {
+        return [pscustomobject]@{
+            Id = '5334'
+            VersionCode = $ExpectedVersionCode5334
+            VersionName = $ExpectedVersionName5334
+        }
+    }
     [pscustomobject]@{
-        Id = '5334'
-        VersionCode = $ExpectedVersionCode5334
-        VersionName = $ExpectedVersionName5334
+        Id = '5402'
+        VersionCode = $ExpectedVersionCode5402
+        VersionName = $ExpectedVersionName5402
     }
 }
 
