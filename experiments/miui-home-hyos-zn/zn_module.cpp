@@ -1,6 +1,7 @@
 #include "zygisk_next_api.h"
 #include "launcher_profiles.h"
 #include "launcher_profiles.generated.h"
+#include "runtime_profile_resolver.h"
 
 #include <android/dlext.h>
 #include <android/log.h>
@@ -188,6 +189,7 @@ void* g_motion_get_source = nullptr;
 void* g_motion_get_raw_x = nullptr;
 uint8_t* g_launcher_base = nullptr;
 const miui_home_profiles::LauncherProfile* g_launcher_profile = nullptr;
+miui_home_runtime_profile::ResolutionStorage g_dynamic_profile_storage{};
 uint32_t g_native_receiver_state = 0;
 NativeResult g_module_receiver_registration{};
 int64_t g_systemui_arbiter_generation = 0;
@@ -254,6 +256,17 @@ __attribute__((used)) volatile uint32_t g_business_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_failure_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_stage = 0;
+// Runtime profile state is the numeric ResolveStage value. It is published
+// last, after the immutable offsets and candidate counts below.
+__attribute__((used)) volatile uint32_t g_dynamic_profile_state = 0;
+__attribute__((used)) volatile uint32_t g_dynamic_side_candidate_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_dynamic_runtime_confirmation_count = 0;
+__attribute__((used)) volatile uint32_t g_dynamic_rstring_candidate_count = 0;
+__attribute__((used)) volatile uintptr_t g_dynamic_side_handler_offset = 0;
+__attribute__((used)) volatile uintptr_t g_dynamic_runtime_pointer_offset = 0;
+__attribute__((used)) volatile uintptr_t g_dynamic_runtime_state_offset = 0;
+__attribute__((used)) volatile uintptr_t g_dynamic_rstring_vtable_offset = 0;
 
 // Observation-only ring for identifying the exact 4371 pilfer owner. The
 // sequence is published last, so /proc/<pid>/mem readers can reject a torn
@@ -670,6 +683,57 @@ const miui_home_profiles::LauncherProfile* ResolveLauncherProfile(
         }
     }
     const auto* current = AtomicLoad(&g_launcher_profile);
+    if (matched == nullptr && current == nullptr) {
+        uint32_t expected_state = static_cast<uint32_t>(
+                miui_home_runtime_profile::ResolveStage::kNotStarted);
+        if (__atomic_compare_exchange_n(
+                    &g_dynamic_profile_state, &expected_state,
+                    static_cast<uint32_t>(
+                            miui_home_runtime_profile::ResolveStage::
+                                    kParsingElf),
+                    false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            miui_home_runtime_profile::ResolutionDiagnostics diagnostics{};
+            const bool resolved =
+                    miui_home_runtime_profile::ResolveSideBoundaryProfile(
+                            base, app_entry_point,
+                            &g_dynamic_profile_storage, &diagnostics);
+            __atomic_store_n(&g_dynamic_side_candidate_count,
+                    diagnostics.side_candidate_count, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_runtime_confirmation_count,
+                    diagnostics.runtime_confirmation_count,
+                    __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_rstring_candidate_count,
+                    diagnostics.rstring_candidate_count, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_side_handler_offset,
+                    diagnostics.side_handler_offset, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_runtime_pointer_offset,
+                    diagnostics.runtime_pointer_offset, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_runtime_state_offset,
+                    diagnostics.runtime_state_offset, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_rstring_vtable_offset,
+                    diagnostics.rstring_vtable_offset, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_profile_state,
+                    static_cast<uint32_t>(diagnostics.stage),
+                    __ATOMIC_RELEASE);
+            if (resolved) {
+                matched = &g_dynamic_profile_storage.profile;
+                Log(ANDROID_LOG_INFO,
+                    "resolved unique runtime side-boundary launcher profile");
+            } else {
+                Log(ANDROID_LOG_ERROR,
+                    "runtime side-boundary launcher profile rejected");
+            }
+        }
+    }
+    if (matched == nullptr && current == &g_dynamic_profile_storage.profile &&
+            __atomic_load_n(&g_dynamic_profile_state, __ATOMIC_ACQUIRE) ==
+                    static_cast<uint32_t>(
+                            miui_home_runtime_profile::ResolveStage::
+                                    kComplete) &&
+            MatchesLauncherProfile(base, app_entry_point,
+                                   g_dynamic_profile_storage.profile)) {
+        matched = &g_dynamic_profile_storage.profile;
+    }
     if (matched == nullptr || (current != nullptr && current != matched)) {
         return nullptr;
     }

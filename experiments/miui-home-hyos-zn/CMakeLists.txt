@@ -18,6 +18,7 @@ endif()
 
 add_library(miui_home_hyos_zn SHARED
     zn_module.cpp
+    runtime_profile_resolver.cpp
     broadcast_options_tail_hook.S
     input_monitor_pilfer_hook.S
 )

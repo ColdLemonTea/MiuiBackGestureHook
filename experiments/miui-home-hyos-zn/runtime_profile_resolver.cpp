@@ -1,0 +1,784 @@
+#include "runtime_profile_resolver.h"
+
+#include <elf.h>
+#include <string.h>
+
+namespace miui_home_runtime_profile {
+namespace {
+
+constexpr size_t kMaxLoadSegments = 16u;
+constexpr uintptr_t kMaxImageSpan = 0x4000000u;
+constexpr size_t kEntryFingerprintSize = 48u;
+constexpr size_t kSidePrologueSize = 32u;
+constexpr uint32_t kMinimumRuntimeConfirmations = 1u;
+
+constexpr char kDynamicProfileId[] = "runtime-side-v1";
+constexpr char kDynamicVersionName[] = "runtime-resolved";
+
+constexpr char kMotionActionMasked[] = "input_MotionEvent_getActionMasked";
+constexpr char kMotionActionIndex[] = "input_MotionEvent_getActionIndex";
+constexpr char kMotionRawX[] = "input_MotionEvent_getRawX";
+constexpr char kMotionRawY[] = "input_MotionEvent_getRawY";
+constexpr char kRuntimeIncStrong[] = "Runtime_inc_strong";
+constexpr char kRuntimeGetBinder[] =
+        "Runtime_get_application_thread_binder";
+constexpr char kRuntimeDecStrong[] = "Runtime_dec_strong";
+constexpr char kBundleDefault[] = "Bundle_default";
+constexpr char kMalloc[] = "malloc";
+constexpr char kMemcpy[] = "memcpy";
+
+constexpr uint32_t kSideFamilyPrologue[] = {
+        0xd10603ffu, 0xfd008beau, 0x6d11a3e9u, 0xa912fbfdu,
+        0xf9009ffcu, 0xa91467fau, 0xa9155ff8u, 0xa91657f6u,
+};
+
+constexpr uint32_t kEntryFamilyPrefix[] = {
+        0xd104c3ffu, 0xa90d7bfdu, 0xa90e6ffcu, 0xa90f67fau,
+        0xa9105ff8u, 0xa91157f6u, 0xa9124ff4u, 0x910343fdu,
+        0xaa0803f9u,
+};
+
+struct LoadSegment {
+    uintptr_t start;
+    uintptr_t end;
+    uint32_t flags;
+};
+
+struct ElfView {
+    const uint8_t* base;
+    LoadSegment loads[kMaxLoadSegments];
+    size_t load_count;
+    uintptr_t image_span;
+    uintptr_t string_table;
+    size_t string_table_size;
+    uintptr_t symbol_table;
+    size_t symbol_entry_size;
+    uintptr_t jump_relocations;
+    size_t jump_relocations_size;
+    size_t relocation_entry_size;
+};
+
+struct RequiredImports {
+    uintptr_t motion_action_masked;
+    uintptr_t motion_action_index;
+    uintptr_t motion_raw_x;
+    uintptr_t motion_raw_y;
+    uintptr_t runtime_inc_strong;
+    uintptr_t runtime_get_binder;
+    uintptr_t runtime_dec_strong;
+    uintptr_t bundle_default;
+    uintptr_t malloc_address;
+    uintptr_t memcpy_address;
+};
+
+bool AddOverflows(uintptr_t left, uintptr_t right) {
+    return right > UINTPTR_MAX - left;
+}
+
+bool Contains(const ElfView& view, uintptr_t offset, size_t size,
+              uint32_t required_flags, uint32_t forbidden_flags = 0u) {
+    if (size == 0u || AddOverflows(offset, size)) return false;
+    const uintptr_t end = offset + size;
+    for (size_t index = 0u; index < view.load_count; ++index) {
+        const LoadSegment& load = view.loads[index];
+        if (offset >= load.start && end <= load.end &&
+                (load.flags & required_flags) == required_flags &&
+                (load.flags & forbidden_flags) == 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ReadInstruction(const ElfView& view, uintptr_t offset,
+                     uint32_t* instruction) {
+    if (instruction == nullptr ||
+            !Contains(view, offset, sizeof(*instruction), PF_R | PF_X)) {
+        return false;
+    }
+    memcpy(instruction, view.base + offset, sizeof(*instruction));
+    return true;
+}
+
+bool NormalizeDynamicPointer(const ElfView& view, Elf64_Addr value,
+                             uintptr_t* offset) {
+    if (offset == nullptr) return false;
+    const uintptr_t raw = static_cast<uintptr_t>(value);
+    const uintptr_t base_address = reinterpret_cast<uintptr_t>(view.base);
+    if (raw >= base_address && raw - base_address < view.image_span) {
+        *offset = raw - base_address;
+        return true;
+    }
+    if (raw < view.image_span) {
+        *offset = raw;
+        return true;
+    }
+    return false;
+}
+
+bool ParseElf(const uint8_t* base, ElfView* output) {
+    if (base == nullptr || output == nullptr) return false;
+    Elf64_Ehdr header{};
+    memcpy(&header, base, sizeof(header));
+    if (memcmp(header.e_ident, ELFMAG, SELFMAG) != 0 ||
+            header.e_ident[EI_CLASS] != ELFCLASS64 ||
+            header.e_ident[EI_DATA] != ELFDATA2LSB ||
+            header.e_type != ET_DYN || header.e_machine != EM_AARCH64 ||
+            header.e_phentsize != sizeof(Elf64_Phdr) ||
+            header.e_phnum == 0u || header.e_phnum > 64u ||
+            header.e_phoff > 0x1000u ||
+            AddOverflows(header.e_phoff,
+                         static_cast<uintptr_t>(header.e_phnum) *
+                                 sizeof(Elf64_Phdr)) ||
+            header.e_phoff +
+                    static_cast<uintptr_t>(header.e_phnum) *
+                            sizeof(Elf64_Phdr) > 0x1000u) {
+        return false;
+    }
+
+    ElfView view{};
+    view.base = base;
+    const auto* program_headers = reinterpret_cast<const Elf64_Phdr*>(
+            base + header.e_phoff);
+    uintptr_t dynamic_offset = 0u;
+    size_t dynamic_size = 0u;
+    bool headers_covered = false;
+    const uintptr_t headers_end = header.e_phoff +
+            static_cast<uintptr_t>(header.e_phnum) * sizeof(Elf64_Phdr);
+    for (size_t index = 0u; index < header.e_phnum; ++index) {
+        Elf64_Phdr program_header{};
+        memcpy(&program_header, program_headers + index,
+               sizeof(program_header));
+        if (program_header.p_type == PT_LOAD) {
+            if (view.load_count >= kMaxLoadSegments ||
+                    program_header.p_memsz == 0u ||
+                    AddOverflows(program_header.p_vaddr,
+                                 program_header.p_memsz)) {
+                return false;
+            }
+            const uintptr_t start = program_header.p_vaddr;
+            const uintptr_t end = start + program_header.p_memsz;
+            if (end > kMaxImageSpan) return false;
+            view.loads[view.load_count++] = {
+                    start, end, program_header.p_flags};
+            if (start == 0u && headers_end <= program_header.p_filesz) {
+                headers_covered = true;
+            }
+            if (end > view.image_span) view.image_span = end;
+        } else if (program_header.p_type == PT_DYNAMIC) {
+            if (program_header.p_memsz == 0u ||
+                    program_header.p_memsz > SIZE_MAX) {
+                return false;
+            }
+            dynamic_offset = program_header.p_vaddr;
+            dynamic_size = static_cast<size_t>(program_header.p_memsz);
+        }
+    }
+    if (!headers_covered || view.load_count == 0u ||
+            view.image_span == 0u || dynamic_size < sizeof(Elf64_Dyn) ||
+            !Contains(view, dynamic_offset, dynamic_size, PF_R)) {
+        return false;
+    }
+
+    Elf64_Addr string_table = 0u;
+    Elf64_Addr symbol_table = 0u;
+    Elf64_Addr jump_relocations = 0u;
+    size_t string_table_size = 0u;
+    size_t symbol_entry_size = 0u;
+    size_t jump_relocations_size = 0u;
+    size_t relocation_entry_size = sizeof(Elf64_Rela);
+    Elf64_Sxword relocation_kind = 0;
+    bool terminated = false;
+    const size_t dynamic_count = dynamic_size / sizeof(Elf64_Dyn);
+    for (size_t index = 0u; index < dynamic_count; ++index) {
+        Elf64_Dyn entry{};
+        memcpy(&entry, view.base + dynamic_offset +
+                       index * sizeof(Elf64_Dyn), sizeof(entry));
+        if (entry.d_tag == DT_NULL) {
+            terminated = true;
+            break;
+        }
+        switch (entry.d_tag) {
+            case DT_STRTAB:
+                string_table = entry.d_un.d_ptr;
+                break;
+            case DT_STRSZ:
+                string_table_size = entry.d_un.d_val;
+                break;
+            case DT_SYMTAB:
+                symbol_table = entry.d_un.d_ptr;
+                break;
+            case DT_SYMENT:
+                symbol_entry_size = entry.d_un.d_val;
+                break;
+            case DT_JMPREL:
+                jump_relocations = entry.d_un.d_ptr;
+                break;
+            case DT_PLTRELSZ:
+                jump_relocations_size = entry.d_un.d_val;
+                break;
+            case DT_PLTREL:
+                relocation_kind = entry.d_un.d_val;
+                break;
+            case DT_RELAENT:
+                relocation_entry_size = entry.d_un.d_val;
+                break;
+            default:
+                break;
+        }
+    }
+    if (!terminated || string_table_size == 0u ||
+            symbol_entry_size != sizeof(Elf64_Sym) ||
+            relocation_kind != DT_RELA ||
+            relocation_entry_size != sizeof(Elf64_Rela) ||
+            jump_relocations_size == 0u ||
+            jump_relocations_size % sizeof(Elf64_Rela) != 0u ||
+            !NormalizeDynamicPointer(view, string_table,
+                                     &view.string_table) ||
+            !NormalizeDynamicPointer(view, symbol_table,
+                                     &view.symbol_table) ||
+            !NormalizeDynamicPointer(view, jump_relocations,
+                                     &view.jump_relocations)) {
+        return false;
+    }
+    view.string_table_size = string_table_size;
+    view.symbol_entry_size = symbol_entry_size;
+    view.jump_relocations_size = jump_relocations_size;
+    view.relocation_entry_size = relocation_entry_size;
+    if (!Contains(view, view.string_table, view.string_table_size, PF_R) ||
+            !Contains(view, view.symbol_table, sizeof(Elf64_Sym), PF_R) ||
+            !Contains(view, view.jump_relocations,
+                      view.jump_relocations_size, PF_R)) {
+        return false;
+    }
+    *output = view;
+    return true;
+}
+
+bool BoundedStringEquals(const char* value, size_t available,
+                         const char* expected) {
+    if (value == nullptr || expected == nullptr) return false;
+    size_t index = 0u;
+    while (expected[index] != '\0') {
+        if (index >= available || value[index] != expected[index]) {
+            return false;
+        }
+        ++index;
+    }
+    return index < available && value[index] == '\0';
+}
+
+bool FindImportGot(const ElfView& view, const char* expected,
+                   uintptr_t* result) {
+    if (result == nullptr) return false;
+    uintptr_t matched = 0u;
+    uint32_t match_count = 0u;
+    const size_t count = view.jump_relocations_size / sizeof(Elf64_Rela);
+    for (size_t index = 0u; index < count; ++index) {
+        Elf64_Rela relocation{};
+        memcpy(&relocation, view.base + view.jump_relocations +
+                       index * sizeof(Elf64_Rela), sizeof(relocation));
+        const size_t symbol_index = ELF64_R_SYM(relocation.r_info);
+        if (symbol_index > (SIZE_MAX - view.symbol_table) /
+                                   sizeof(Elf64_Sym)) {
+            return false;
+        }
+        const uintptr_t symbol_offset = view.symbol_table +
+                symbol_index * sizeof(Elf64_Sym);
+        if (!Contains(view, symbol_offset, sizeof(Elf64_Sym), PF_R)) {
+            return false;
+        }
+        Elf64_Sym symbol{};
+        memcpy(&symbol, view.base + symbol_offset, sizeof(symbol));
+        if (symbol.st_name >= view.string_table_size) return false;
+        const char* name = reinterpret_cast<const char*>(
+                view.base + view.string_table + symbol.st_name);
+        if (!BoundedStringEquals(name,
+                                 view.string_table_size - symbol.st_name,
+                                 expected)) {
+            continue;
+        }
+        uintptr_t got_offset = 0u;
+        if (!NormalizeDynamicPointer(view, relocation.r_offset,
+                                     &got_offset) ||
+                !Contains(view, got_offset, sizeof(uintptr_t), PF_R)) {
+            return false;
+        }
+        matched = got_offset;
+        ++match_count;
+    }
+    if (match_count != 1u) return false;
+    *result = matched;
+    return true;
+}
+
+bool ResolveImports(const ElfView& view, RequiredImports* imports) {
+    return imports != nullptr &&
+            FindImportGot(view, kMotionActionMasked,
+                          &imports->motion_action_masked) &&
+            FindImportGot(view, kMotionActionIndex,
+                          &imports->motion_action_index) &&
+            FindImportGot(view, kMotionRawX, &imports->motion_raw_x) &&
+            FindImportGot(view, kMotionRawY, &imports->motion_raw_y) &&
+            FindImportGot(view, kRuntimeIncStrong,
+                          &imports->runtime_inc_strong) &&
+            FindImportGot(view, kRuntimeGetBinder,
+                          &imports->runtime_get_binder) &&
+            FindImportGot(view, kRuntimeDecStrong,
+                          &imports->runtime_dec_strong) &&
+            FindImportGot(view, kBundleDefault,
+                          &imports->bundle_default) &&
+            FindImportGot(view, kMalloc, &imports->malloc_address) &&
+            FindImportGot(view, kMemcpy, &imports->memcpy_address);
+}
+
+bool DecodeAdrp(uint32_t instruction, uintptr_t pc, uint32_t reg,
+                uintptr_t* target_page) {
+    if (target_page == nullptr || reg > 31u ||
+            (instruction & 0x9f00001fu) != (0x90000000u | reg)) {
+        return false;
+    }
+    int64_t immediate = static_cast<int64_t>(
+            ((instruction >> 29u) & 0x3u) |
+            (((instruction >> 5u) & 0x7ffffu) << 2u));
+    if ((immediate & (int64_t{1} << 20u)) != 0) {
+        immediate -= int64_t{1} << 21u;
+    }
+    const int64_t page = static_cast<int64_t>(pc & ~uintptr_t{0xfffu});
+    const int64_t target = page + immediate * int64_t{4096};
+    if (target < 0 || static_cast<uint64_t>(target) > UINTPTR_MAX) {
+        return false;
+    }
+    *target_page = static_cast<uintptr_t>(target);
+    return true;
+}
+
+bool DecodeAddImmediate(uint32_t instruction, uint32_t destination,
+                        uint32_t source, uintptr_t* immediate) {
+    if (immediate == nullptr ||
+            (instruction & 0xffc003ffu) !=
+                    (0x91000000u | (source << 5u) | destination)) {
+        return false;
+    }
+    *immediate = (instruction >> 10u) & 0xfffu;
+    return true;
+}
+
+bool DecodeLdr64Immediate(uint32_t instruction, uint32_t destination,
+                          uint32_t source, uintptr_t* immediate) {
+    if (immediate == nullptr ||
+            (instruction & 0xffc003ffu) !=
+                    (0xf9400000u | (source << 5u) | destination)) {
+        return false;
+    }
+    *immediate = ((instruction >> 10u) & 0xfffu) * sizeof(uintptr_t);
+    return true;
+}
+
+bool DecodeAddressPair(const ElfView& view, uintptr_t instruction_offset,
+                       uint32_t reg, uintptr_t* target) {
+    uint32_t adrp = 0u;
+    uint32_t add = 0u;
+    uintptr_t page = 0u;
+    uintptr_t immediate = 0u;
+    return ReadInstruction(view, instruction_offset, &adrp) &&
+            ReadInstruction(view, instruction_offset + 4u, &add) &&
+            DecodeAdrp(adrp, instruction_offset, reg, &page) &&
+            DecodeAddImmediate(add, reg, reg, &immediate) &&
+            !AddOverflows(page, immediate) &&
+            ((*target = page + immediate), true);
+}
+
+bool DecodeBlTarget(const ElfView& view, uintptr_t instruction_offset,
+                    uintptr_t* target) {
+    uint32_t instruction = 0u;
+    if (target == nullptr ||
+            !ReadInstruction(view, instruction_offset, &instruction) ||
+            (instruction & 0xfc000000u) != 0x94000000u) {
+        return false;
+    }
+    int64_t immediate = instruction & 0x03ffffffu;
+    if ((immediate & (int64_t{1} << 25u)) != 0) {
+        immediate -= int64_t{1} << 26u;
+    }
+    const int64_t destination = static_cast<int64_t>(instruction_offset) +
+            immediate * int64_t{4};
+    if (destination < 0 || static_cast<uint64_t>(destination) > UINTPTR_MAX ||
+            !Contains(view, static_cast<uintptr_t>(destination), 16u,
+                      PF_R | PF_X)) {
+        return false;
+    }
+    *target = static_cast<uintptr_t>(destination);
+    return true;
+}
+
+bool DecodePltGot(const ElfView& view, uintptr_t plt_offset,
+                  uintptr_t* got_offset) {
+    uint32_t adrp = 0u;
+    uint32_t ldr = 0u;
+    uint32_t add = 0u;
+    uint32_t branch = 0u;
+    uintptr_t page = 0u;
+    uintptr_t load_immediate = 0u;
+    uintptr_t add_immediate = 0u;
+    return got_offset != nullptr &&
+            ReadInstruction(view, plt_offset, &adrp) &&
+            ReadInstruction(view, plt_offset + 4u, &ldr) &&
+            ReadInstruction(view, plt_offset + 8u, &add) &&
+            ReadInstruction(view, plt_offset + 12u, &branch) &&
+            DecodeAdrp(adrp, plt_offset, 16u, &page) &&
+            DecodeLdr64Immediate(ldr, 17u, 16u, &load_immediate) &&
+            DecodeAddImmediate(add, 16u, 16u, &add_immediate) &&
+            load_immediate == add_immediate &&
+            branch == 0xd61f0220u &&
+            !AddOverflows(page, load_immediate) &&
+            ((*got_offset = page + load_immediate), true);
+}
+
+bool CallTargetsImport(const ElfView& view, uintptr_t call_offset,
+                       uintptr_t expected_got) {
+    uintptr_t plt = 0u;
+    uintptr_t got = 0u;
+    return DecodeBlTarget(view, call_offset, &plt) &&
+            DecodePltGot(view, plt, &got) && got == expected_got;
+}
+
+bool MatchesWords(const ElfView& view, uintptr_t offset,
+                  const uint32_t* words, size_t count) {
+    if (words == nullptr || count == 0u ||
+            !Contains(view, offset, count * sizeof(uint32_t), PF_R | PF_X)) {
+        return false;
+    }
+    return memcmp(view.base + offset, words,
+                  count * sizeof(uint32_t)) == 0;
+}
+
+bool DecodeSideEdge(const ElfView& view, uintptr_t side,
+                    uintptr_t* edge_offset) {
+    uint32_t instruction = 0u;
+    if (edge_offset == nullptr ||
+            !ReadInstruction(view, side + 0x30u, &instruction) ||
+            (instruction & 0xffc003ffu) != 0x39400014u) {
+        return false;
+    }
+    const uintptr_t edge = (instruction >> 10u) & 0xfffu;
+    if (edge < 0x40u || edge > 0x400u || (edge & 0x3u) != 0u) return false;
+    *edge_offset = edge;
+    return true;
+}
+
+bool IsSideCandidate(const ElfView& view, const RequiredImports& imports,
+                     uintptr_t offset, uintptr_t* edge_offset) {
+    uint32_t instruction = 0u;
+    return MatchesWords(view, offset, kSideFamilyPrologue,
+                        sizeof(kSideFamilyPrologue) /
+                                sizeof(kSideFamilyPrologue[0])) &&
+            DecodeSideEdge(view, offset, edge_offset) &&
+            ReadInstruction(view, offset + 0x60u, &instruction) &&
+            instruction == 0xaa1503e0u &&
+            CallTargetsImport(view, offset + 0x64u,
+                              imports.motion_action_masked) &&
+            ReadInstruction(view, offset + 0xd8u, &instruction) &&
+            instruction == 0xaa1503e0u &&
+            CallTargetsImport(view, offset + 0xdcu,
+                              imports.motion_action_index) &&
+            ReadInstruction(view, offset + 0xe4u, &instruction) &&
+            instruction == 0xaa1503e0u &&
+            CallTargetsImport(view, offset + 0xe8u,
+                              imports.motion_raw_x) &&
+            ReadInstruction(view, offset + 0xecu, &instruction) &&
+            instruction == 0xaa1503e0u &&
+            CallTargetsImport(view, offset + 0xf8u,
+                              imports.motion_action_index) &&
+            ReadInstruction(view, offset + 0x100u, &instruction) &&
+            instruction == 0xaa1503e0u &&
+            CallTargetsImport(view, offset + 0x104u,
+                              imports.motion_raw_y);
+}
+
+bool ResolveSide(const ElfView& view, const RequiredImports& imports,
+                 uintptr_t* side_offset, uintptr_t* edge_offset,
+                 uint32_t* candidate_count) {
+    uintptr_t matched_side = 0u;
+    uintptr_t matched_edge = 0u;
+    uint32_t matches = 0u;
+    for (size_t segment_index = 0u;
+         segment_index < view.load_count; ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X) ||
+                load.end - load.start < 0x108u) {
+            continue;
+        }
+        const uintptr_t start = (load.start + 3u) & ~uintptr_t{3u};
+        for (uintptr_t offset = start; offset <= load.end - 0x108u;
+             offset += 4u) {
+            uintptr_t edge = 0u;
+            if (!IsSideCandidate(view, imports, offset, &edge)) continue;
+            matched_side = offset;
+            matched_edge = edge;
+            ++matches;
+        }
+    }
+    if (candidate_count != nullptr) *candidate_count = matches;
+    if (matches != 1u || side_offset == nullptr || edge_offset == nullptr) {
+        return false;
+    }
+    *side_offset = matched_side;
+    *edge_offset = matched_edge;
+    return true;
+}
+
+bool IsRuntimeCandidate(const ElfView& view,
+                        const RequiredImports& imports, uintptr_t offset,
+                        uintptr_t* pointer_offset,
+                        uintptr_t* state_offset) {
+    uint32_t instruction = 0u;
+    uintptr_t state = 0u;
+    uintptr_t pointer_page = 0u;
+    uintptr_t pointer_immediate = 0u;
+    uintptr_t repeated_immediate = 0u;
+    return DecodeAddressPair(view, offset, 8u, &state) &&
+            ReadInstruction(view, offset + 8u, &instruction) &&
+            instruction == 0x88dffd08u &&
+            ReadInstruction(view, offset + 12u, &instruction) &&
+            (instruction & 0xff00001fu) == 0x35000008u &&
+            ReadInstruction(view, offset + 16u, &instruction) &&
+            DecodeAdrp(instruction, offset + 16u, 20u, &pointer_page) &&
+            ReadInstruction(view, offset + 20u, &instruction) &&
+            DecodeLdr64Immediate(instruction, 0u, 20u,
+                                 &pointer_immediate) &&
+            CallTargetsImport(view, offset + 24u,
+                              imports.runtime_inc_strong) &&
+            ReadInstruction(view, offset + 28u, &instruction) &&
+            DecodeLdr64Immediate(instruction, 22u, 20u,
+                                 &repeated_immediate) &&
+            repeated_immediate == pointer_immediate &&
+            ReadInstruction(view, offset + 32u, &instruction) &&
+            instruction == 0xaa1603e0u &&
+            CallTargetsImport(view, offset + 36u,
+                              imports.runtime_get_binder) &&
+            ReadInstruction(view, offset + 40u, &instruction) &&
+            instruction == 0xaa0003f4u &&
+            ReadInstruction(view, offset + 44u, &instruction) &&
+            instruction == 0xaa1603e0u &&
+            CallTargetsImport(view, offset + 48u,
+                              imports.runtime_dec_strong) &&
+            !AddOverflows(pointer_page, pointer_immediate) &&
+            ((*pointer_offset = pointer_page + pointer_immediate), true) &&
+            ((*state_offset = state), true) &&
+            *state_offset == *pointer_offset + sizeof(uintptr_t) &&
+            Contains(view, *pointer_offset, sizeof(uintptr_t), PF_R | PF_W,
+                     PF_X) &&
+            Contains(view, *state_offset, sizeof(uint32_t), PF_R | PF_W,
+                     PF_X);
+}
+
+bool ResolveRuntime(const ElfView& view, const RequiredImports& imports,
+                    uintptr_t* pointer_offset, uintptr_t* state_offset,
+                    uint32_t* confirmation_count) {
+    uintptr_t matched_pointer = 0u;
+    uintptr_t matched_state = 0u;
+    uint32_t confirmations = 0u;
+    bool conflicting = false;
+    for (size_t segment_index = 0u;
+         segment_index < view.load_count; ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X) ||
+                load.end - load.start < 52u) {
+            continue;
+        }
+        const uintptr_t start = (load.start + 3u) & ~uintptr_t{3u};
+        for (uintptr_t offset = start; offset <= load.end - 52u;
+             offset += 4u) {
+            uintptr_t pointer = 0u;
+            uintptr_t state = 0u;
+            if (!IsRuntimeCandidate(view, imports, offset, &pointer, &state)) {
+                continue;
+            }
+            if (confirmations == 0u) {
+                matched_pointer = pointer;
+                matched_state = state;
+            } else if (matched_pointer != pointer || matched_state != state) {
+                conflicting = true;
+            }
+            ++confirmations;
+        }
+    }
+    if (confirmation_count != nullptr) *confirmation_count = confirmations;
+    if (conflicting || confirmations < kMinimumRuntimeConfirmations ||
+            pointer_offset == nullptr || state_offset == nullptr) {
+        return false;
+    }
+    *pointer_offset = matched_pointer;
+    *state_offset = matched_state;
+    return true;
+}
+
+bool IsRStringCandidate(const ElfView& view,
+                        const RequiredImports& imports, uintptr_t offset,
+                        uintptr_t* vtable_offset) {
+    uint32_t instruction = 0u;
+    uintptr_t first_vtable = 0u;
+    uintptr_t second_vtable = 0u;
+    return CallTargetsImport(view, offset, imports.bundle_default) &&
+            ReadInstruction(view, offset + 4u, &instruction) &&
+            instruction == 0xaa0003fbu &&
+            ReadInstruction(view, offset + 8u, &instruction) &&
+            instruction == 0x52800120u &&
+            CallTargetsImport(view, offset + 12u, imports.malloc_address) &&
+            ReadInstruction(view, offset + 16u, &instruction) &&
+            (instruction & 0xff00001fu) == 0xb4000000u &&
+            DecodeAddressPair(view, offset + 0x44u, 9u, &first_vtable) &&
+            CallTargetsImport(view, offset + 0x5cu,
+                              imports.malloc_address) &&
+            CallTargetsImport(view, offset + 0x70u,
+                              imports.memcpy_address) &&
+            DecodeAddressPair(view, offset + 0x7cu, 9u, &second_vtable) &&
+            first_vtable == second_vtable &&
+            Contains(view, first_vtable, sizeof(uintptr_t), PF_R, PF_X) &&
+            ((*vtable_offset = first_vtable), true);
+}
+
+bool ResolveRString(const ElfView& view, const RequiredImports& imports,
+                    uintptr_t* vtable_offset, uint32_t* candidate_count) {
+    uintptr_t matched_vtable = 0u;
+    uint32_t matches = 0u;
+    for (size_t segment_index = 0u;
+         segment_index < view.load_count; ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X) ||
+                load.end - load.start < 0x84u) {
+            continue;
+        }
+        const uintptr_t start = (load.start + 3u) & ~uintptr_t{3u};
+        for (uintptr_t offset = start; offset <= load.end - 0x84u;
+             offset += 4u) {
+            uintptr_t candidate_vtable = 0u;
+            if (!IsRStringCandidate(view, imports, offset,
+                                    &candidate_vtable)) {
+                continue;
+            }
+            matched_vtable = candidate_vtable;
+            ++matches;
+        }
+    }
+    if (candidate_count != nullptr) *candidate_count = matches;
+    if (matches != 1u || vtable_offset == nullptr) return false;
+    *vtable_offset = matched_vtable;
+    return true;
+}
+
+bool ValidateEntry(const ElfView& view, void* app_entry_point,
+                   uintptr_t* entry_offset) {
+    if (app_entry_point == nullptr || entry_offset == nullptr) return false;
+    const uintptr_t base_address = reinterpret_cast<uintptr_t>(view.base);
+    const uintptr_t entry_address = reinterpret_cast<uintptr_t>(
+            app_entry_point);
+    if (entry_address < base_address) return false;
+    const uintptr_t offset = entry_address - base_address;
+    if (!Contains(view, offset, kEntryFingerprintSize, PF_R | PF_X) ||
+            !MatchesWords(view, offset, kEntryFamilyPrefix,
+                          sizeof(kEntryFamilyPrefix) /
+                                  sizeof(kEntryFamilyPrefix[0]))) {
+        return false;
+    }
+    *entry_offset = offset;
+    return true;
+}
+
+}  // namespace
+
+bool ResolveSideBoundaryProfile(const uint8_t* base, void* app_entry_point,
+                                ResolutionStorage* storage,
+                                ResolutionDiagnostics* diagnostics) {
+    if (storage == nullptr || diagnostics == nullptr) return false;
+    memset(storage, 0, sizeof(*storage));
+    memset(diagnostics, 0, sizeof(*diagnostics));
+    diagnostics->stage = ResolveStage::kParsingElf;
+
+    ElfView view{};
+    uintptr_t entry_offset = 0u;
+    if (!ParseElf(base, &view) ||
+            !ValidateEntry(view, app_entry_point, &entry_offset)) {
+        diagnostics->stage = ResolveStage::kRejectedElf;
+        return false;
+    }
+
+    diagnostics->stage = ResolveStage::kResolvingImports;
+    RequiredImports imports{};
+    if (!ResolveImports(view, &imports)) {
+        diagnostics->stage = ResolveStage::kRejectedImports;
+        return false;
+    }
+
+    diagnostics->stage = ResolveStage::kResolvingSideBoundary;
+    uintptr_t side_offset = 0u;
+    uintptr_t edge_offset = 0u;
+    if (!ResolveSide(view, imports, &side_offset, &edge_offset,
+                     &diagnostics->side_candidate_count)) {
+        diagnostics->stage = ResolveStage::kRejectedSideBoundary;
+        return false;
+    }
+    diagnostics->side_handler_offset = side_offset;
+
+    diagnostics->stage = ResolveStage::kResolvingRuntime;
+    uintptr_t runtime_pointer = 0u;
+    uintptr_t runtime_state = 0u;
+    if (!ResolveRuntime(view, imports, &runtime_pointer, &runtime_state,
+                        &diagnostics->runtime_confirmation_count)) {
+        diagnostics->stage = ResolveStage::kRejectedRuntime;
+        return false;
+    }
+    diagnostics->runtime_pointer_offset = runtime_pointer;
+    diagnostics->runtime_state_offset = runtime_state;
+
+    diagnostics->stage = ResolveStage::kResolvingRString;
+    uintptr_t rstring_vtable = 0u;
+    if (!ResolveRString(view, imports, &rstring_vtable,
+                        &diagnostics->rstring_candidate_count)) {
+        diagnostics->stage = ResolveStage::kRejectedRString;
+        return false;
+    }
+    diagnostics->rstring_vtable_offset = rstring_vtable;
+
+    memcpy(storage->entry_fingerprint, base + entry_offset,
+           kEntryFingerprintSize);
+    memcpy(storage->side_prologue, base + side_offset,
+           kSidePrologueSize);
+    storage->identity_fingerprint = {
+            entry_offset, storage->entry_fingerprint,
+            sizeof(storage->entry_fingerprint)};
+    storage->profile = {
+            kDynamicProfileId,
+            kDynamicVersionName,
+            view.image_span,
+            entry_offset,
+            &storage->identity_fingerprint,
+            1u,
+            miui_home_profiles::BusinessHookTopology::kSideBoundaryOnly,
+            side_offset,
+            storage->side_prologue,
+            sizeof(storage->side_prologue),
+            edge_offset,
+            0u,
+            nullptr,
+            0u,
+            0u,
+            nullptr,
+            0u,
+            0u,
+            0u,
+            0u,
+            nullptr,
+            0u,
+            rstring_vtable,
+            0u,
+            runtime_pointer,
+            runtime_state,
+            0u,
+    };
+    diagnostics->stage = ResolveStage::kComplete;
+    return true;
+}
+
+}  // namespace miui_home_runtime_profile

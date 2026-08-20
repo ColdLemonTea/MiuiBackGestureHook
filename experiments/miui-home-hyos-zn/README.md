@@ -14,8 +14,10 @@ for MiuiHome `4371` and `5334`, plus a statically reviewed and device-tested
 
 - Android 17 HyperOS with the exact supported `hyos_spawner` build below.
 - arm64 device with Zygisk Next.
-- MiuiHome `4371`, `5334`, or `5402`, selected automatically from immutable native
-  identity. The ZIP contains all three profiles.
+- MiuiHome `4371`, `5334`, or `5402`, selected automatically from immutable
+  native identity. The ZIP contains all three static profiles. A bounded
+  runtime resolver may also recognize a later build in the reviewed
+  `side_boundary_only` family; it does not extend the host deployment allowlist.
 - The companion LSPosed module enabled for its existing Android 17 SystemUI
   and `system` scopes. This ZN module alone does not create an AOSP gesture.
 
@@ -61,14 +63,28 @@ Launcher profiles:
 | `5402` | `801025402` / `RELEASE-8.01.02.5402-260807-08181825-R` | SHA-256 `053b3b6ad84815fb319b2f87e766f67cbf1a22fcfe7f7ed2cd03502e569e0f98`; entry `0xc94b14`; side boundary `0x810010`; edge `+0xf4` | `side_boundary_only` |
 
 Package version is enforced by the host deployment script. At runtime the
-module validates the exact `app_entry_point` RVA and the profile's immutable
-code fingerprints before installing business hooks. Hook sites validate their
-own prologues again. Zero matches, multiple matches, an incomplete profile, or
-a topology mismatch leaves Xiaomi behavior unchanged.
+module first validates the exact `app_entry_point` RVA and immutable code
+fingerprints of the three static profiles. Hook sites validate their own
+prologues again.
 
-This is not an AOB scanner. A nearby byte pattern is never treated as a
-compatible build. The library SHA-256 is an offline profile-verification input;
-runtime selection uses the exact entry address and fingerprints.
+If no static profile matches, the v1 runtime resolver is limited to the Android
+17 `side_boundary_only` family represented by `5334` and `5402`. The side
+prologue is only a candidate seed. A candidate is accepted only when its edge
+field load and the ordered `getActionMasked`, `getActionIndex`, `getRawX`, and
+`getRawY` calls resolve through the corresponding ELF PLT relocations. The
+resolver independently requires the `Runtime_inc_strong` / application-thread
+binder / `Runtime_dec_strong` graph, its adjacent RW non-executable pointer and
+state, and two identical RString-vtable constructions anchored by
+`Bundle_default`, `malloc`, and `memcpy`. Every address must lie in a compatible
+`PT_LOAD` segment and every result must be unique. Only then is one immutable
+in-process profile snapshot published. Zero matches, multiple matches, a
+broken relationship, or a partial result installs no business hook.
+
+This is not a generic AOB scanner, and it never copies offsets from the nearest
+version. `4371` remains strict-static because its legacy three-stage topology
+is outside the dynamic family. Library SHA-256 remains an offline
+profile-verification input; the runtime resolver uses only the already loaded
+ELF image and does not open the APK or parse a writable configuration file.
 
 `4371` keeps two transparent legacy diagnostic hooks around the side boundary.
 `5334` and `5402` use only the reviewed side boundary because Xiaomi inlined
@@ -135,11 +151,22 @@ The verifier checks the recorded digest, translates every RVA through the ELF
 LOAD table, and compares all identity and hook bytes inside executable
 segments.
 
-To adapt another MiuiHome build, add a new manifest profile only after static
-analysis identifies the entry, accepted side boundary, edge field, topology,
-ABI offsets, and immutable fingerprints. Generate and verify the profile, build
-a Debug ZIP, then use the controlled deployment flow below. Never copy offsets
-from the nearest version on version-name evidence alone.
+The structural resolver has a separate dual-sample regression. It verifies
+that the production constraints reproduce every recorded `5334`/`5402` ABI
+offset and that corrupting the unique side candidate fails closed:
+
+```powershell
+python .\experiments\miui-home-hyos-zn\verify-runtime-profile.py `
+  --library 5334=<5334-libapp_launcher.so> `
+  --library 5402=<5402-libapp_launcher.so>
+```
+
+The dynamic snapshot is a fail-closed compatibility mechanism, not deployment
+authorization. To formally support another MiuiHome build, retain its ELF, add
+a manifest profile only after static analysis confirms the resolved entry,
+accepted side boundary, edge field, topology, ABI offsets, and immutable
+fingerprints, then extend the controlled host allowlist. Generate and verify
+the profile, build a Debug ZIP, and use the deployment flow below.
 
 ## Build
 

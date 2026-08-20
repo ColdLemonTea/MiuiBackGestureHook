@@ -12,6 +12,8 @@ $Paths = @{
     ProfileGenerator = Join-Path $PSScriptRoot 'generate-launcher-profiles.py'
     ProfileHeader = Join-Path $PSScriptRoot 'launcher_profiles.h'
     ProfileVerifier = Join-Path $PSScriptRoot 'verify-launcher-profiles.py'
+    RuntimeResolver = Join-Path $PSScriptRoot 'runtime_profile_resolver.cpp'
+    RuntimeVerifier = Join-Path $PSScriptRoot 'verify-runtime-profile.py'
     Build = Join-Path $PSScriptRoot 'build.ps1'
     AppBuild = Join-Path $PSScriptRoot '..\..\app\build.gradle'
     Readme = Join-Path $PSScriptRoot 'README.md'
@@ -176,6 +178,27 @@ if (-not $Text.Native.Contains('ResolveLauncherProfile(') -or
         -not $Text.Native.Contains('MatchesLauncherProfile(') -or
         -not $Text.Native.Contains('InstallLauncherInputHooksForProfile(')) {
     throw 'Launcher hooks are not selected through the fail-closed profile registry.'
+}
+foreach ($Needle in @(
+        'ResolveSideBoundaryProfile(',
+        'BusinessHookTopology::kSideBoundaryOnly',
+        'DT_JMPREL',
+        'kMotionActionMasked',
+        'kRuntimeGetBinder',
+        'state_offset == *pointer_offset + sizeof(uintptr_t)',
+        'matches != 1u')) {
+    if (-not $Text.RuntimeResolver.Contains($Needle)) {
+        throw "Runtime launcher profile resolver is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'SIDE_PROLOGUE',
+        'Runtime_get_application_thread_binder',
+        'resolve_side(image)',
+        'corrupted side boundary did not fail closed')) {
+    if (-not $Text.RuntimeVerifier.Contains($Needle)) {
+        throw "Runtime launcher profile regression is missing: $Needle"
+    }
 }
 
 $Manifest = $Text.Profiles | ConvertFrom-Json
