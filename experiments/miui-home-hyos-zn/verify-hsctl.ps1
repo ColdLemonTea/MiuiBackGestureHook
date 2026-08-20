@@ -3,6 +3,7 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 
 $Paths = @{
     Cli = Join-Path $PSScriptRoot 'bin\hsctl'
@@ -14,6 +15,11 @@ $Paths = @{
     ProfileVerifier = Join-Path $PSScriptRoot 'verify-launcher-profiles.py'
     RuntimeResolver = Join-Path $PSScriptRoot 'runtime_profile_resolver.cpp'
     RuntimeVerifier = Join-Path $PSScriptRoot 'verify-runtime-profile.py'
+    StatusProtocol = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\ZnStatusProtocol.java'
+    StatusState = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\ZnStatusUiState.kt'
+    StatusUi = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\activity\PredictiveBackSettingsActivity.kt'
+    StatusSystemUi = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\systemui\SystemUiHookRuntime.java'
+    StatusMiuiHome = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\miuihome\MiuiHomeHookRuntime.java'
     Build = Join-Path $PSScriptRoot 'build.ps1'
     AppBuild = Join-Path $PSScriptRoot '..\..\app\build.gradle'
     Readme = Join-Path $PSScriptRoot 'README.md'
@@ -156,7 +162,10 @@ foreach ($Needle in @(
         throw "GestureStubView Back-only handoff contract is missing: $Needle"
     }
 }
-if ($Text.AppBuild -notmatch 'versionName\s+"0\.9\.1"' -or
+$AppVersionMatches = [regex]::Matches(
+    $Text.AppBuild, '(?m)^\s*versionName\s+"[^"]+"\s*$')
+if ($AppVersionMatches.Count -ne 1 -or
+        -not $Text.Build.Contains('$PSVersionTable.PSEdition') -or
         -not $Text.Build.Contains("Join-Path `$RepoRoot 'app\build.gradle'") -or
         -not $Text.Build.Contains('git -C $RepoRoot rev-list --count HEAD') -or
         -not $Text.Build.Contains("generate-launcher-profiles.py") -or
@@ -189,6 +198,71 @@ foreach ($Needle in @(
         'matches != 1u')) {
     if (-not $Text.RuntimeResolver.Contains($Needle)) {
         throw "Runtime launcher profile resolver is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'ACTION_QUERY',
+        'ACTION_REPLY',
+        'EXTRA_NATIVE_READY',
+        'EXTRA_LEGACY_MODE',
+        'EXTRA_LEGACY_READY',
+        'EXTRA_NONCE')) {
+    if (-not $Text.StatusProtocol.Contains($Needle)) {
+        throw "Runtime status protocol is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'HandleRuntimeStatusQuery',
+        'kRuntimeStatusResponseAction',
+        'status_native_profile_resolved',
+        'status_native_business_state',
+        'status_native_bridge_state')) {
+    if (-not $Text.Native.Contains($Needle)) {
+        throw "Native runtime status bridge is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'registerStatusReceiver()',
+        'requestZnStatus()',
+        'getSentFromPackage()',
+        'ZnRuntimeStatusCard(',
+        'PressFeedbackType.Tilt',
+        'Icons.Rounded.CheckCircleOutline',
+        'Icons.Rounded.WarningAmber',
+        'Icons.Rounded.ErrorOutline',
+        'NativeNoResponse',
+        'systemUiResponseReceived',
+        'systemUiReadyReported')) {
+    if (-not $Text.StatusUi.Contains($Needle)) {
+        throw "Runtime status UI contract is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'handleModuleRuntimeStatusQuery',
+        'handleNativeRuntimeStatusReply',
+        'isTrustedModuleStatusSender',
+        'setShareIdentityEnabled(true)',
+        'pendingModuleStatusNonce',
+        'systemUiInputArbiterStateAction()',
+        'resolveCurrentApplicationContext')) {
+    if (-not $Text.StatusSystemUi.Contains($Needle)) {
+        throw "SystemUI runtime status bridge is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'publishLegacyRuntimeStatusReply',
+        'EXTRA_STATUS_LEGACY_READY',
+        'setShareIdentityEnabled(true)')) {
+    if (-not $Text.StatusMiuiHome.Contains($Needle)) {
+        throw "MiuiHome Android 16 runtime status bridge is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'legacyMode',
+        'EXTRA_LEGACY_READY',
+        'LegacyNotReady')) {
+    if (-not $Text.StatusState.Contains($Needle)) {
+        throw "Android 16 runtime status model is missing: $Needle"
     }
 }
 foreach ($Needle in @(

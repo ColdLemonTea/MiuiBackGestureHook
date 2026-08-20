@@ -2,25 +2,47 @@
 package dev.codex.miuibackgesturehook.activity
 
 import android.annotation.SuppressLint
+import android.app.BroadcastOptions
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.Process
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircleOutline
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -30,16 +52,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.codex.miuibackgesturehook.BuildConfig
 import dev.codex.miuibackgesturehook.ModuleApplication
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences
 import dev.codex.miuibackgesturehook.R
+import dev.codex.miuibackgesturehook.ZnStatusKind
+import dev.codex.miuibackgesturehook.ZnStatusProtocol
+import dev.codex.miuibackgesturehook.ZnStatusUiState
 import io.github.libxposed.service.XposedService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -65,6 +93,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 class PredictiveBackSettingsActivity :
@@ -72,6 +101,63 @@ class PredictiveBackSettingsActivity :
     ModuleApplication.ServiceStateListener {
     private var xposedService: XposedService? by mutableStateOf(null)
     private var serviceStateObserved by mutableStateOf(false)
+    private var znStatus by mutableStateOf(
+        ZnStatusUiState.checking(Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL),
+    )
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private var statusNonce = 0L
+    private var systemUiResponseReceived = false
+    private var systemUiReadyReported = false
+    private var statusReceiverRegistered = false
+    private val statusTimeout = Runnable {
+        if (statusNonce != 0L) {
+            statusNonce = 0L
+            znStatus = if (!systemUiResponseReceived) {
+                ZnStatusUiState.noResponse()
+            } else if (!systemUiReadyReported) {
+                ZnStatusUiState(ZnStatusKind.SystemUiNotReady)
+            } else {
+                ZnStatusUiState(
+                    kind = ZnStatusKind.NativeNoResponse,
+                    legacyMode = Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL,
+                )
+            }
+        }
+    }
+    private val statusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != ZnStatusProtocol.ACTION_REPLY) {
+                return
+            }
+            val senderUid = getSentFromUid()
+            val senderPackage = getSentFromPackage()
+            if (senderUid == Process.INVALID_UID
+                || senderPackage != ZnStatusProtocol.SYSTEM_UI_PACKAGE
+                || !isUidOwner(senderUid, ZnStatusProtocol.SYSTEM_UI_PACKAGE)
+            ) {
+                return
+            }
+            val nonce = intent.getLongExtra(ZnStatusProtocol.EXTRA_NONCE, 0L)
+            if (nonce <= 0L || nonce != statusNonce) {
+                return
+            }
+            znStatus = ZnStatusUiState.fromReply(intent)
+            val nativeResponse = intent.getBooleanExtra(
+                ZnStatusProtocol.EXTRA_NATIVE_RESPONSE,
+                false,
+            )
+            if (!nativeResponse) {
+                systemUiResponseReceived = true
+                systemUiReadyReported = intent.getBooleanExtra(
+                    ZnStatusProtocol.EXTRA_SYSTEMUI_READY,
+                    false,
+                )
+            } else {
+                statusHandler.removeCallbacks(statusTimeout)
+                statusNonce = 0L
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,6 +168,8 @@ class PredictiveBackSettingsActivity :
                 PredictiveBackSettingsScreen(
                     service = xposedService,
                     serviceStateObserved = serviceStateObserved,
+                    znStatus = znStatus,
+                    onRefreshZnStatus = ::requestZnStatus,
                     onClose = { finish() },
                     onOpenGestureTriggerSettings = {
                         startActivity(
@@ -107,9 +195,12 @@ class PredictiveBackSettingsActivity :
     override fun onStart() {
         super.onStart()
         ModuleApplication.addServiceStateListener(this, notifyImmediately = true)
+        registerStatusReceiver()
+        requestZnStatus()
     }
 
     override fun onStop() {
+        unregisterStatusReceiver()
         ModuleApplication.removeServiceStateListener(this)
         super.onStop()
     }
@@ -117,6 +208,267 @@ class PredictiveBackSettingsActivity :
     override fun onServiceStateChanged(service: XposedService?) {
         xposedService = service
         serviceStateObserved = true
+    }
+
+    private fun registerStatusReceiver() {
+        if (statusReceiverRegistered) {
+            return
+        }
+        val filter = IntentFilter(ZnStatusProtocol.ACTION_REPLY)
+        registerReceiver(statusReceiver, filter, Context.RECEIVER_EXPORTED)
+        statusReceiverRegistered = true
+    }
+
+    private fun unregisterStatusReceiver() {
+        if (!statusReceiverRegistered) {
+            return
+        }
+        statusHandler.removeCallbacks(statusTimeout)
+        statusNonce = 0L
+        systemUiResponseReceived = false
+        systemUiReadyReported = false
+        unregisterReceiver(statusReceiver)
+        statusReceiverRegistered = false
+    }
+
+    private fun requestZnStatus() {
+        if (!statusReceiverRegistered) {
+            return
+        }
+        val nonce = SystemClock.elapsedRealtimeNanos().coerceAtLeast(1L)
+        statusNonce = nonce
+        systemUiResponseReceived = false
+        systemUiReadyReported = false
+        znStatus = ZnStatusUiState.checking(
+            Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL,
+        )
+        statusHandler.removeCallbacks(statusTimeout)
+        statusHandler.postDelayed(statusTimeout, STATUS_TIMEOUT_MS)
+        try {
+            val query = Intent(ZnStatusProtocol.ACTION_QUERY)
+                .setPackage(ZnStatusProtocol.SYSTEM_UI_PACKAGE)
+                .putExtra(ZnStatusProtocol.EXTRA_NONCE, nonce)
+                .putExtra("sender_uid", Process.myUid())
+            val options = BroadcastOptions.makeBasic()
+                .setShareIdentityEnabled(true)
+                .toBundle()
+            sendBroadcast(query, null, options)
+        } catch (_: Throwable) {
+            statusHandler.removeCallbacks(statusTimeout)
+            statusNonce = 0L
+            znStatus = ZnStatusUiState.noResponse()
+        }
+    }
+
+    private fun isUidOwner(uid: Int, packageName: String): Boolean {
+        return try {
+            packageManager.getPackagesForUid(uid)?.contains(packageName) == true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    companion object {
+        private const val STATUS_TIMEOUT_MS = 2500L
+        private const val ANDROID_17_API_LEVEL = 37
+    }
+}
+
+@Composable
+private fun ZnRuntimeStatusCard(
+    state: ZnStatusUiState,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val ready = state.kind == ZnStatusKind.Ready
+    val warning = state.kind == ZnStatusKind.Checking
+        || state.kind == ZnStatusKind.WaitingForNative
+        || state.kind == ZnStatusKind.SystemUiNotReady
+        || state.kind == ZnStatusKind.NativeNotReady
+        || state.kind == ZnStatusKind.LegacyNotReady
+    val title = when (state.kind) {
+        ZnStatusKind.Checking -> stringResource(
+            if (state.legacyMode) {
+                R.string.zn_status_legacy_checking_title
+            } else {
+                R.string.zn_status_checking_title
+            },
+        )
+        ZnStatusKind.WaitingForNative -> stringResource(
+            if (state.legacyMode) {
+                R.string.zn_status_legacy_waiting_title
+            } else {
+                R.string.zn_status_waiting_title
+            },
+        )
+        ZnStatusKind.Ready -> stringResource(
+            if (state.legacyMode) {
+                R.string.zn_status_ready_legacy_title
+            } else {
+                R.string.zn_status_ready_title
+            },
+        )
+        ZnStatusKind.SystemUiNotReady ->
+            stringResource(R.string.zn_status_systemui_not_ready_title)
+        ZnStatusKind.NativeNotReady ->
+            stringResource(R.string.zn_status_native_not_ready_title)
+        ZnStatusKind.LegacyNotReady ->
+            stringResource(R.string.zn_status_legacy_not_ready_title)
+        ZnStatusKind.NativeNoResponse ->
+            stringResource(
+                if (state.legacyMode) {
+                    R.string.zn_status_legacy_no_response_title
+                } else {
+                    R.string.zn_status_native_no_response_title
+                },
+            )
+        ZnStatusKind.ProfileRejected ->
+            stringResource(R.string.zn_status_profile_rejected_title)
+        ZnStatusKind.NoResponse -> stringResource(R.string.zn_status_no_response_title)
+        ZnStatusKind.LsPosedUnavailable ->
+            stringResource(R.string.zn_status_lsposed_unavailable_title)
+    }
+    val summary = when (state.kind) {
+        ZnStatusKind.Checking -> stringResource(
+            if (state.legacyMode) {
+                R.string.zn_status_legacy_checking_summary
+            } else {
+                R.string.zn_status_checking_summary
+            },
+        )
+        ZnStatusKind.WaitingForNative ->
+            stringResource(
+                if (state.legacyMode) {
+                    R.string.zn_status_legacy_waiting_summary
+                } else {
+                    R.string.zn_status_waiting_summary
+                },
+            )
+        ZnStatusKind.Ready -> stringResource(
+            if (state.legacyMode) {
+                R.string.zn_status_ready_legacy_summary
+            } else if (state.profileDynamic) {
+                R.string.zn_status_ready_runtime_summary
+            } else {
+                R.string.zn_status_ready_static_summary
+            },
+        )
+        ZnStatusKind.SystemUiNotReady ->
+            stringResource(R.string.zn_status_systemui_not_ready_summary)
+        ZnStatusKind.NativeNotReady ->
+            stringResource(R.string.zn_status_native_not_ready_summary)
+        ZnStatusKind.LegacyNotReady ->
+            stringResource(R.string.zn_status_legacy_not_ready_summary)
+        ZnStatusKind.NativeNoResponse ->
+            stringResource(
+                if (state.legacyMode) {
+                    R.string.zn_status_legacy_no_response_summary
+                } else {
+                    R.string.zn_status_native_no_response_summary
+                },
+            )
+        ZnStatusKind.ProfileRejected ->
+            stringResource(R.string.zn_status_profile_rejected_summary)
+        ZnStatusKind.NoResponse -> stringResource(R.string.zn_status_no_response_summary)
+        ZnStatusKind.LsPosedUnavailable ->
+            stringResource(R.string.zn_status_lsposed_unavailable_summary)
+    }
+    val mode: String? = if (state.kind == ZnStatusKind.Ready) {
+        when {
+            state.legacyMode -> "LSPOSED"
+            state.profileDynamic -> stringResource(R.string.zn_status_mode_runtime_profile)
+            else -> stringResource(R.string.zn_status_mode_builtin_profile)
+        }
+    } else {
+        null
+    }
+    val cardColor = when {
+        ready && MiuixTheme.isDynamicColor -> MiuixTheme.colorScheme.secondaryContainer
+        ready && isSystemInDarkTheme() -> Color(0xFF1A3825)
+        ready -> Color(0xFFDFFAE4)
+        warning && isSystemInDarkTheme() -> Color(0xFF3D3215)
+        warning -> Color(0xFFFFF3CD)
+        MiuixTheme.isDynamicColor -> MiuixTheme.colorScheme.secondaryContainer
+        isSystemInDarkTheme() -> Color(0xFF3A1E22)
+        else -> Color(0xFFFFE4E1)
+    }
+    val iconTint = when {
+        ready && MiuixTheme.isDynamicColor ->
+            MiuixTheme.colorScheme.primary.copy(alpha = 0.8f)
+        ready -> Color(0xFF36D167)
+        warning && isSystemInDarkTheme() -> Color(0xFFFFC107)
+        warning -> Color(0xFFFFB300)
+        MiuixTheme.isDynamicColor -> MiuixTheme.colorScheme.primary.copy(alpha = 0.8f)
+        isSystemInDarkTheme() -> Color(0xFFFF8A80)
+        else -> Color(0xFFD32F2F)
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.defaultColors(color = cardColor),
+            onClick = onRefresh,
+            showIndication = true,
+            pressFeedbackType = PressFeedbackType.Tilt,
+        ) {
+            Box {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .offset(27.dp, 31.dp),
+                    contentAlignment = Alignment.BottomEnd,
+                ) {
+                    Icon(
+                        modifier = Modifier.size(110.dp),
+                        imageVector = when {
+                            ready -> Icons.Rounded.CheckCircleOutline
+                            warning -> Icons.Rounded.WarningAmber
+                            else -> Icons.Rounded.ErrorOutline
+                        },
+                        tint = iconTint,
+                        contentDescription = null,
+                    )
+                }
+                if (mode != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp, 10.dp),
+                        contentAlignment = Alignment.BottomStart,
+                    ) {
+                        Text(
+                            text = mode,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp, 14.dp),
+                    contentAlignment = Alignment.TopStart,
+                ) {
+                    Column {
+                        Text(
+                            text = title,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(1.dp))
+                        Text(
+                            text = summary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -135,6 +487,8 @@ private enum class SettingsCardSeverity {
 private fun PredictiveBackSettingsScreen(
     service: XposedService?,
     serviceStateObserved: Boolean,
+    znStatus: ZnStatusUiState,
+    onRefreshZnStatus: () -> Unit,
     onClose: () -> Unit,
     onOpenGestureTriggerSettings: () -> Unit,
     onOpenAppList: () -> Unit,
@@ -157,6 +511,8 @@ private fun PredictiveBackSettingsScreen(
     var confirmedHyperOsHapticsEnhanced by remember { mutableStateOf(false) }
     var hyperOsSlideAnimation by remember { mutableStateOf(false) }
     var confirmedHyperOsSlideAnimation by remember { mutableStateOf(false) }
+    var oneUiCrossTaskAnimation by remember { mutableStateOf(false) }
+    var confirmedOneUiCrossTaskAnimation by remember { mutableStateOf(false) }
     var moduleLogging by remember { mutableStateOf(true) }
     var confirmedModuleLogging by remember { mutableStateOf(true) }
     var contextualSearchLongPress by remember { mutableStateOf(false) }
@@ -184,6 +540,8 @@ private fun PredictiveBackSettingsScreen(
         confirmedHyperOsHapticsEnhanced = false
         hyperOsSlideAnimation = false
         confirmedHyperOsSlideAnimation = false
+        oneUiCrossTaskAnimation = false
+        confirmedOneUiCrossTaskAnimation = false
         moduleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
         confirmedModuleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
         contextualSearchLongPress =
@@ -243,6 +601,10 @@ private fun PredictiveBackSettingsScreen(
                         PredictiveBackPreferences.DEFAULT_HYPEROS_SLIDE_ANIMATION,
                     ),
                     remotePreferences.getBoolean(
+                        PredictiveBackPreferences.KEY_ONEUI_CROSS_TASK_ANIMATION,
+                        PredictiveBackPreferences.DEFAULT_ONEUI_CROSS_TASK_ANIMATION,
+                    ),
+                    remotePreferences.getBoolean(
                         PredictiveBackPreferences.KEY_MODULE_LOGGING,
                         PredictiveBackPreferences.DEFAULT_MODULE_LOGGING,
                     ),
@@ -266,12 +628,14 @@ private fun PredictiveBackSettingsScreen(
             confirmedHyperOsHapticsEnhanced = loaded.second[2]
             hyperOsSlideAnimation = loaded.second[3]
             confirmedHyperOsSlideAnimation = loaded.second[3]
-            moduleLogging = loaded.second[4]
-            confirmedModuleLogging = loaded.second[4]
-            contextualSearchLongPress = loaded.second[5]
-            confirmedContextualSearchLongPress = loaded.second[5]
-            contextualSearchLiveTranslate = loaded.second[6]
-            confirmedContextualSearchLiveTranslate = loaded.second[6]
+            oneUiCrossTaskAnimation = loaded.second[4]
+            confirmedOneUiCrossTaskAnimation = loaded.second[4]
+            moduleLogging = loaded.second[5]
+            confirmedModuleLogging = loaded.second[5]
+            contextualSearchLongPress = loaded.second[6]
+            confirmedContextualSearchLongPress = loaded.second[6]
+            contextualSearchLiveTranslate = loaded.second[7]
+            confirmedContextualSearchLiveTranslate = loaded.second[7]
         } catch (_: Throwable) {
             configurationError = configurationErrorMessage
         } finally {
@@ -358,6 +722,15 @@ private fun PredictiveBackSettingsScreen(
             { hyperOsSlideAnimation = it },
             { confirmedHyperOsSlideAnimation },
             { confirmedHyperOsSlideAnimation = it },
+        )
+    }
+    val persistOneUiCrossTaskAnimation: (Boolean) -> Unit = { requestedEnabled ->
+        persistBooleanPreference(
+            PredictiveBackPreferences.KEY_ONEUI_CROSS_TASK_ANIMATION,
+            requestedEnabled,
+            { oneUiCrossTaskAnimation = it },
+            { confirmedOneUiCrossTaskAnimation },
+            { confirmedOneUiCrossTaskAnimation = it },
         )
     }
     val persistModuleLogging: (Boolean) -> Unit = { requestedEnabled ->
@@ -449,17 +822,32 @@ private fun PredictiveBackSettingsScreen(
             ),
             overscrollEffect = null,
         ) {
+            item(key = "zn_runtime_status") {
+                ZnRuntimeStatusCard(
+                    state = if (serviceStateObserved && service == null) {
+                        ZnStatusUiState(ZnStatusKind.LsPosedUnavailable)
+                    } else {
+                        znStatus
+                    },
+                    onRefresh = onRefreshZnStatus,
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 8.dp),
+                )
+            }
             item(key = "hyperos_switches") {
                 HyperOsSwitchGroupCard(
                     hyperOsIndicator = hyperOsIndicator,
                     hyperOsHaptics = hyperOsHaptics,
                     hyperOsHapticsEnhanced = hyperOsHapticsEnhanced,
                     hyperOsSlideAnimation = hyperOsSlideAnimation,
+                    oneUiCrossTaskAnimation = oneUiCrossTaskAnimation,
                     configurationEnabled = configurationEnabled,
                     onHyperOsIndicatorToggle = persistHyperOsIndicator,
                     onHyperOsHapticsToggle = persistHyperOsHaptics,
                     onHyperOsHapticsEnhancedToggle = persistHyperOsHapticsEnhanced,
                     onHyperOsSlideAnimationToggle = persistHyperOsSlideAnimation,
+                    onOneUiCrossTaskAnimationToggle = persistOneUiCrossTaskAnimation,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 8.dp),
@@ -555,11 +943,13 @@ private fun HyperOsSwitchGroupCard(
     hyperOsHaptics: Boolean,
     hyperOsHapticsEnhanced: Boolean,
     hyperOsSlideAnimation: Boolean,
+    oneUiCrossTaskAnimation: Boolean,
     configurationEnabled: Boolean,
     onHyperOsIndicatorToggle: (Boolean) -> Unit,
     onHyperOsHapticsToggle: (Boolean) -> Unit,
     onHyperOsHapticsEnhancedToggle: (Boolean) -> Unit,
     onHyperOsSlideAnimationToggle: (Boolean) -> Unit,
+    onOneUiCrossTaskAnimationToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -593,6 +983,13 @@ private fun HyperOsSwitchGroupCard(
             checked = hyperOsSlideAnimation,
             enabled = configurationEnabled,
             onCheckedChange = onHyperOsSlideAnimationToggle,
+        )
+        SwitchPreference(
+            title = stringResource(R.string.oneui_cross_task_animation_title),
+            summary = stringResource(R.string.oneui_cross_task_animation_summary),
+            checked = oneUiCrossTaskAnimation,
+            enabled = configurationEnabled,
+            onCheckedChange = onOneUiCrossTaskAnimationToggle,
         )
     }
 }

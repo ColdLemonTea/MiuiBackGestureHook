@@ -16,6 +16,9 @@ public final class PredictiveBackPreferences {
     public static final String KEY_HYPEROS_SLIDE_ANIMATION =
             "hyperos_slide_back_animation";
     public static final boolean DEFAULT_HYPEROS_SLIDE_ANIMATION = false;
+    public static final String KEY_ONEUI_CROSS_TASK_ANIMATION =
+            "oneui_cross_task_animation";
+    public static final boolean DEFAULT_ONEUI_CROSS_TASK_ANIMATION = false;
     public static final String KEY_MODULE_LOGGING = "module_logging";
     public static final boolean DEFAULT_MODULE_LOGGING = true;
     public static final String KEY_CONTEXTUAL_SEARCH_LONG_PRESS =

@@ -39,6 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import dev.codex.miuibackgesturehook.BuildConfig;
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences;
+import dev.codex.miuibackgesturehook.ZnStatusProtocol;
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
@@ -85,6 +86,8 @@ public abstract class HookRuntimeCore extends XposedModule {
 
     protected abstract boolean isHyperOsSlideAnimationEnabled();
 
+    protected abstract boolean isOneUiCrossTaskAnimationEnabled();
+
     protected abstract Method requireExactDeclaredMethod(
             Class<?> owner, String methodName, String returnTypeName,
             String... parameterTypeNames) throws NoSuchMethodException;
@@ -94,6 +97,7 @@ public abstract class HookRuntimeCore extends XposedModule {
             BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")";
     protected static final String SYSTEM_UI = "com.android.systemui";
     protected static final String MIUI_HOME = "com.miui.home";
+    protected static final String MODULE_PACKAGE = ZnStatusProtocol.PACKAGE_NAME;
     protected static final int ANDROID_17_API_LEVEL = 37;
     protected static final String WINDOW_ON_BACK_INVOKED_DISPATCHER =
             WindowOnBackInvokedDispatcher.class.getName();
@@ -226,6 +230,8 @@ public abstract class HookRuntimeCore extends XposedModule {
             "com.android.wm.shell.back.CrossActivityBackAnimation";
     protected static final String DEFAULT_CROSS_ACTIVITY_BACK_ANIMATION =
             "com.android.wm.shell.back.DefaultCrossActivityBackAnimation";
+    protected static final String CROSS_TASK_BACK_ANIMATION =
+            "com.android.wm.shell.back.CrossTaskBackAnimation";
     protected static final String BACK_ANIMATION_BACKGROUND =
             "com.android.wm.shell.back.BackAnimationBackground";
     // The hard-coded color CrossTaskBackAnimation passes to ensureBackground (0x43433A);
@@ -272,9 +278,46 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected static final String MODULE_MIUI_HOME_OPEN_BREAK_COMMAND =
             "dev.codex.miuibackgesturehook.action.MIUI_HOME_OPEN_BREAK";
     protected static final String MODULE_SYSTEMUI_INPUT_ARBITER_STATE =
-            "dev.codex.miuibackgesturehook.action.SYSTEMUI_INPUT_ARBITER_STATE";
+            ZnStatusProtocol.ACTION_SYSTEMUI_STATE;
     protected static final String MODULE_MIUI_HOME_INPUT_ARBITER_QUERY =
             "dev.codex.miuibackgesturehook.action.MIUI_HOME_INPUT_ARBITER_QUERY";
+    protected static final String MODULE_RUNTIME_STATUS_QUERY =
+            ZnStatusProtocol.ACTION_QUERY;
+    protected static final String MODULE_RUNTIME_STATUS_REPLY =
+            ZnStatusProtocol.ACTION_REPLY;
+    protected static final String EXTRA_STATUS_NONCE = ZnStatusProtocol.EXTRA_NONCE;
+    protected static final String EXTRA_STATUS_QUERY = ZnStatusProtocol.EXTRA_QUERY;
+    protected static final String EXTRA_STATUS_NATIVE_RESPONSE =
+            ZnStatusProtocol.EXTRA_NATIVE_RESPONSE;
+    protected static final String EXTRA_STATUS_LEGACY_MODE =
+            ZnStatusProtocol.EXTRA_LEGACY_MODE;
+    protected static final String EXTRA_STATUS_LEGACY_READY =
+            ZnStatusProtocol.EXTRA_LEGACY_READY;
+    protected static final String EXTRA_STATUS_NATIVE_READY =
+            ZnStatusProtocol.EXTRA_NATIVE_READY;
+    protected static final String EXTRA_STATUS_NATIVE_PROFILE_RESOLVED =
+            ZnStatusProtocol.EXTRA_NATIVE_PROFILE_RESOLVED;
+    protected static final String EXTRA_STATUS_NATIVE_PROFILE_DYNAMIC =
+            ZnStatusProtocol.EXTRA_NATIVE_PROFILE_DYNAMIC;
+    protected static final String EXTRA_STATUS_NATIVE_PROFILE_ENTRY_OFFSET =
+            ZnStatusProtocol.EXTRA_NATIVE_PROFILE_ENTRY_OFFSET;
+    protected static final String EXTRA_STATUS_NATIVE_SIDE_OFFSET =
+            ZnStatusProtocol.EXTRA_NATIVE_SIDE_OFFSET;
+    protected static final String EXTRA_STATUS_NATIVE_RUNTIME_PROFILE_STAGE =
+            ZnStatusProtocol.EXTRA_NATIVE_RUNTIME_PROFILE_STAGE;
+    protected static final String EXTRA_STATUS_NATIVE_BUSINESS_STATE =
+            ZnStatusProtocol.EXTRA_NATIVE_BUSINESS_STATE;
+    protected static final String EXTRA_STATUS_NATIVE_BRIDGE_STATE =
+            ZnStatusProtocol.EXTRA_NATIVE_BRIDGE_STATE;
+    protected static final String EXTRA_STATUS_NATIVE_RECEIVER_STATE =
+            ZnStatusProtocol.EXTRA_NATIVE_RECEIVER_STATE;
+    protected static final String EXTRA_STATUS_SYSTEMUI_READY =
+            ZnStatusProtocol.EXTRA_SYSTEMUI_READY;
+    protected static final String EXTRA_STATUS_SYSTEMUI_GENERATION =
+            ZnStatusProtocol.EXTRA_SYSTEMUI_GENERATION;
+    protected static final String EXTRA_STATUS_SYSTEMUI_MONITORS =
+            ZnStatusProtocol.EXTRA_SYSTEMUI_MONITORS;
+    protected static final String EXTRA_STATUS_REASON = ZnStatusProtocol.EXTRA_REASON;
     protected static final String EXTRA_INPUT_ARBITER_READY = "input_arbiter_ready";
     protected static final String EXTRA_INPUT_ARBITER_GENERATION =
             "input_arbiter_generation";
@@ -411,6 +454,7 @@ public abstract class HookRuntimeCore extends XposedModule {
             new AtomicLong(SystemClock.elapsedRealtimeNanos());
     protected final AtomicLong miuiHomeOpenBreakCallbackEpoch = new AtomicLong();
     protected final AtomicInteger systemUiInputArbiterMonitorCount = new AtomicInteger();
+    protected final AtomicLong pendingModuleStatusNonce = new AtomicLong();
     protected final AtomicLong miuiHomeReturnHomeGenerationIds =
             new AtomicLong(SystemClock.elapsedRealtimeNanos());
     protected final AtomicLong miuiHomeLauncherOpenSnapshotIds =
@@ -1440,6 +1484,16 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected Object readTransitionChangeTaskInfo(Object change) {
         return change instanceof TransitionInfo.Change
                 ? ((TransitionInfo.Change) change).getTaskInfo() : null;
+    }
+
+    protected Object readTransitionChangeParent(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getParent() : null;
+    }
+
+    protected Object readTransitionChangeLastParent(Object change) {
+        return change instanceof TransitionInfo.Change
+                ? ((TransitionInfo.Change) change).getLastParent() : null;
     }
 
     protected Object readTransitionChangeActivityComponent(Object change) {

@@ -381,7 +381,7 @@ final class SystemServerAndroid17Impl extends SystemServerPlatformImpl {
         Object closingChange = null;
         Object openingChange = null;
         for (Object change : changes) {
-            Object taskInfo = invokeOrNull(runtime, change, "getTaskInfo");
+            Object taskInfo = runtime.readSystemServerPlatformTransitionChangeTaskInfo(change);
             int taskId = readIntField(runtime, taskInfo, "taskId", -1);
             if (taskId == closingTaskId) {
                 closingChange = change;
@@ -405,10 +405,14 @@ final class SystemServerAndroid17Impl extends SystemServerPlatformImpl {
                 || valueOrDefault(
                 runtime.readSystemServerPlatformTransitionChangeFlags(
                         openingChange), -1) != CROSS_TASK_OPENING_FLAGS
-                || invokeOrNull(runtime, closingChange, "getParent") != null
-                || invokeOrNull(runtime, closingChange, "getLastParent") != null
-                || invokeOrNull(runtime, openingChange, "getParent") != null
-                || invokeOrNull(runtime, openingChange, "getLastParent") != null) {
+                || runtime.readSystemServerPlatformTransitionChangeParent(
+                closingChange) != null
+                || runtime.readSystemServerPlatformTransitionChangeLastParent(
+                closingChange) != null
+                || runtime.readSystemServerPlatformTransitionChangeParent(
+                openingChange) != null
+                || runtime.readSystemServerPlatformTransitionChangeLastParent(
+                openingChange) != null) {
             return false;
         }
 
@@ -531,7 +535,7 @@ final class SystemServerAndroid17Impl extends SystemServerPlatformImpl {
                 result.append(", ");
             }
             Object change = changes.get(index);
-            Object taskInfo = invokeOrNull(runtime, change, "getTaskInfo");
+            Object taskInfo = runtime.readSystemServerPlatformTransitionChangeTaskInfo(change);
             result.append("{index=").append(index)
                     .append(", taskId=")
                     .append(readIntField(runtime, taskInfo, "taskId", -1))
@@ -542,19 +546,19 @@ final class SystemServerAndroid17Impl extends SystemServerPlatformImpl {
                             runtime.readSystemServerPlatformTransitionChangeFlags(change), -1)))
                     .append(", leash=")
                     .append(runtime.describeSystemServerPlatformObject(
-                            invokeOrNull(runtime, change, "getLeash")))
+                            runtime.readSystemServerPlatformTransitionChangeLeash(change)))
                     .append(", parent=")
                     .append(runtime.describeSystemServerPlatformObject(
-                            invokeOrNull(runtime, change, "getParent")))
+                            runtime.readSystemServerPlatformTransitionChangeParent(change)))
                     .append(", lastParent=")
                     .append(runtime.describeSystemServerPlatformObject(
-                            invokeOrNull(runtime, change, "getLastParent")))
+                            runtime.readSystemServerPlatformTransitionChangeLastParent(change)))
                     .append(", startBounds=")
                     .append(runtime.describeSystemServerPlatformObject(
-                            invokeOrNull(runtime, change, "getStartAbsBounds")))
+                            runtime.readSystemServerPlatformTransitionChangeStartAbsBounds(change)))
                     .append(", endBounds=")
                     .append(runtime.describeSystemServerPlatformObject(
-                            invokeOrNull(runtime, change, "getEndAbsBounds")))
+                            runtime.readSystemServerPlatformTransitionChangeEndAbsBounds(change)))
                     .append('}');
         }
         return result.append(']').toString();

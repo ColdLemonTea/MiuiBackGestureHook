@@ -15,6 +15,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Region;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.IInterface;
@@ -3049,6 +3050,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
                             + miuiHomeSystemUiInputArbiterGeneration
                             + ", senderGeneration=" + generation);
                 }
+                publishLegacyRuntimeStatusReply(receiverContext, intent, generation);
                 if (newGeneration) {
                     miuiHomeAcceptedInputIdentity.set(null);
                     miuiHomeEditingStatePublished = false;
@@ -3180,6 +3182,41 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             moduleLog(Log.INFO, TAG, "Unregistered MiuiHome input-arbiter receiver");
         } catch (Throwable throwable) {
             moduleLog(Log.WARN, TAG, "Failed to unregister MiuiHome input-arbiter receiver",
+                    throwable);
+        }
+    }
+
+    protected void publishLegacyRuntimeStatusReply(Context context, Intent query,
+                                                   long generation) {
+        if (Build.VERSION.SDK_INT >= ANDROID_17_API_LEVEL
+                || context == null || query == null || generation <= 0L
+                || !query.getBooleanExtra(EXTRA_STATUS_QUERY, false)) {
+            return;
+        }
+        long nonce = query.getLongExtra(EXTRA_STATUS_NONCE, 0L);
+        if (nonce <= 0L) {
+            moduleLog(Log.WARN, TAG,
+                    "Ignored Android 16 runtime status query without nonce");
+            return;
+        }
+        try {
+            Intent reply = new Intent(MODULE_RUNTIME_STATUS_REPLY)
+                    .setPackage(SYSTEM_UI)
+                    .putExtra(EXTRA_STATUS_NONCE, nonce)
+                    .putExtra(EXTRA_STATUS_LEGACY_READY, true)
+                    .putExtra(EXTRA_INPUT_ARBITER_GENERATION, generation)
+                    .putExtra("sender_uid", Process.myUid());
+            Bundle options = BroadcastOptions.makeBasic()
+                    .setShareIdentityEnabled(true)
+                    .toBundle();
+            context.getApplicationContext().sendBroadcast(reply, null, options);
+            moduleLog(Log.INFO, TAG,
+                    "Published Android 16 MiuiHome LSPosed runtime status"
+                            + ", nonce=" + nonce
+                            + ", generation=" + generation);
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to publish Android 16 MiuiHome runtime status",
                     throwable);
         }
     }

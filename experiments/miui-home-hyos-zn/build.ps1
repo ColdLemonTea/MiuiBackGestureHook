@@ -9,6 +9,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Windows PowerShell 5.1's Compress-Archive produces a smaller DEFLATE stream
+# that the Android module installer fails to enumerate reliably (including
+# META-INF/com/google/android/update-binary). Keep packaging on PowerShell 7,
+# which matches the previously installable archives.
+if ($PSVersionTable.PSEdition -ne 'Core' -or
+        $PSVersionTable.PSVersion.Major -lt 7) {
+    throw 'PowerShell 7 or newer is required to build an installable ZN ZIP. Run this script with pwsh.'
+}
+
 $SourceRoot = $PSScriptRoot
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $SourceRoot '..\..')).Path
 $BuildRoot = Join-Path $RepoRoot "out\miui-home-hyos-zn\$Configuration"
@@ -170,6 +179,10 @@ $CounterSpecs = [ordered]@{
     dynamic_runtime_pointer = @('g_dynamic_runtime_pointer_offset', 'u8')
     dynamic_runtime_state = @('g_dynamic_runtime_state_offset', 'u8')
     dynamic_rstring_vtable = @('g_dynamic_rstring_vtable_offset', 'u8')
+    runtime_status_queries = @('g_runtime_status_query_count', 'u4')
+    runtime_status_responses = @('g_runtime_status_response_count', 'u4')
+    runtime_status_last_nonce = @('g_runtime_status_last_nonce', 'u8')
+    runtime_status_last_state = @('g_runtime_status_last_state', 'u4')
     bridge_state = @('g_arbiter_bridge_hook_state', 'u4')
     arbiter_ready = @('g_systemui_arbiter_ready', 'u4')
     business_state = @('g_business_hook_state', 'u4')

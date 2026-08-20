@@ -93,6 +93,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 miuiHomeOpenBreakAnimationActive;
         boolean savedMiuiHomeOpenBreakCommandPending =
                 miuiHomeOpenBreakCommandPending;
+        cancelOneUiCrossTaskForHotReload();
         miuiHomeLocalHandoffToken.set(null);
         invalidateMiuiHomeLauncherOpenSnapshot(null, "hotReload");
         IBinder savedMiuiHomeReturnHomeBinder =
@@ -277,6 +278,10 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                             && oldHandle.getExecutable() instanceof java.lang.reflect.Method) {
                         preparePreparedBackStartAnimationInvoker(
                                 (java.lang.reflect.Method) oldHandle.getExecutable());
+                    } else if ("systemui_oneui_cross_task_finish".equals(oldHookId)
+                            && oldHandle.getExecutable() instanceof java.lang.reflect.Method) {
+                        oneUiCrossTaskFinishMethod =
+                                (java.lang.reflect.Method) oldHandle.getExecutable();
                     }
                     replaced++;
                 } else {
@@ -531,6 +536,12 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             }
             if (!oldHookIds.contains("systemui_cross_task_background")) {
                 hookCrossTaskBackground(hotReloadClassLoader);
+            }
+            if (!oldHookIds.contains("systemui_oneui_cross_task_invoke")
+                    || !oldHookIds.contains("systemui_oneui_cross_task_finish")) {
+                hookOneUiCrossTaskAnimation(hotReloadClassLoader,
+                        !oldHookIds.contains("systemui_oneui_cross_task_invoke"),
+                        !oldHookIds.contains("systemui_oneui_cross_task_finish"));
             }
             if (!backCommitCompositionHookReady) {
                 hookBackCommitComposition(hotReloadClassLoader);
@@ -892,6 +903,10 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::keepFreeformScrimHiddenUntilFirstApply;
             case "systemui_cross_task_background":
                 return this::tintCrossTaskBackground;
+            case "systemui_oneui_cross_task_invoke":
+                return this::onOneUiCrossTaskInvoked;
+            case "systemui_oneui_cross_task_finish":
+                return this::onOneUiCrossTaskFinished;
             case "systemui_back_prepare_reparent":
                 return this::correctPredictiveBackPrepareReparent;
             case "systemui_back_prepared_target_arrival":
@@ -1099,6 +1114,14 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             return;
         }
         try {
+            Context launcherContext = resolveCurrentApplicationContext(classLoader);
+            if (launcherContext != null) {
+                ensureMiuiHomeInputArbiterReceiver(launcherContext);
+            } else {
+                moduleLog(Log.WARN, TAG,
+                        "MiuiHome application context is not available yet; "
+                                + "Android 16 status receiver will retry from GestureStub");
+            }
             Class<?> gestureStubClass = Class.forName(MIUI_HOME_GESTURE_STUB, false,
                     classLoader);
             try {

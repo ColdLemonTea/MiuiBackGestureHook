@@ -466,6 +466,13 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 PredictiveBackPreferences.DEFAULT_HYPEROS_SLIDE_ANIMATION);
     }
 
+    @Override
+    protected boolean isOneUiCrossTaskAnimationEnabled() {
+        return readHyperOsBooleanPreference(
+                PredictiveBackPreferences.KEY_ONEUI_CROSS_TASK_ANIMATION,
+                PredictiveBackPreferences.DEFAULT_ONEUI_CROSS_TASK_ANIMATION);
+    }
+
     protected boolean readHyperOsBooleanPreference(String key, boolean defaultValue) {
         try {
             SharedPreferences preferences = hyperOsIndicatorPreferences;

@@ -256,6 +256,10 @@ __attribute__((used)) volatile uint32_t g_business_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_failure_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_stage = 0;
+__attribute__((used)) volatile uint32_t g_runtime_status_query_count = 0;
+__attribute__((used)) volatile uint32_t g_runtime_status_response_count = 0;
+__attribute__((used)) volatile uint64_t g_runtime_status_last_nonce = 0;
+__attribute__((used)) volatile uint32_t g_runtime_status_last_state = 0;
 // Runtime profile state is the numeric ResolveStage value. It is published
 // last, after the immutable offsets and candidate counts below.
 __attribute__((used)) volatile uint32_t g_dynamic_profile_state = 0;
@@ -597,6 +601,10 @@ constexpr char kArbiterStateAction[] =
 constexpr char kArbiterStateCarrierAction[] = "com.android.systemui.fsgesture";
 constexpr char kArbiterQueryAction[] =
         "dev.codex.miuibackgesturehook.action.MIUI_HOME_INPUT_ARBITER_QUERY";
+constexpr char kRuntimeStatusResponseAction[] =
+        "dev.codex.miuibackgesturehook.action.RUNTIME_STATUS_REPLY";
+constexpr char kRuntimeStatusQueryExtra[] = "status_query";
+constexpr char kRuntimeStatusNonceExtra[] = "status_nonce";
 constexpr char kAcceptedStateAction[] =
         "dev.codex.miuibackgesturehook.action.MIUI_OVERVIEW_STATE_CHANGE";
 
@@ -745,6 +753,8 @@ const miui_home_profiles::LauncherProfile* ResolveLauncherProfile(
 const miui_home_profiles::LauncherProfile* CurrentLauncherProfile() {
     return AtomicLoad(&g_launcher_profile);
 }
+
+bool HandleRuntimeStatusQuery(void* intent);
 
 bool IsExactCallbackName(const char* value, size_t length,
                          const char* expected) {
@@ -921,6 +931,10 @@ void HookBroadcastReceiverOnReceive(void* receiver, void* context, void* intent)
     if (arbiter_action && HasArbiterStateMarker(intent)) {
         __atomic_fetch_add(&g_arbiter_state_marked_count, uint32_t{1},
                            __ATOMIC_RELAXED);
+        // A status query deliberately rides the already authenticated
+        // SystemUI arbiter-state action so it reaches Xiaomi's existing
+        // native receiver without adding a second launcher receiver.
+        HandleRuntimeStatusQuery(intent);
         ObserveArbiterStateIntent(intent);
         // Android 17 reuses Xiaomi's protected fsgesture receiver as the
         // carrier. Its native callback owns launcher-side FSG-region refresh;
@@ -1236,6 +1250,89 @@ bool SendNativeBroadcast(const char* action, void* extras) {
     }
     AtomicStore(&g_native_broadcast_send_state, uint32_t{14});
     return true;
+}
+
+bool HandleRuntimeStatusQuery(void* intent) {
+    IntentGetSenderPackageFn get_sender =
+            ResolveLauncherSymbol<IntentGetSenderPackageFn>(
+                    "Intent_get_sender_package_name");
+    IntentGetExtrasFn get_extras = ResolveLauncherSymbol<IntentGetExtrasFn>(
+            "Intent_get_extras");
+    if (intent == nullptr || get_sender == nullptr || get_extras == nullptr) {
+        return false;
+    }
+    const BorrowedROptionRString sender = get_sender(intent);
+    if (sender.tag != 0u || sender.data == nullptr ||
+            sender.length != ConstStringLength(kSystemUiPackage) ||
+            memcmp(sender.data, kSystemUiPackage, sender.length) != 0) {
+        return false;
+    }
+    void* extras = get_extras(intent);
+    bool query = false;
+    int32_t sender_uid = -1;
+    int64_t nonce = 0;
+    if (!ReadNativeBool(extras, kRuntimeStatusQueryExtra, &query) || !query ||
+            !ReadNativeI32(extras, "sender_uid", &sender_uid) ||
+            !ReadNativeI64(extras, kRuntimeStatusNonceExtra, &nonce) ||
+            nonce <= 0 || !VerifySystemUiUid(sender_uid)) {
+        return false;
+    }
+    __atomic_fetch_add(&g_runtime_status_query_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    __atomic_store_n(&g_runtime_status_last_nonce,
+                     static_cast<uint64_t>(nonce), __ATOMIC_RELEASE);
+    const auto* profile = CurrentLauncherProfile();
+    const bool profile_resolved = profile != nullptr && g_launcher_base != nullptr;
+    const bool dynamic_profile = profile_resolved &&
+            StringsEqual(profile->id, "runtime-side-v1");
+    const uint32_t business_state = AtomicLoad(&g_business_hook_state);
+    const uint32_t bridge_state = AtomicLoad(&g_arbiter_bridge_hook_state);
+    const bool native_ready = profile_resolved && business_state == 3u &&
+            bridge_state == 3u;
+    BundleDefaultFn bundle_default = ResolveLauncherSymbol<BundleDefaultFn>(
+            "Bundle_default");
+    if (bundle_default == nullptr) {
+        __atomic_store_n(&g_runtime_status_last_state, uint32_t{2},
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+    void* response = bundle_default();
+    if (response == nullptr ||
+            !AddBundleBool(response, "status_native_ready", native_ready) ||
+            !AddBundleBool(response, "status_native_profile_resolved",
+                           profile_resolved) ||
+            !AddBundleBool(response, "status_native_profile_dynamic",
+                           dynamic_profile) ||
+            !AddBundleI64(response, kRuntimeStatusNonceExtra, nonce) ||
+            !AddBundleI64(response, "status_native_profile_entry_offset",
+                          profile_resolved
+                                  ? static_cast<int64_t>(profile->entry_offset)
+                                  : 0) ||
+            !AddBundleI64(response, "status_native_side_offset",
+                          profile_resolved
+                                  ? static_cast<int64_t>(
+                                          profile->side_handler_offset)
+                                  : 0) ||
+            !AddBundleI32(response, "status_native_runtime_profile_stage",
+                          AtomicLoad(&g_dynamic_profile_state)) ||
+            !AddBundleI32(response, "status_native_business_state",
+                          business_state) ||
+            !AddBundleI32(response, "status_native_bridge_state", bridge_state) ||
+            !AddBundleI32(response, "status_native_receiver_state",
+                          AtomicLoad(&g_native_receiver_state))) {
+        __atomic_store_n(&g_runtime_status_last_state, uint32_t{3},
+                         __ATOMIC_RELEASE);
+        return false;
+    }
+    const bool sent = SendNativeBroadcast(kRuntimeStatusResponseAction,
+                                           response);
+    __atomic_store_n(&g_runtime_status_last_state,
+                     sent ? uint32_t{1} : uint32_t{4}, __ATOMIC_RELEASE);
+    if (sent) {
+        __atomic_fetch_add(&g_runtime_status_response_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+    }
+    return sent;
 }
 
 bool TryQuerySystemUiArbiter(uint32_t maximum_attempts) {

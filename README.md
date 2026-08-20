@@ -42,6 +42,12 @@ The native `hyos_spawner` research module source and safe deployment tooling liv
 experiments/miui-home-hyos-zn/
 ```
 
+The module settings screen includes a KernelSU-style runtime status card. It
+performs an authenticated nonce challenge through SystemUI and the Zygisk Next
+launcher bridge, so it reports the actual SystemUI arbiter, resolved runtime
+profile, and native hook state without reading module files or trusting a
+single process-local flag. A tap refreshes the current status.
+
 ## Scope
 
 The static scope is declared in:

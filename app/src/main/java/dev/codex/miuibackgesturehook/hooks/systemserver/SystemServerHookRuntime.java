@@ -6,16 +6,19 @@ import dev.codex.miuibackgesturehook.hooks.googleapp.GoogleAppLiveTranslateRunti
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Binder;
 import android.os.IBinder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.SurfaceControl;
+import android.window.WindowOnBackInvokedDispatcher;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -24,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -408,33 +412,46 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
 
     protected void hookPredictiveBackOptInMetadata(ClassLoader classLoader) {
         try {
-            Class<?> dispatcherClass = Class.forName(
-                    WINDOW_ON_BACK_INVOKED_DISPATCHER, false, classLoader);
-            for (Method method : dispatcherClass.getDeclaredMethods()) {
-                if (!"isOnBackInvokedCallbackEnabled".equals(method.getName())
-                        || method.getParameterCount() != 3
-                        || !"android.content.pm.ActivityInfo".equals(
-                        method.getParameterTypes()[0].getName())
-                        || !"android.content.pm.ApplicationInfo".equals(
-                        method.getParameterTypes()[1].getName())) {
-                    continue;
-                }
-                method.setAccessible(true);
-                recordHookHandle(hook(method)
-                        .setId("server_predictive_opt_in_metadata")
-                        .intercept(this::injectSelectedPredictiveBackMetadata));
-                moduleLog(Log.INFO, TAG, "Hooked predictive-back opt-in metadata"
-                        + ", owner=system_server"
-                        + ", policy=selectedApplications"
-                        + ", preferencesGroup=" + PredictiveBackPreferences.GROUP);
+            Method method = resolvePredictiveBackOptInMethod(classLoader);
+            if (method == null) {
+                moduleLog(Log.WARN, TAG,
+                        "Predictive-back opt-in check not found in system_server");
                 return;
             }
-            moduleLog(Log.WARN, TAG,
-                    "Predictive-back opt-in check not found in system_server");
+            method.setAccessible(true);
+            recordHookHandle(hook(method)
+                    .setId("server_predictive_opt_in_metadata")
+                    .intercept(this::injectSelectedPredictiveBackMetadata));
+            moduleLog(Log.INFO, TAG, "Hooked predictive-back opt-in metadata"
+                    + ", owner=system_server"
+                    + ", policy=selectedApplications"
+                    + ", preferencesGroup=" + PredictiveBackPreferences.GROUP);
         } catch (Throwable throwable) {
             moduleLog(Log.ERROR, TAG,
                     "Failed to hook selected predictive-back metadata", throwable);
         }
+    }
+
+    private Method resolvePredictiveBackOptInMethod(ClassLoader classLoader)
+            throws Exception {
+        if (Build.VERSION.SDK_INT >= ANDROID_17_API_LEVEL) {
+            return WindowOnBackInvokedDispatcher.class.getDeclaredMethod(
+                    "isOnBackInvokedCallbackEnabled", ActivityInfo.class,
+                    ApplicationInfo.class, Supplier.class);
+        }
+        Class<?> dispatcherClass = Class.forName(
+                WINDOW_ON_BACK_INVOKED_DISPATCHER, false, classLoader);
+        for (Method method : dispatcherClass.getDeclaredMethods()) {
+            if ("isOnBackInvokedCallbackEnabled".equals(method.getName())
+                    && method.getParameterCount() == 3
+                    && "android.content.pm.ActivityInfo".equals(
+                    method.getParameterTypes()[0].getName())
+                    && "android.content.pm.ApplicationInfo".equals(
+                    method.getParameterTypes()[1].getName())) {
+                return method;
+            }
+        }
+        return null;
     }
 
     protected Object injectSelectedPredictiveBackMetadata(XposedInterface.Chain chain)
@@ -1395,6 +1412,30 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
 
     final Integer readSystemServerPlatformTransitionChangeFlags(Object change) {
         return readTransitionChangeFlags(change);
+    }
+
+    final Object readSystemServerPlatformTransitionChangeTaskInfo(Object change) {
+        return readTransitionChangeTaskInfo(change);
+    }
+
+    final Object readSystemServerPlatformTransitionChangeParent(Object change) {
+        return readTransitionChangeParent(change);
+    }
+
+    final Object readSystemServerPlatformTransitionChangeLastParent(Object change) {
+        return readTransitionChangeLastParent(change);
+    }
+
+    final Object readSystemServerPlatformTransitionChangeLeash(Object change) {
+        return readTransitionChangeLeash(change);
+    }
+
+    final Object readSystemServerPlatformTransitionChangeStartAbsBounds(Object change) {
+        return readTransitionChangeStartAbsBounds(change);
+    }
+
+    final Object readSystemServerPlatformTransitionChangeEndAbsBounds(Object change) {
+        return readTransitionChangeEndAbsBounds(change);
     }
 
     final boolean setSystemServerPlatformTransitionChangeMode(Object change, int mode) {
