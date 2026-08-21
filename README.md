@@ -1,73 +1,60 @@
-# MIUI SystemUI Back Gesture Hook
+# MIUI Back Gesture Hook
 
-LSPosed module using modern Xposed API 102 for SystemUI-side MIUI back gesture research.
+An LSPosed + Zygisk Next companion module for Xiaomi MIUI/HyperOS back gestures.
 
-The compatibility options restore Circle to Search from the visible gesture handle and
-can expose Google App's full-screen Live Translate action without bypassing the system
-screen-capture consent flow. Both options default to off. Android 16 uses the SystemUI
-gesture-handle path; Android 17/HyperOS 4 delegates the long press, animation, cancellation,
-and contextual-search launch to MiuiHome's native implementation, enabled through the
-companion Zygisk Next module.
+The LSPosed component integrates with SystemUI and the system back pipeline. The
+arm64-v8a Zygisk Next component supplies the native MiuiHome hook required by
+Android 17 / HyperOS 4. Together they restore predictive-back behavior while
+keeping Xiaomi's native launcher transitions intact.
+
+Optional integrations (off by default):
+
+- Circle to Search from the gesture handle;
+- Google App full-screen Live Translate, with the platform screen-capture consent
+  flow unchanged.
+
+Android 16 uses the SystemUI gesture path. Android 17 and newer keep launcher-side
+long press, cancellation, animation, and contextual-search ownership in native
+MiuiHome through Zygisk Next.
+
+## Compatibility
+
+| Platform | Required components | Launcher support |
+| --- | --- | --- |
+| Android 16 | LSPosed | SystemUI gesture path |
+| Android 17 / HyperOS 4+ | LSPosed + Zygisk Next | `4371` static profile; `53xx` and newer builds use the runtime resolver when their native topology validates |
+
+The native companion is arm64-v8a only. Unsupported or ambiguous native layouts
+fail closed without installing business hooks.
 
 ## Build
 
-The arm64-v8a Zygisk Next native package can be built with:
-
-    .\gradlew.bat buildZnPackage -PznConfiguration=Release
-
-The task uses the cross-platform Python builder under
-experiments/miui-home-hyos-zn/ and accepts -PznNdkPath, -PznCmakePath, and
--PznPython overrides.
+Build the LSPosed release APK:
 
 ```powershell
-.\gradlew.bat assembleDebug
+.\gradlew.bat :app:assembleRelease
 ```
 
-The debug APK is generated at:
+Build the arm64-v8a Zygisk Next package:
+
+```powershell
+.\gradlew.bat buildZnPackage -PznConfiguration=Release
+```
+
+The ZN task uses the cross-platform Python builder in
+`experiments/miui-home-hyos-zn/`. NDK, CMake, and Python can be overridden with
+`-PznNdkPath`, `-PznCmakePath`, and `-PznPython`.
+
+Outputs:
 
 ```text
-app/build/outputs/apk/debug/app-debug.apk
+app/build/outputs/apk/release/app-release.apk
+out/packages/miui-home-hyos-zn-*.zip
 ```
 
-## AOSP References
+## Scope and runtime
 
-Checked-in AOSP reference snippets live under:
-
-```text
-refs/android16/aosp_back_16/
-```
-
-The directory is split by component:
-
-```text
-refs/android16/aosp_back_16/shell/
-refs/android16/aosp_back_16/systemui/
-```
-
-Xiaomi APKs, JARs, native libraries, decompilation, and device evidence remain local-only
-under ignored `refs/android17` paths and must not be committed. See `refs/README.md`.
-
-The native `hyos_spawner` research module source and safe deployment tooling live under:
-
-```text
-experiments/miui-home-hyos-zn/
-```
-
-The module settings screen includes a KernelSU-style runtime status card. It
-performs an authenticated nonce challenge through SystemUI and the Zygisk Next
-launcher bridge, so it reports the actual SystemUI arbiter, resolved runtime
-profile, and native hook state without reading module files or trusting a
-single process-local flag. A tap refreshes the current status.
-
-## Scope
-
-The static scope is declared in:
-
-```text
-app/src/main/resources/META-INF/xposed/scope.list
-```
-
-Current scopes:
+The static LSPosed scope is:
 
 ```text
 com.android.systemui
@@ -76,40 +63,21 @@ com.google.android.googlequicksearchbox
 system
 ```
 
-The Google App scope is inert unless the Live Translate option is enabled.
+The Google App scope is used only when Live Translate is enabled. On Android 17
+and newer, MiuiHome remains listed for compatibility, but launcher work is done
+by the native Zygisk Next companion rather than a duplicate Java input hook.
 
-`com.miui.home` remains in the static list for Android 16. On Android 17 and newer,
-the module exits before installing any MiuiHome-process LSPosed hook; hot reload also removes
-old MiuiHome hook handles instead of replacing them. Launcher-side Android 17 work is isolated
-to the native ZN experiment.
+API 102 hot reload is enabled with `autoHotReload=true`. The settings screen can
+refresh the authenticated SystemUI/ZN runtime status and resolved launcher profile.
 
-## Compatibility
+## References
 
-The Android 17 native MiuiHome integration targets Xiaomi System Launcher build `4371` only.
+Checked-in AOSP references are under `refs/android16/aosp_back_16/`. Xiaomi
+artifacts and device evidence remain local-only under ignored `refs/android17`
+paths; see [refs/README.md](refs/README.md).
 
-## Hot Reload
-
-API 102 hot reload is enabled through:
-
-```text
-autoHotReload=true
-```
-
-The module implements `onHotReloading(...)` and `onHotReloaded(...)`.
-
-## Entry
-
-The module entry is:
-
-```text
-dev.codex.miuibackgesturehook.MiuiBackGestureHook
-```
-
-Registered through:
-
-```text
-app/src/main/resources/META-INF/xposed/java_init.list
-```
+Native ZN sources and deployment tools are under
+`experiments/miui-home-hyos-zn/`.
 
 ## License
 
