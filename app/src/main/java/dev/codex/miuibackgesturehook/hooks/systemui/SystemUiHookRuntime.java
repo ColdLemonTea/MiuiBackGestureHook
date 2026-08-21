@@ -56,6 +56,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     protected void installSystemUiHooks(ClassLoader classLoader) {
         try {
+            hookContextualSearchNavigationBar(classLoader, true, true);
             hookMiuiOverviewProxy(classLoader);
             hookNavigationBarTransientAutoHide(classLoader);
             hookNavigationBarTransientAppearance(classLoader);
@@ -76,6 +77,47 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         } catch (Throwable throwable) {
             moduleLog(Log.ERROR, TAG, "Failed to install SystemUI hooks", throwable);
         }
+    }
+
+    protected void hookContextualSearchNavigationBar(
+            ClassLoader classLoader, boolean hookAttach, boolean hookDetach) {
+        try {
+            Class<?> navigationBarClass = Class.forName(
+                    NAVIGATION_BAR, false, classLoader);
+            if (hookDetach) {
+                Method detached = navigationBarClass.getDeclaredMethod("onViewDetached");
+                detached.setAccessible(true);
+                recordHookHandle(hook(detached)
+                        .setId("systemui_contextual_search_nav_detach")
+                        .intercept(this::detachContextualSearchBeforeNavigationBarDetached));
+            }
+            if (hookAttach) {
+                Method attached = navigationBarClass.getDeclaredMethod("onViewAttached");
+                attached.setAccessible(true);
+                recordHookHandle(hook(attached)
+                        .setId("systemui_contextual_search_nav_attach")
+                        .intercept(this::attachContextualSearchAfterNavigationBarAttached));
+            }
+            moduleLog(Log.INFO, TAG,
+                    "Installed contextual-search NavigationBar lifecycle hooks"
+                            + ", attach=" + hookAttach + ", detach=" + hookDetach);
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Contextual-search NavigationBar lifecycle unavailable", throwable);
+        }
+    }
+
+    protected Object attachContextualSearchAfterNavigationBarAttached(
+            XposedInterface.Chain chain) throws Throwable {
+        Object result = chain.proceed();
+        attachContextualSearchInputReceiver(chain.getThisObject());
+        return result;
+    }
+
+    protected Object detachContextualSearchBeforeNavigationBarDetached(
+            XposedInterface.Chain chain) throws Throwable {
+        detachContextualSearchInputReceiver(chain.getThisObject());
+        return chain.proceed();
     }
 
     protected void hookMiuiOverviewProxy(ClassLoader classLoader) {

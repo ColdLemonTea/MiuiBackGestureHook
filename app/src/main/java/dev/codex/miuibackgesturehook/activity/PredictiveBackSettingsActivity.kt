@@ -159,6 +159,8 @@ private fun PredictiveBackSettingsScreen(
     var confirmedHyperOsSlideAnimation by remember { mutableStateOf(false) }
     var moduleLogging by remember { mutableStateOf(true) }
     var confirmedModuleLogging by remember { mutableStateOf(true) }
+    var contextualSearchLongPress by remember { mutableStateOf(false) }
+    var confirmedContextualSearchLongPress by remember { mutableStateOf(false) }
     val writeMutex = remember(preferences) { Mutex() }
     val lazyListState = rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
@@ -182,6 +184,10 @@ private fun PredictiveBackSettingsScreen(
         confirmedHyperOsSlideAnimation = false
         moduleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
         confirmedModuleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
+        contextualSearchLongPress =
+            PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS
+        confirmedContextualSearchLongPress =
+            PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS
         if (!serviceStateObserved) {
             configurationLoading = true
             return@LaunchedEffect
@@ -234,6 +240,10 @@ private fun PredictiveBackSettingsScreen(
                         PredictiveBackPreferences.KEY_MODULE_LOGGING,
                         PredictiveBackPreferences.DEFAULT_MODULE_LOGGING,
                     ),
+                    remotePreferences.getBoolean(
+                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS,
+                        PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS,
+                    ),
                 )
                 remotePreferences to flags
             }
@@ -248,6 +258,8 @@ private fun PredictiveBackSettingsScreen(
             confirmedHyperOsSlideAnimation = loaded.second[3]
             moduleLogging = loaded.second[4]
             confirmedModuleLogging = loaded.second[4]
+            contextualSearchLongPress = loaded.second[5]
+            confirmedContextualSearchLongPress = loaded.second[5]
         } catch (_: Throwable) {
             configurationError = configurationErrorMessage
         } finally {
@@ -345,6 +357,15 @@ private fun PredictiveBackSettingsScreen(
             { confirmedModuleLogging = it },
         )
     }
+    val persistContextualSearchLongPress: (Boolean) -> Unit = { requestedEnabled ->
+        persistBooleanPreference(
+            PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS,
+            requestedEnabled,
+            { contextualSearchLongPress = it },
+            { confirmedContextualSearchLongPress },
+            { confirmedContextualSearchLongPress = it },
+        )
+    }
     val statusMessage = when {
         configurationLoading -> SettingsStatusCardMessage(
             text = serviceLoadingMessage,
@@ -428,6 +449,16 @@ private fun PredictiveBackSettingsScreen(
                     moduleLogging = moduleLogging,
                     configurationEnabled = configurationEnabled,
                     onModuleLoggingToggle = persistModuleLogging,
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 8.dp),
+                )
+            }
+            item(key = "contextual_search") {
+                ContextualSearchCard(
+                    enabled = contextualSearchLongPress,
+                    configurationEnabled = configurationEnabled,
+                    onToggle = persistContextualSearchLongPress,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 8.dp),
@@ -594,6 +625,27 @@ private fun ModuleLoggingCard(
             checked = moduleLogging,
             enabled = configurationEnabled,
             onCheckedChange = onModuleLoggingToggle,
+        )
+    }
+}
+
+@Composable
+private fun ContextualSearchCard(
+    enabled: Boolean,
+    configurationEnabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        insideMargin = PaddingValues(0.dp),
+    ) {
+        SwitchPreference(
+            title = stringResource(R.string.contextual_search_title),
+            summary = stringResource(R.string.contextual_search_summary),
+            checked = enabled,
+            enabled = configurationEnabled,
+            onCheckedChange = onToggle,
         )
     }
 }

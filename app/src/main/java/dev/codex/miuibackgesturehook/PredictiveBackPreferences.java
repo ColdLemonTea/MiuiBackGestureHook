@@ -18,6 +18,9 @@ public final class PredictiveBackPreferences {
     public static final boolean DEFAULT_HYPEROS_SLIDE_ANIMATION = false;
     public static final String KEY_MODULE_LOGGING = "module_logging";
     public static final boolean DEFAULT_MODULE_LOGGING = true;
+    public static final String KEY_CONTEXTUAL_SEARCH_LONG_PRESS =
+            "contextual_search_long_press";
+    public static final boolean DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS = false;
 
     /** The vertical size of both Xiaomi side trigger areas, expressed as a percentage. */
     public static final String KEY_GESTURE_TRIGGER_HEIGHT_PERCENT =

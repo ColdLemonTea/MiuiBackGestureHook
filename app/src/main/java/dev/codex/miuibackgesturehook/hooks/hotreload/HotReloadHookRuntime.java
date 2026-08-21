@@ -20,6 +20,12 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
 
     @Override
     public boolean onHotReloading(XposedModuleInterface.HotReloadingParam param) {
+        if (contextualSearchBridgeCallsInFlight.get() != 0) {
+            moduleLog(Log.WARN, TAG,
+                    "Deferred hot reload during an authenticated contextual-search call"
+                            + ", process=" + processName);
+            return false;
+        }
         PreparedBackTransitionHold heldTransition =
                 preparedBackTransitionHold.get();
         if (heldTransition != null) {
@@ -102,6 +108,8 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         miuiLauncherOpenBreakGeneration = 0L;
         acceptedInputToken.set(null);
         miuiHomeAcceptedInputIdentity.set(null);
+        Object[] savedContextualSearchNavigationBars =
+                detachAllContextualSearchInputReceiversForHotReload();
         closeHyperOsBackHapticHelper();
         clearSystemUiReturnHomeCommitIdentity(null, 0L, "hotReload");
         unregisterMiuiOverviewStateReceiver();
@@ -135,7 +143,8 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 savedMiuiHomeReturnHomeBinder,
                 savedHeadlessState,
                 Boolean.valueOf(savedMiuiLauncherEditing),
-                Boolean.valueOf(savedMiuiFolderVisible)
+                Boolean.valueOf(savedMiuiFolderVisible),
+                savedContextualSearchNavigationBars
         });
         return true;
     }
@@ -245,9 +254,18 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     hookPredictiveBackOptInMetadata(serverClassLoader);
                 }
                 hookSecuritySidebarTransientBars(serverClassLoader, oldHookIds);
+                hookContextualSearchCompatibility(serverClassLoader, oldHookIds);
             }
         }
         if (SYSTEM_UI.equals(processName) && hotReloadClassLoader != null) {
+            boolean missingContextualSearchAttach = !oldHookIds.contains(
+                    "systemui_contextual_search_nav_attach");
+            boolean missingContextualSearchDetach = !oldHookIds.contains(
+                    "systemui_contextual_search_nav_detach");
+            if (missingContextualSearchAttach || missingContextualSearchDetach) {
+                hookContextualSearchNavigationBar(hotReloadClassLoader,
+                        missingContextualSearchAttach, missingContextualSearchDetach);
+            }
             Class<?> hotReloadBackControllerClass = null;
             if (!oldHookIds.contains("shell_back_onBackAnimationFinished")
                     || !oldHookIds.contains("shell_back_finishBackAnimation")
@@ -410,6 +428,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         }
         if (SYSTEM_UI.equals(processName)) {
             restoreSystemUiHotReloadLifecycle(hotReloadClassLoader);
+            Object[] navigationBars = pendingHotReloadContextualSearchNavigationBars;
+            pendingHotReloadContextualSearchNavigationBars = new Object[0];
+            restoreContextualSearchInputReceivers(navigationBars);
         }
         if (MIUI_HOME.equals(processName) && hotReloadClassLoader != null) {
             try {
@@ -606,6 +627,10 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         switch (hookId) {
             case "systemui_block_miui_gesture_line_progress":
                 return this::interceptMiuiOverviewProxyTransact;
+            case "systemui_contextual_search_nav_attach":
+                return this::attachContextualSearchAfterNavigationBarAttached;
+            case "systemui_contextual_search_nav_detach":
+                return this::detachContextualSearchBeforeNavigationBarDetached;
             case "systemui_navigation_bar_transient_appearance":
             case "systemui_status_bar_transient_appearance":
                 return this::preserveTransientBarAppearance;
@@ -702,6 +727,16 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             case "server_predictive_opt_in_metadata":
             case "predictive_opt_in_system_server":
                 return this::injectSelectedPredictiveBackMetadata;
+            case "server_contextual_search_startup_gate":
+                return this::enableContextualSearchServiceAtBoot;
+            case "server_contextual_search_start":
+                return this::bridgeContextualSearchSystemUiCall;
+            case "server_contextual_search_state":
+                return this::bridgeContextualSearchProviderCall;
+            case "server_contextual_search_permission":
+                return this::scopeContextualSearchPermission;
+            case "server_contextual_search_provider":
+                return this::scopeContextualSearchProvider;
             case "systemui_default_transition_start":
                 return this::registerDefaultTransitionHandler;
             case "systemui_default_transition_merge":
@@ -836,6 +871,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 }
                 if (state.length >= 15) {
                     miuiFolderVisible = Boolean.TRUE.equals(state[14]);
+                }
+                if (state.length >= 16 && state[15] instanceof Object[]) {
+                    pendingHotReloadContextualSearchNavigationBars = (Object[]) state[15];
                 }
             }
         }

@@ -5,6 +5,7 @@ import dev.codex.miuibackgesturehook.hooks.core.HookRuntimeCore;
 
 import android.animation.Animator;
 import android.app.ActivityManager;
+import android.app.KeyguardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -16,16 +17,19 @@ import android.graphics.Rect;
 import android.graphics.Region;
 import android.hardware.input.InputManager;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.Pair;
+import android.view.Display;
 import android.view.InputChannel;
 import android.view.InputEvent;
 import android.view.InputEventReceiver;
 import android.view.InputMonitor;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.window.BackMotionEvent;
@@ -33,6 +37,7 @@ import android.window.BackNavigationInfo;
 import android.window.BackTouchTracker;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -63,12 +68,368 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
 
     protected final Map<Object, NativeBackInputMonitor> nativeInputMonitors =
             Collections.synchronizedMap(new WeakHashMap<>());
+    protected final Map<Object, ContextualSearchInputReceiver> contextualSearchInputReceivers =
+            Collections.synchronizedMap(new WeakHashMap<>());
+    protected volatile Object[] pendingHotReloadContextualSearchNavigationBars = new Object[0];
 
     protected volatile SharedPreferences hyperOsIndicatorPreferences;
     protected volatile boolean hyperOsIndicatorPreferencesFailureLogged;
     protected volatile MiuiHapticFeedbackHelper hyperOsBackHapticHelper;
     protected volatile SharedPreferences gestureTriggerPreferences;
     protected volatile boolean gestureTriggerPreferencesFailureLogged;
+    protected volatile SharedPreferences contextualSearchPreferences;
+    protected volatile boolean contextualSearchPreferencesFailureLogged;
+
+    protected boolean isContextualSearchLongPressEnabled() {
+        try {
+            SharedPreferences preferences = contextualSearchPreferences;
+            if (preferences == null) {
+                synchronized (this) {
+                    preferences = contextualSearchPreferences;
+                    if (preferences == null) {
+                        preferences = getRemotePreferences(PredictiveBackPreferences.GROUP);
+                        contextualSearchPreferences = preferences;
+                    }
+                }
+            }
+            boolean enabled = preferences.getBoolean(
+                    PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS,
+                    PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS);
+            contextualSearchPreferencesFailureLogged = false;
+            return enabled;
+        } catch (Throwable throwable) {
+            if (!contextualSearchPreferencesFailureLogged) {
+                contextualSearchPreferencesFailureLogged = true;
+                moduleLog(Log.ERROR, TAG, "Contextual-search preference unavailable"
+                        + ", policy=failClosed", throwable);
+            }
+            return false;
+        }
+    }
+
+    protected void attachContextualSearchInputReceiver(Object navigationBar) {
+        detachContextualSearchInputReceiver(navigationBar);
+        if (!isContextualSearchLongPressEnabled()) {
+            return;
+        }
+        try {
+            Object viewObject;
+            try {
+                viewObject = invokeAnyMethod(navigationBar, "getView", new Object[0]);
+            } catch (Throwable getterFailure) {
+                viewObject = readField(navigationBar, "mView");
+            }
+            if (!(viewObject instanceof View)) {
+                throw new IllegalStateException("NavigationBar view is "
+                        + shortObject(viewObject));
+            }
+            View navigationView = (View) viewObject;
+            Display display = navigationView.getDisplay();
+            int displayId = display == null ? Display.DEFAULT_DISPLAY : display.getDisplayId();
+            if (displayId != Display.DEFAULT_DISPLAY) {
+                return;
+            }
+            Context context = navigationView.getContext();
+            InputManager inputManager = context.getSystemService(InputManager.class);
+            if (inputManager == null) {
+                throw new IllegalStateException("InputManager unavailable");
+            }
+            Object monitorObject = invokeAnyMethod(inputManager, "monitorGestureInput",
+                    new Object[]{"miui-contextual-search", Integer.valueOf(displayId)});
+            if (!(monitorObject instanceof InputMonitor)) {
+                throw new IllegalStateException("monitorGestureInput returned "
+                        + shortObject(monitorObject));
+            }
+            InputMonitor inputMonitor = (InputMonitor) monitorObject;
+            ContextualSearchInputReceiver receiver;
+            try {
+                receiver = new ContextualSearchInputReceiver(
+                        context, navigationBar, navigationView, inputMonitor, displayId);
+            } catch (Throwable throwable) {
+                inputMonitor.dispose();
+                throw throwable;
+            }
+            synchronized (contextualSearchInputReceivers) {
+                contextualSearchInputReceivers.put(navigationBar, receiver);
+            }
+            moduleLog(Log.INFO, TAG, "Contextual-search gesture observer attached"
+                    + ", displayId=" + displayId
+                    + ", enabled=" + isContextualSearchLongPressEnabled());
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to attach contextual-search gesture observer", throwable);
+        }
+    }
+
+    protected void detachContextualSearchInputReceiver(Object navigationBar) {
+        ContextualSearchInputReceiver receiver;
+        synchronized (contextualSearchInputReceivers) {
+            receiver = contextualSearchInputReceivers.remove(navigationBar);
+        }
+        if (receiver != null) {
+            receiver.detach();
+        }
+    }
+
+    protected Object[] detachAllContextualSearchInputReceiversForHotReload() {
+        Object[] navigationBars;
+        ContextualSearchInputReceiver[] receivers;
+        synchronized (contextualSearchInputReceivers) {
+            navigationBars = contextualSearchInputReceivers.keySet().toArray();
+            receivers = contextualSearchInputReceivers.values().toArray(
+                    new ContextualSearchInputReceiver[0]);
+            contextualSearchInputReceivers.clear();
+        }
+        for (ContextualSearchInputReceiver receiver : receivers) {
+            receiver.detach();
+        }
+        return navigationBars;
+    }
+
+    protected void restoreContextualSearchInputReceivers(Object[] navigationBars) {
+        if (navigationBars == null || navigationBars.length == 0) {
+            return;
+        }
+        new Handler(Looper.getMainLooper()).post(() -> {
+            int restored = 0;
+            for (Object navigationBar : navigationBars) {
+                if (navigationBar == null) {
+                    continue;
+                }
+                attachContextualSearchInputReceiver(navigationBar);
+                restored++;
+            }
+            moduleLog(Log.INFO, TAG,
+                    "Restored contextual-search gesture observers after hot reload"
+                            + ", count=" + restored);
+        });
+    }
+
+    protected boolean invokeContextualSearchService() {
+        if (!isContextualSearchLongPressEnabled()) {
+            return false;
+        }
+        try {
+            Class<?> serviceManagerClass = Class.forName("android.os.ServiceManager");
+            Object binderObject = serviceManagerClass
+                    .getMethod("getService", String.class)
+                    .invoke(null, "contextual_search");
+            if (!(binderObject instanceof IBinder)) {
+                moduleLog(Log.WARN, TAG,
+                        "Contextual-search service is not registered; restart may be required");
+                return false;
+            }
+            Class<?> stubClass = Class.forName(
+                    "android.app.contextualsearch.IContextualSearchManager$Stub");
+            Object service = stubClass.getMethod("asInterface", IBinder.class)
+                    .invoke(null, binderObject);
+            if (service == null) {
+                return false;
+            }
+            Class<?> interfaceClass = Class.forName(
+                    "android.app.contextualsearch.IContextualSearchManager");
+            Method startMethod;
+            Object[] arguments;
+            try {
+                startMethod = interfaceClass.getMethod(
+                        "startContextualSearch", int.class);
+                arguments = new Object[]{Integer.valueOf(1)};
+            } catch (NoSuchMethodException qpr0Missing) {
+                Class<?> configClass = Class.forName(
+                        "android.app.contextualsearch.ContextualSearchConfig");
+                startMethod = interfaceClass.getMethod(
+                        "startContextualSearch", int.class, configClass);
+                arguments = new Object[]{Integer.valueOf(1), null};
+            }
+            startMethod.invoke(service, arguments);
+            moduleLog(Log.INFO, TAG,
+                    "Requested contextual search from the navigation handle"
+                            + ", signature=" + startMethod.toGenericString());
+            return true;
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Contextual-search Binder request failed", throwable);
+            return false;
+        }
+    }
+
+    protected final class ContextualSearchInputReceiver extends InputEventReceiver {
+        private static final int HANDLE_TOUCH_PADDING_DP = 24;
+
+        private final Object navigationBar;
+        private final View navigationView;
+        private final InputMonitor inputMonitor;
+        private final int displayId;
+        private final Handler mainHandler = new Handler(Looper.getMainLooper());
+        private final KeyguardManager keyguardManager;
+        private final float touchSlopSquared;
+        private final long longPressTimeoutMillis;
+        private boolean tracking;
+        private boolean pilfered;
+        private float downX;
+        private float downY;
+        private boolean eligibilityFailureLogged;
+
+        private final Runnable longPress;
+
+        private void onLongPressTimeout() {
+            if (!tracking || pilfered || !isEligibleForLongPress()) {
+                cancelTracking(false);
+                return;
+            }
+            try {
+                inputMonitor.pilferPointers();
+                pilfered = true;
+                moduleLog(Log.INFO, TAG,
+                        "Claimed navigation-handle long press for contextual search"
+                                + ", displayId=" + displayId);
+                invokeContextualSearchService();
+            } catch (Throwable throwable) {
+                moduleLog(Log.WARN, TAG,
+                        "Failed to claim contextual-search long press", throwable);
+                cancelTracking(false);
+            }
+        }
+
+        ContextualSearchInputReceiver(Context context, Object navigationBar,
+                                      View navigationView, InputMonitor inputMonitor,
+                                      int displayId) {
+            super(inputMonitor.getInputChannel(), Looper.getMainLooper());
+            this.navigationBar = navigationBar;
+            this.navigationView = navigationView;
+            this.inputMonitor = inputMonitor;
+            this.displayId = displayId;
+            this.keyguardManager = context.getSystemService(KeyguardManager.class);
+            float touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+            this.touchSlopSquared = touchSlop * touchSlop;
+            this.longPressTimeoutMillis = ViewConfiguration.getLongPressTimeout();
+            this.longPress = this::onLongPressTimeout;
+        }
+
+        @Override
+        public void onInputEvent(InputEvent event) {
+            boolean handled = false;
+            try {
+                if (event instanceof MotionEvent) {
+                    handled = handleMotionEvent((MotionEvent) event);
+                }
+            } catch (Throwable throwable) {
+                moduleLog(Log.ERROR, TAG,
+                        "Contextual-search input observer failed", throwable);
+                cancelTracking(true);
+            } finally {
+                finishInputEvent(event, handled);
+            }
+        }
+
+        void detach() {
+            cancelTracking(true);
+            try {
+                dispose();
+            } catch (Throwable throwable) {
+                moduleLog(Log.WARN, TAG,
+                        "Failed to dispose contextual-search input receiver", throwable);
+            }
+            try {
+                inputMonitor.dispose();
+            } catch (Throwable throwable) {
+                moduleLog(Log.WARN, TAG,
+                        "Failed to dispose contextual-search input monitor", throwable);
+            }
+        }
+
+        private boolean handleMotionEvent(MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    cancelTracking(true);
+                    if (!isEligibleForLongPress()
+                            || !containsGestureHandle(event.getRawX(), event.getRawY())) {
+                        return false;
+                    }
+                    tracking = true;
+                    downX = event.getRawX();
+                    downY = event.getRawY();
+                    mainHandler.postDelayed(longPress, longPressTimeoutMillis);
+                    return false;
+                case MotionEvent.ACTION_MOVE:
+                    if (tracking && !pilfered) {
+                        float deltaX = event.getRawX() - downX;
+                        float deltaY = event.getRawY() - downY;
+                        if (event.getPointerCount() != 1
+                                || deltaX * deltaX + deltaY * deltaY > touchSlopSquared) {
+                            cancelTracking(false);
+                        }
+                    }
+                    return pilfered;
+                case MotionEvent.ACTION_POINTER_DOWN:
+                case MotionEvent.ACTION_CANCEL:
+                    boolean cancelledHandled = pilfered;
+                    cancelTracking(true);
+                    return cancelledHandled;
+                case MotionEvent.ACTION_UP:
+                    boolean upHandled = pilfered;
+                    cancelTracking(true);
+                    return upHandled;
+                default:
+                    return pilfered;
+            }
+        }
+
+        private boolean isEligibleForLongPress() {
+            if (!isContextualSearchLongPressEnabled()
+                    || keyguardManager != null && keyguardManager.isKeyguardLocked()
+                    || !navigationView.isAttachedToWindow()
+                    || !navigationView.isShown()) {
+                return false;
+            }
+            try {
+                Object disabled = invokeAnyMethod(
+                        navigationBar, "shouldDisableNavbarGestures", new Object[0]);
+                if (!(disabled instanceof Boolean)) {
+                    return false;
+                }
+                eligibilityFailureLogged = false;
+                return !((Boolean) disabled).booleanValue();
+            } catch (Throwable throwable) {
+                if (!eligibilityFailureLogged) {
+                    eligibilityFailureLogged = true;
+                    moduleLog(Log.WARN, TAG,
+                            "Cannot verify NavigationBar gesture eligibility"
+                                    + ", policy=failClosed", throwable);
+                }
+                return false;
+            }
+        }
+
+        private boolean containsGestureHandle(float rawX, float rawY) {
+            int handleId = navigationView.getResources().getIdentifier(
+                    "home_handle", "id", SYSTEM_UI);
+            if (handleId == 0) {
+                return false;
+            }
+            View handle = navigationView.findViewById(handleId);
+            if (handle == null || !handle.isShown() || handle.getAlpha() <= 0.0f) {
+                return false;
+            }
+            Rect bounds = new Rect();
+            if (!handle.getGlobalVisibleRect(bounds) || bounds.isEmpty()) {
+                return false;
+            }
+            int padding = Math.max(1, Math.round(
+                    HANDLE_TOUCH_PADDING_DP
+                            * navigationView.getResources().getDisplayMetrics().density));
+            bounds.inset(-padding, -padding);
+            return bounds.contains(Math.round(rawX), Math.round(rawY));
+        }
+
+        private void cancelTracking(boolean clearPilfered) {
+            mainHandler.removeCallbacks(longPress);
+            tracking = false;
+            if (clearPilfered) {
+                pilfered = false;
+            }
+        }
+    }
 
     protected boolean isHyperOsIndicatorEnabled() {
         return readHyperOsBooleanPreference(
