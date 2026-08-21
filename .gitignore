@@ -34,11 +34,5 @@ out/
 /refs/**/*.vdex
 /refs/**/*.oat
 
-# Native experiment build/package/evidence outputs.
-/experiments/**/out/
-/experiments/**/.cxx/
-/experiments/**/build/
-/experiments/**/*.so
-/experiments/**/*.zip
-/experiments/**/diagnostics.map
-/experiments/**/module.prop
+# Native Zygisk Next build/package/evidence outputs are also ignored by
+# miui-home-hyos-zn/.gitignore.

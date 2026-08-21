@@ -233,7 +233,7 @@ Copy-Item -LiteralPath (Join-Path $SourceRoot 'bin\hsctl') -Destination $StageBi
 
 $ModuleProp = Get-Content -Raw (Join-Path $SourceRoot 'module.prop.in')
 $ModuleProp = $ModuleProp.Replace('@MODULE_ID@', 'miui-home-hyos-zn')
-$ModuleProp = $ModuleProp.Replace('@MODULE_NAME@', 'MiuiHome hyos_spawner ZN Observer')
+$ModuleProp = $ModuleProp.Replace('@MODULE_NAME@', 'MiuiHome Native Hook')
 $ModuleProp = $ModuleProp.Replace('@VERSION_NAME@', $Version)
 $ModuleProp = $ModuleProp.Replace('@VERSION_CODE@', $VersionCode)
 [IO.File]::WriteAllText(

@@ -22,7 +22,7 @@ This repository is an LSPosed module for researching Xiaomi/MIUI back gesture be
   the staged file active. An in-place `cp` over a mapped ELF is forbidden.
 - Every live `miui-home-hyos-zn` update, activation, evidence capture, and
   rollback must use
-  `experiments/miui-home-hyos-zn/safe-device-test.ps1`. Do not deploy this
+  `miui-home-hyos-zn/safe-device-test.ps1`. Do not deploy this
   experiment with a direct `ksud module install`, direct `adb push` into the
   active module, a hand-written `zygiskd` sequence, or ad-hoc process signals.
   The script must verify exact MiuiHome version 4371, one immutable package

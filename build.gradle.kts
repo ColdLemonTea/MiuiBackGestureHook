@@ -19,7 +19,7 @@ val znNdkPath = providers.gradleProperty("znNdkPath")
 val znCmakePath = providers.gradleProperty("znCmakePath")
 val znCommand = buildList {
     add(znPython.get())
-    add("experiments/miui-home-hyos-zn/build_zn_package.py")
+    add("miui-home-hyos-zn/build_zn_package.py")
     add("--configuration")
     add(znConfiguration.get())
     if (znNdkPath.isPresent) {

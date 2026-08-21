@@ -42,7 +42,7 @@ Build the arm64-v8a Zygisk Next package:
 ```
 
 The ZN task uses the cross-platform Python builder in
-`experiments/miui-home-hyos-zn/`. NDK, CMake, and Python can be overridden with
+`miui-home-hyos-zn/`. NDK, CMake, and Python can be overridden with
 `-PznNdkPath`, `-PznCmakePath`, and `-PznPython`.
 
 Outputs:
@@ -77,7 +77,7 @@ artifacts and device evidence remain local-only under ignored `refs/android17`
 paths; see [refs/README.md](refs/README.md).
 
 Native ZN sources and deployment tools are under
-`experiments/miui-home-hyos-zn/`.
+`miui-home-hyos-zn/`.
 
 ## License
 

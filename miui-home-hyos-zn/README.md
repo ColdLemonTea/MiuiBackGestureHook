@@ -170,7 +170,7 @@ When locally retained launcher ELFs are available, verify profiles without
 adding those proprietary binaries or decompiler projects to Git:
 
 ```powershell
-python .\experiments\miui-home-hyos-zn\verify-launcher-profiles.py `
+python .\miui-home-hyos-zn\verify-launcher-profiles.py `
   --library 4371=<4371-libapp_launcher.so> `
   --library 5334=<5334-libapp_launcher.so> `
   --library 5402=<5402-libapp_launcher.so>
@@ -185,7 +185,7 @@ that the production constraints reproduce every recorded `5334`/`5402` ABI
 offset and that corrupting the unique side candidate fails closed:
 
 ```powershell
-python .\experiments\miui-home-hyos-zn\verify-runtime-profile.py `
+python .\miui-home-hyos-zn\verify-runtime-profile.py `
   --library 5334=<5334-libapp_launcher.so> `
   --library 5402=<5402-libapp_launcher.so>
 ```
@@ -260,25 +260,25 @@ automatically rolls back on failure.
 Status and evidence capture are read-only and require no profile confirmation:
 
 ```powershell
-.\experiments\miui-home-hyos-zn\safe-device-test.ps1 `
+.\miui-home-hyos-zn\safe-device-test.ps1 `
   -Action Status -Serial <adb-serial>
 
-.\experiments\miui-home-hyos-zn\safe-device-test.ps1 `
+.\miui-home-hyos-zn\safe-device-test.ps1 `
   -Action Capture -Serial <adb-serial>
 ```
 
 Deploy one exact profile:
 
 ```powershell
-.\experiments\miui-home-hyos-zn\safe-device-test.ps1 `
+.\miui-home-hyos-zn\safe-device-test.ps1 `
   -Action Deploy -Serial <adb-serial> `
   -PackageZip <debug-zip> -Confirm4371
 
-.\experiments\miui-home-hyos-zn\safe-device-test.ps1 `
+.\miui-home-hyos-zn\safe-device-test.ps1 `
   -Action Deploy -Serial <adb-serial> `
   -PackageZip <debug-zip> -Confirm5334
 
-.\experiments\miui-home-hyos-zn\safe-device-test.ps1 `
+.\miui-home-hyos-zn\safe-device-test.ps1 `
   -Action Deploy -Serial <adb-serial> `
   -PackageZip <debug-zip> -Confirm5402
 ```
@@ -286,7 +286,7 @@ Deploy one exact profile:
 Rollback uses the matching confirmation:
 
 ```powershell
-.\experiments\miui-home-hyos-zn\safe-device-test.ps1 `
+.\miui-home-hyos-zn\safe-device-test.ps1 `
   -Action Rollback -Serial <adb-serial> -Confirm5402
 ```
 

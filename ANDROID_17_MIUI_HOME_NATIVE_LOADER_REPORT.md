@@ -405,7 +405,7 @@ zygote_next --name zygote_next --species android-native-app --log-level INFO
 仓库已建立默认关闭的最小观察探针：
 
 ```text
-experiments/miui-home-hyos-zn
+miui-home-hyos-zn
 ```
 
 它通过 Zygisk Next 的 service scope 精确指向
@@ -1075,7 +1075,7 @@ Home Activity 已 resumed。实验 module 仍为 disabled、`run/` markers 为�
 直接原因是 Home 进程缺失，不是新的 native tombstone，也不是接管成功。
 
 后续不再允许手工组合安装、文件替换、ZN reload 与 spawner 信号。仓库新增
-`experiments/miui-home-hyos-zn/safe-device-test.ps1` 作为唯一主机入口；它验证 exact 4371
+`miui-home-hyos-zn/safe-device-test.ps1` 作为唯一主机入口；它验证 exact 4371
 和单一 package SHA，使用不同路径/inode staging，核对 native SHA，先禁用 ZN；存在旧
 mapping 时再替换 exact root/PPID-1 spawner，确认旧 ELF 已完全解除映射后才原子激活新文件。设备端 `hsctl` 只保留
 `status`、`activate --confirm`、`rollback --confirm` 与日志读取；激活会显式启动 Home 并

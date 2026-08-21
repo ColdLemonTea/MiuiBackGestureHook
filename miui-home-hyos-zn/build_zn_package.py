@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = Path(__file__).resolve().parent
 
 
@@ -200,7 +200,7 @@ def package(library: Path, version: str, version_code: str, nm: Path) -> Path:
     module_prop = (SOURCE_ROOT / "module.prop.in").read_text(encoding="utf-8")
     module_prop = (
         module_prop.replace("@MODULE_ID@", "miui-home-hyos-zn")
-        .replace("@MODULE_NAME@", "MiuiHome hyos_spawner ZN Observer")
+        .replace("@MODULE_NAME@", "MiuiHome Native Hook")
         .replace("@VERSION_NAME@", version)
         .replace("@VERSION_CODE@", version_code)
     )
@@ -304,6 +304,21 @@ def package(library: Path, version: str, version_code: str, nm: Path) -> Path:
     return output
 
 
+def reset_stale_cmake_cache(build_root: Path) -> None:
+    """Remove a generated build tree configured from a different source path."""
+    cache_file = build_root / "CMakeCache.txt"
+    if not cache_file.is_file():
+        return
+    cache = cache_file.read_text(encoding="utf-8", errors="replace")
+    match = re.search(r"(?m)^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$", cache)
+    if not match:
+        return
+    configured_source = Path(match.group(1).strip()).resolve()
+    if configured_source != SOURCE_ROOT.resolve():
+        print(f"Resetting stale CMake cache: {configured_source}", flush=True)
+        shutil.rmtree(build_root)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--configuration", choices=("Debug", "Release", "RelWithDebInfo"),
@@ -322,6 +337,7 @@ def main() -> int:
     nm = host_tool(ndk, "llvm-nm")
     objdump = host_tool(ndk, "llvm-objdump")
     build_root = ROOT / "out" / "miui-home-hyos-zn" / args.configuration
+    reset_stale_cmake_cache(build_root)
     generated = build_root / "generated" / "launcher_profiles.generated.h"
     generated.parent.mkdir(parents=True, exist_ok=True)
     run([sys.executable, str(SOURCE_ROOT / "generate-launcher-profiles.py"),
