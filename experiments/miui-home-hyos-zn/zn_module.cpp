@@ -195,6 +195,8 @@ void* g_motion_get_down_time = nullptr;
 void* g_motion_get_device_id = nullptr;
 void* g_motion_get_source = nullptr;
 void* g_motion_get_raw_x = nullptr;
+void* g_motion_get_raw_y = nullptr;
+void* g_motion_get_y = nullptr;
 uint8_t* g_launcher_base = nullptr;
 const miui_home_profiles::LauncherProfile* g_launcher_profile = nullptr;
 miui_home_runtime_profile::ResolutionStorage g_dynamic_profile_storage{};
@@ -274,6 +276,24 @@ __attribute__((used)) volatile uint32_t
         g_contextual_search_invoke_count = 0;
 __attribute__((used)) volatile uint32_t
         g_contextual_search_invoke_last_result = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_long_press_upward_cancel_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_motion_snapshot_valid = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_motion_snapshot_action = 0xffffffffu;
+__attribute__((used)) volatile int64_t
+        g_contextual_motion_snapshot_down_time = 0;
+__attribute__((used)) volatile int32_t
+        g_contextual_motion_snapshot_device_id = 0;
+__attribute__((used)) volatile int32_t
+        g_contextual_motion_snapshot_source = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_motion_snapshot_down_y_bits = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_motion_snapshot_current_y_bits = 0;
+__attribute__((used)) volatile uint64_t
+        g_contextual_motion_snapshot_sequence = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_failure_count = 0;
@@ -351,6 +371,7 @@ struct PendingDownIdentity {
     int32_t device_id;
     int32_t source;
     uint32_t edge;
+    float raw_y;
     bool valid;
 };
 
@@ -369,6 +390,7 @@ thread_local uintptr_t g_last_motion_event = 0u;
 thread_local uint64_t g_last_motion_sequence = 0u;
 thread_local int32_t g_last_motion_action = -1;
 thread_local bool g_last_motion_used_masked_method = false;
+thread_local float g_last_motion_raw_y = 0.0f;
 constexpr uint32_t kCaptureSlotCount = 64u;
 constexpr uint32_t kCaptureSlotSize = 256u;
 __attribute__((used)) volatile uint32_t g_dlopen_capture_index = 0;
@@ -394,6 +416,34 @@ void AtomicStore(T* target, T value) {
 
 void Log(int priority, const char* message) {
     __android_log_write(priority, kLogTag, message);
+}
+
+uint32_t FloatBits(float value) {
+    uint32_t bits = 0;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+float BitsFloat(uint32_t bits) {
+    float value = 0.0f;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+float ReadMotionY(void* event) {
+    if (event == nullptr) return 0.0f;
+    MotionEventFloatFn get_raw_y = reinterpret_cast<MotionEventFloatFn>(
+            AtomicLoad(&g_motion_get_raw_y));
+    const float raw_y = get_raw_y == nullptr ? 0.0f : get_raw_y(event);
+    // HyperOS 5436 exposes the raw-Y import but returns the zero default for
+    // the native MotionEvent wrapper used by the launcher long-press path.
+    // Its ordinary local-Y leaf is the same event coordinate in this
+    // non-transformed launcher window, so use it only when raw-Y is absent or
+    // reports that zero sentinel.
+    if (raw_y != 0.0f) return raw_y;
+    MotionEventFloatFn get_y = reinterpret_cast<MotionEventFloatFn>(
+            AtomicLoad(&g_motion_get_y));
+    return get_y == nullptr ? raw_y : get_y(event);
 }
 
 constexpr size_t ConstStringLength(const char* value) {
@@ -1972,10 +2022,13 @@ void CaptureMotionAction(void* event, int32_t action) {
             AtomicLoad(&g_motion_get_source));
     MotionEventFloatFn get_raw_x = reinterpret_cast<MotionEventFloatFn>(
             AtomicLoad(&g_motion_get_raw_x));
+    MotionEventFloatFn get_raw_y = reinterpret_cast<MotionEventFloatFn>(
+            AtomicLoad(&g_motion_get_raw_y));
     PendingDownIdentity candidate{};
     candidate.valid = get_id != nullptr && get_down_time != nullptr &&
             get_device_id != nullptr && get_source != nullptr &&
-            get_raw_x != nullptr;
+            get_raw_x != nullptr &&
+            (get_raw_y != nullptr || AtomicLoad(&g_motion_get_y) != nullptr);
     if (!candidate.valid) {
         g_systemui_owns_back_stream = false;
         g_owned_back_stream.valid = false;
@@ -1997,6 +2050,7 @@ void CaptureMotionAction(void* event, int32_t action) {
     candidate.device_id = get_device_id(event);
     candidate.source = get_source(event);
     candidate.edge = raw_x <= 256.0f ? uint32_t{0} : uint32_t{1};
+    candidate.raw_y = ReadMotionY(event);
     const bool repeated_owned_down = g_systemui_owns_back_stream &&
             g_owned_back_stream.valid &&
             SameDownIdentity(candidate, g_owned_back_stream.down);
@@ -2005,6 +2059,71 @@ void CaptureMotionAction(void* event, int32_t action) {
         g_owned_back_stream.valid = false;
     }
     g_pending_down = candidate;
+}
+
+// Contextual Search's long-press completion can run after the MotionEvent
+// reader has crossed a native callback boundary.  Keep a small process-wide
+// identity/value snapshot rather than relying on the back-arbiter TLS state.
+// All fields are published atomically; the valid bit is written last.
+void PublishContextualMotionSnapshot(void* event, int32_t action) {
+    if (event == nullptr) return;
+    MotionEventLongFn get_down_time = reinterpret_cast<MotionEventLongFn>(
+            AtomicLoad(&g_motion_get_down_time));
+    MotionEventIntFn get_device_id = reinterpret_cast<MotionEventIntFn>(
+            AtomicLoad(&g_motion_get_device_id));
+    MotionEventIntFn get_source = reinterpret_cast<MotionEventIntFn>(
+            AtomicLoad(&g_motion_get_source));
+    MotionEventFloatFn get_raw_y = reinterpret_cast<MotionEventFloatFn>(
+            AtomicLoad(&g_motion_get_raw_y));
+    MotionEventFloatFn get_y = reinterpret_cast<MotionEventFloatFn>(
+            AtomicLoad(&g_motion_get_y));
+    if (get_down_time == nullptr || get_device_id == nullptr ||
+            get_source == nullptr || (get_raw_y == nullptr && get_y == nullptr)) {
+        return;
+    }
+    const int64_t down_time = get_down_time(event);
+    const int32_t device_id = get_device_id(event);
+    const int32_t source = get_source(event);
+    const float raw_y = ReadMotionY(event);
+    const uint32_t masked_action = static_cast<uint32_t>(action & 0xff);
+    if (masked_action == 0u) {
+        __atomic_store_n(&g_contextual_motion_snapshot_valid, uint32_t{0},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_contextual_motion_snapshot_down_time, down_time,
+                         __ATOMIC_RELAXED);
+        __atomic_store_n(&g_contextual_motion_snapshot_device_id, device_id,
+                         __ATOMIC_RELAXED);
+        __atomic_store_n(&g_contextual_motion_snapshot_source, source,
+                         __ATOMIC_RELAXED);
+        __atomic_store_n(&g_contextual_motion_snapshot_down_y_bits,
+                         FloatBits(raw_y),
+                         __ATOMIC_RELAXED);
+        __atomic_store_n(&g_contextual_motion_snapshot_current_y_bits,
+                         FloatBits(raw_y),
+                         __ATOMIC_RELAXED);
+        __atomic_store_n(&g_contextual_motion_snapshot_action, masked_action,
+                         __ATOMIC_RELAXED);
+        __atomic_fetch_add(&g_contextual_motion_snapshot_sequence,
+                           uint64_t{1}, __ATOMIC_RELAXED);
+        __atomic_store_n(&g_contextual_motion_snapshot_valid, uint32_t{1},
+                         __ATOMIC_RELEASE);
+        return;
+    }
+    if (__atomic_load_n(&g_contextual_motion_snapshot_valid,
+                        __ATOMIC_ACQUIRE) == 0u ||
+            __atomic_load_n(&g_contextual_motion_snapshot_down_time,
+                            __ATOMIC_RELAXED) != down_time ||
+            __atomic_load_n(&g_contextual_motion_snapshot_device_id,
+                            __ATOMIC_RELAXED) != device_id ||
+            __atomic_load_n(&g_contextual_motion_snapshot_source,
+                            __ATOMIC_RELAXED) != source) {
+        return;
+    }
+    __atomic_store_n(&g_contextual_motion_snapshot_current_y_bits,
+                     FloatBits(raw_y),
+                     __ATOMIC_RELAXED);
+    __atomic_store_n(&g_contextual_motion_snapshot_action, masked_action,
+                     __ATOMIC_RELEASE);
 }
 
 NativeResult HookPackageManagerHasSystemFeatureForSlot(
@@ -2087,6 +2206,8 @@ int32_t HookMotionGetActionForSlot(void* event, uint32_t slot_index,
     g_last_motion_action = action;
     g_last_motion_sequence = motion_sequence;
     g_last_motion_used_masked_method = masked;
+    g_last_motion_raw_y = ReadMotionY(event);
+    PublishContextualMotionSnapshot(event, action);
     if ((action & 0xff) == 0) {
         __atomic_fetch_add(&g_motion_down_capture_count, uint32_t{1},
                            __ATOMIC_RELAXED);
@@ -2227,6 +2348,19 @@ bool CleanupContextualLongPressClosure(void* closure) {
     return true;
 }
 
+bool ContextualLongPressHasUpwardIntent() {
+    if (__atomic_load_n(&g_contextual_motion_snapshot_valid,
+                        __ATOMIC_ACQUIRE) == 0u) {
+        return false;
+    }
+    const float down_y = BitsFloat(__atomic_load_n(
+            &g_contextual_motion_snapshot_down_y_bits, __ATOMIC_ACQUIRE));
+    const float current_y = BitsFloat(__atomic_load_n(
+            &g_contextual_motion_snapshot_current_y_bits, __ATOMIC_ACQUIRE));
+    const float upward = down_y - current_y;
+    return upward >= 8.0f;
+}
+
 void HookContextualLongPressHandler(void* closure, uint32_t trigger_mode) {
     __atomic_fetch_add(&g_contextual_long_press_trigger_count, uint32_t{1},
                        __ATOMIC_RELAXED);
@@ -2236,8 +2370,19 @@ void HookContextualLongPressHandler(void* closure, uint32_t trigger_mode) {
     ContextualSearchInvokeFn invoke =
             reinterpret_cast<ContextualSearchInvokeFn>(
                     AtomicLoad(&g_contextual_search_invoke));
-    if (AtomicLoad(&g_contextual_search_enabled) == 0u || closure == nullptr ||
-            invoke == nullptr) {
+    const bool upward_intent = ContextualLongPressHasUpwardIntent();
+    __android_log_print(
+            ANDROID_LOG_INFO, kLogTag,
+            "native contextual-search terminal handler trigger_mode=%u"
+            " upward=%u enabled=%u snapshot_valid=%u down_y=%.1f current_y=%.1f",
+            static_cast<unsigned int>(trigger_mode), upward_intent ? 1u : 0u,
+            AtomicLoad(&g_contextual_search_enabled),
+            __atomic_load_n(&g_contextual_motion_snapshot_valid, __ATOMIC_ACQUIRE),
+            static_cast<double>(BitsFloat(__atomic_load_n(
+                    &g_contextual_motion_snapshot_down_y_bits, __ATOMIC_ACQUIRE))),
+            static_cast<double>(BitsFloat(__atomic_load_n(
+                    &g_contextual_motion_snapshot_current_y_bits, __ATOMIC_ACQUIRE))));
+    if (closure == nullptr) {
         __atomic_fetch_add(&g_contextual_long_press_passthrough_count,
                            uint32_t{1}, __ATOMIC_RELAXED);
         if (original != nullptr) original(closure, trigger_mode);
@@ -2259,8 +2404,9 @@ void HookContextualLongPressHandler(void* closure, uint32_t trigger_mode) {
         return;
     }
     // Validate the same closure tail used by the captured native function
-    // before claiming the terminal route.  A layout mismatch must remain
-    // stock rather than risking a stale detector or an invalid release call.
+    // before either terminal routing or cancellation cleanup.  A layout
+    // mismatch must remain stock rather than risking a stale detector or an
+    // invalid release call.
     void* closure_storage = *reinterpret_cast<void**>(
             reinterpret_cast<uint8_t*>(closure) + 0x8u);
     void* closure_owner = *reinterpret_cast<void**>(
@@ -2273,6 +2419,29 @@ void HookContextualLongPressHandler(void* closure, uint32_t trigger_mode) {
                      *reinterpret_cast<ContextualClosureCleanupFn*>(
                             reinterpret_cast<uint8_t*>(closure_owner) + 0x28u) ==
                             nullptr))) {
+        __atomic_fetch_add(&g_contextual_long_press_passthrough_count,
+                           uint32_t{1}, __ATOMIC_RELAXED);
+        if (original != nullptr) original(closure, trigger_mode);
+        return;
+    }
+    // An upward desktop transition must cancel the detector even when the
+    // module's contextual-search preference is currently disabled.  Do not
+    // call the original terminal handler here: that function would continue
+    // into Xiaomi's CTS route.  Reproduce only its completion marker and
+    // closure cleanup, leaving the detector in the same finished state without
+    // invoking the service.
+    if (upward_intent) {
+        __atomic_fetch_add(&g_contextual_long_press_upward_cancel_count,
+                           uint32_t{1}, __ATOMIC_RELAXED);
+        __atomic_store_n(static_cast<uint8_t*>(completion_state) + 0x10u,
+                         uint8_t{1}, __ATOMIC_RELEASE);
+        if (!CleanupContextualLongPressClosure(closure)) {
+            __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                                "contextual-search upward cancellation cleanup unavailable");
+        }
+        return;
+    }
+    if (AtomicLoad(&g_contextual_search_enabled) == 0u || invoke == nullptr) {
         __atomic_fetch_add(&g_contextual_long_press_passthrough_count,
                            uint32_t{1}, __ATOMIC_RELAXED);
         if (original != nullptr) original(closure, trigger_mode);
@@ -2492,11 +2661,17 @@ bool InstallClaimedBusinessHooksForProfile(void* app_entry_point, bool repair) {
                 dlsym(launcher_handle, "input_MotionEvent_getSource"));
     AtomicStore(&g_motion_get_raw_x,
                 dlsym(launcher_handle, "input_MotionEvent_getRawX"));
+    AtomicStore(&g_motion_get_raw_y,
+                dlsym(launcher_handle, "input_MotionEvent_getRawY"));
+    AtomicStore(&g_motion_get_y,
+                dlsym(launcher_handle, "input_MotionEvent_getY"));
     if (AtomicLoad(&g_motion_get_id) == nullptr ||
             AtomicLoad(&g_motion_get_down_time) == nullptr ||
             AtomicLoad(&g_motion_get_device_id) == nullptr ||
             AtomicLoad(&g_motion_get_source) == nullptr ||
             AtomicLoad(&g_motion_get_raw_x) == nullptr ||
+            (AtomicLoad(&g_motion_get_raw_y) == nullptr &&
+                    AtomicLoad(&g_motion_get_y) == nullptr) ||
             AtomicLoad(&g_original_motion_get_action) == nullptr ||
             AtomicLoad(&g_original_motion_get_action_masked) == nullptr ||
             AtomicLoad(&g_original_input_monitor_pilfer) == nullptr) {

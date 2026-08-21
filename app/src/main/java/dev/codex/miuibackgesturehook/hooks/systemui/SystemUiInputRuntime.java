@@ -366,17 +366,21 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         private final Handler mainHandler = new Handler(Looper.getMainLooper());
         private final KeyguardManager keyguardManager;
         private final float touchSlopSquared;
+        private final float upwardIntentDistance;
         private final long longPressTimeoutMillis;
         private boolean tracking;
         private boolean pilfered;
         private float downX;
         private float downY;
+        private float lastX;
+        private float lastY;
         private boolean eligibilityFailureLogged;
 
         private final Runnable longPress;
 
         private void onLongPressTimeout() {
-            if (!tracking || pilfered || !isEligibleForLongPress()) {
+            if (!tracking || pilfered || hasUpwardGestureIntent()
+                    || !isEligibleForLongPress()) {
                 cancelTracking(false);
                 return;
             }
@@ -405,6 +409,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             this.keyguardManager = context.getSystemService(KeyguardManager.class);
             float touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
             this.touchSlopSquared = touchSlop * touchSlop;
+            this.upwardIntentDistance = Math.max(
+                    touchSlop * 0.5f,
+                    4.0f * context.getResources().getDisplayMetrics().density);
             this.longPressTimeoutMillis = ViewConfiguration.getLongPressTimeout();
             this.longPress = this::onLongPressTimeout;
         }
@@ -452,13 +459,18 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     tracking = true;
                     downX = event.getRawX();
                     downY = event.getRawY();
+                    lastX = downX;
+                    lastY = downY;
                     mainHandler.postDelayed(longPress, longPressTimeoutMillis);
                     return false;
                 case MotionEvent.ACTION_MOVE:
                     if (tracking && !pilfered) {
-                        float deltaX = event.getRawX() - downX;
-                        float deltaY = event.getRawY() - downY;
+                        lastX = event.getRawX();
+                        lastY = event.getRawY();
+                        float deltaX = lastX - downX;
+                        float deltaY = lastY - downY;
                         if (event.getPointerCount() != 1
+                                || hasUpwardGestureIntent()
                                 || deltaX * deltaX + deltaY * deltaY > touchSlopSquared) {
                             cancelTracking(false);
                         }
@@ -476,6 +488,14 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 default:
                     return pilfered;
             }
+        }
+
+        private boolean hasUpwardGestureIntent() {
+            float deltaX = lastX - downX;
+            float deltaY = lastY - downY;
+            float upward = -deltaY;
+            return upward >= upwardIntentDistance
+                    && upward >= Math.abs(deltaX) * 0.5f;
         }
 
         private boolean isEligibleForLongPress() {

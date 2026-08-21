@@ -251,6 +251,7 @@ def package(library: Path, version: str, version_code: str, nm: Path) -> Path:
         ("contextual_long_press_passthrough", "g_contextual_long_press_passthrough_count", "u4"),
         ("contextual_search_invokes", "g_contextual_search_invoke_count", "u4"),
         ("contextual_search_last_result", "g_contextual_search_invoke_last_result", "u4"),
+        ("contextual_long_press_upward_cancel", "g_contextual_long_press_upward_cancel_count", "u4"),
         ("business_repair_attempts", "g_business_repair_attempt_count", "u4"),
         ("business_repair_successes", "g_business_repair_success_count", "u4"),
         ("business_repair_failures", "g_business_repair_failure_count", "u4"),
