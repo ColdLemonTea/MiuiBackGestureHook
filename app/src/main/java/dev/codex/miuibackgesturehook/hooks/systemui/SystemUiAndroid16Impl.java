@@ -66,4 +66,13 @@ final class SystemUiAndroid16Impl extends SystemUiPlatformImpl {
                 "shouldCreateNavBarAndTaskBar", Integer.valueOf(displayId));
         return Boolean.TRUE.equals(result);
     }
+
+    @Override
+    boolean requiresStableGestureInsetsOverrideTypes() {
+        // HyperOS Android 16 also rejects relayout when a provider gains a new
+        // override type after the NavigationBar window has been added. Declare
+        // the IME type on the first LayoutParams even if gesture eligibility is
+        // not ready yet; the provider sizes remain gated by the normal state.
+        return true;
+    }
 }
