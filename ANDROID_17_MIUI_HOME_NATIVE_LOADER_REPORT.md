@@ -1543,20 +1543,18 @@ panel 准备边界，从 `android` framework color resources 解析当前 night/
 解析失败保持 Xiaomi 原色和原生 panel 可见；A16 实现不进入该路径。实机确认紫色已被当前动态
 主题的青色背景与深色箭头正确替换。
 
-取色正确后，用户发现背景只在弹出回弹峰值短暂出现十字裂缝。15 秒、约 55 fps 的实机录屏逐帧
-证据排除了重复 MiuiHome/SystemUI 指示器和箭头 Path：裂缝是背景填充从 12/3/6/9 点向圆心延伸的
-一像素透明辐条，随 `addRoundRect(RectF, float[8], CW)` 的四段圆角接合点出现；静止和后续拉伸
-阶段消失。exact Dagger factory 同时确认 background Paint 由无 flags 的 `new Paint()` 创建，原生
-几何、独立弹簧和每角半径本身与 AOSP 绘制结构一致。
+取色正确后，用户确认背景从开始出现到弹出回弹期间持续存在对称十字裂缝，进入后续稳定拉伸
+阶段才消失。Android 17 AOSP 的 `BackPanel` 绘制结构、资源尺寸和弹簧参数与设备值一致，不能把
+问题归因于 AOSP 指示器算法本身；它只在该 HyperOS 4/A17 SystemUI 的硬件 Path 运行路径中复现。
 
-单独开启 background Paint antialias 的第一版实机验证没有改变裂缝，证明它不是普通轮廓抗锯齿
-缺口，而是 A17 硬件 Path 后端在圆形退化几何上的内部曲线细分接缝。最终修复没有替换
-`onDraw()`、没有钳制 AnimatedFloat，也没有改进入态弹簧：只对 A17 的这个小型、visual-only
-`BackPanel` View 设置 `LAYER_TYPE_SOFTWARE`，让同一个原生 Path 生成连续的软件覆盖层。release
-APK 通过 `adb install -r` 热更新；SystemUI 原 PID 32741 内完成 31 个 hook replacement，重新创建
-android17 panel、恢复 headless controller 与唯一 input monitor，arbiter generation 更新为
-56261386589211。用户重复弹出回弹测试确认十字裂缝完全消失，颜色、箭头、手势状态和 Shell
-导航均保持正常。
+一次保留硬件绘制、删除 accepted-DOWN 前 `updateConfiguration$3()` 与
+`updateRestingArrowDimens()` 的 A/B 验证使问题明显恶化，几乎任何 MOVE 都会出现裂缝。这证明
+两次刷新不是裂缝来源，而是手动创建的 headless `BackPanelController` 在非标准所有权路径下
+必需的状态归一化，必须保留。最终实现不修改 AOSP 几何、弹簧或 `onDraw()`：仅把 A17 的小型
+visual-only `BackPanel` View 设为 `LAYER_TYPE_SOFTWARE`，SystemUI 窗口与最终 Surface 合成仍保持
+硬件加速。软件层设置先于且独立于动态取色；HyperOS 夜间主题缺失
+`system_on_secondary_container`/`system_secondary_container` 时回退到 fixed 颜色，取色失败也不能
+再跳过软件层。用户实机确认十字裂缝消失，颜色、箭头、手势状态及 Shell 导航均正常。
 
 ### 11.30 A17 cross-task 当前应用占据 entering 位置
 

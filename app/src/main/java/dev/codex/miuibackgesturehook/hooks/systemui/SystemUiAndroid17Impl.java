@@ -174,18 +174,35 @@ final class SystemUiAndroid17Impl extends SystemUiPlatformImpl {
         installBackCallback(plugin, edgeBackGestureHandler);
         updateDisplaySize(edgeBackGestureHandler, plugin);
         invokeCompatible(plugin, "updateConfiguration$3");
-        restoreAospBackPanelColors(plugin);
+        View panel = requireAospBackPanelView(plugin);
+        applyAospBackPanelSoftwareLayer(panel);
+        restoreAospBackPanelColors(panel);
         invokeCompatible(plugin, "updateRestingArrowDimens");
     }
 
-    private void restoreAospBackPanelColors(Object plugin) {
+    private View requireAospBackPanelView(Object plugin) throws Exception {
+        Object panelObject = readField(plugin, "mView");
+        if (!(panelObject instanceof View)) {
+            throw new IllegalStateException(
+                    "Android 17 BackPanel View is unavailable: " + panelObject);
+        }
+        return (View) panelObject;
+    }
+
+    private void applyAospBackPanelSoftwareLayer(View panel) {
+        // Keep this independent from optional dynamic-color lookup. HyperOS night themes
+        // may omit those framework color names; a color fallback must not silently leave
+        // this small visual-only panel on the affected hardware Path renderer.
+        panel.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        if (panel.getLayerType() != View.LAYER_TYPE_SOFTWARE) {
+            throw new IllegalStateException(
+                    "Android 17 BackPanel rejected its software layer");
+        }
+        panel.invalidate();
+    }
+
+    private void restoreAospBackPanelColors(View panel) {
         try {
-            Object panelObject = readField(plugin, "mView");
-            if (!(panelObject instanceof View)) {
-                throw new IllegalStateException(
-                        "Android 17 BackPanel View is unavailable: " + panelObject);
-            }
-            View panel = (View) panelObject;
             Object arrowPaintObject = readField(panel, "arrowPaint");
             Object backgroundPaintObject = readField(panel, "arrowBackgroundPaint");
             if (!(arrowPaintObject instanceof Paint)
@@ -198,22 +215,18 @@ final class SystemUiAndroid17Impl extends SystemUiPlatformImpl {
             boolean night = (panel.getResources().getConfiguration().uiMode
                     & Configuration.UI_MODE_NIGHT_MASK)
                     == Configuration.UI_MODE_NIGHT_YES;
-            int arrowColor = resolveAndroidColor(context, night
-                    ? "system_on_secondary_container"
-                    : "system_on_secondary_fixed");
-            int backgroundColor = resolveAndroidColor(context, night
-                    ? "system_secondary_container"
-                    : "system_secondary_fixed_dim");
+            int arrowColor = resolveAndroidColor(context,
+                    night ? "system_on_secondary_container"
+                            : "system_on_secondary_fixed",
+                    "system_on_secondary_fixed");
+            int backgroundColor = resolveAndroidColor(context,
+                    night ? "system_secondary_container"
+                            : "system_secondary_fixed_dim",
+                    "system_secondary_fixed_dim");
 
             ((Paint) arrowPaintObject).setColor(arrowColor);
             Paint backgroundPaint = (Paint) backgroundPaintObject;
             backgroundPaint.setColor(backgroundColor);
-            // Exact Android 17's hardware path renderer exposes the four conic joins of
-            // addRoundRect(float[8]) as transparent spokes while the entry spring crosses
-            // its circle-like geometry.  Paint antialiasing does not remove those internal
-            // tessellation seams.  Rasterize this small visual-only View as one software
-            // layer instead; native geometry, springs, state and input ownership stay intact.
-            panel.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
             panel.invalidate();
         } catch (Throwable ignored) {
             // The native controller remains visible with its own colors. Color restoration
@@ -221,12 +234,17 @@ final class SystemUiAndroid17Impl extends SystemUiPlatformImpl {
         }
     }
 
-    private int resolveAndroidColor(Context context, String name) {
-        int colorId = context.getResources().getIdentifier(
-                name, "color", "android");
+    private int resolveAndroidColor(Context context, String name,
+                                    String fallbackName) {
+        int colorId = context.getResources().getIdentifier(name, "color", "android");
+        if (colorId == 0 && !name.equals(fallbackName)) {
+            colorId = context.getResources().getIdentifier(
+                    fallbackName, "color", "android");
+        }
         if (colorId == 0) {
             throw new Resources.NotFoundException(
-                    "Android 17 BackPanel framework color is unavailable: " + name);
+                    "Android 17 BackPanel framework color is unavailable: "
+                            + name + "/" + fallbackName);
         }
         return context.getColor(colorId);
     }
