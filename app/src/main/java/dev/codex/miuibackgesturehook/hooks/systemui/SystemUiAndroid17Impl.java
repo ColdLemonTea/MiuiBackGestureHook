@@ -48,6 +48,11 @@ final class SystemUiAndroid17Impl extends SystemUiPlatformImpl {
     }
 
     @Override
+    boolean nativeLauncherOwnsContextualSearchLongPress() {
+        return true;
+    }
+
+    @Override
     Class<?> backAnimationParameterClass(ClassLoader classLoader) throws Exception {
         return Class.forName("com.android.wm.shell.back.BackAnimation", false, classLoader);
     }

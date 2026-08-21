@@ -96,6 +96,9 @@ using InputMonitorPilferFn = void (*)(void*);
 using GestureStubPointerHandlerFn = void (*)(void*, void*, void*, uint32_t);
 using GestureBackTouchProcessorFn = void (*)(void*, void*, void*);
 using GestureStubBackHandlerFn = void (*)(void*, void*);
+using ContextualLongPressHandlerFn = void (*)(void*, uint32_t);
+using ContextualSearchInvokeFn = uint8_t (*)(uint32_t);
+using ContextualClosureCleanupFn = void (*)(void*);
 
 struct RString {
     char* data;
@@ -128,6 +131,9 @@ struct NativeResult {
     // 16-byte C++ aggregate would instead return in x0/x1.
     uint8_t bytes[48];
 };
+
+using PackageManagerHasSystemFeatureFn = NativeResult (*)(
+        void*, const char*, size_t, uint32_t);
 
 struct NativeI64Option {
     uint64_t tag;
@@ -179,6 +185,8 @@ void* g_original_input_monitor_pilfer = nullptr;
 void* g_original_gesture_stub_pointer_handler = nullptr;
 void* g_original_gesture_back_touch_processor = nullptr;
 void* g_original_gesture_stub_back_handler = nullptr;
+void* g_original_contextual_long_press_handler = nullptr;
+void* g_contextual_search_invoke = nullptr;
 void* g_original_broadcast_receiver_on_receive = nullptr;
 void* g_original_broadcast_register_receiver = nullptr;
 void** g_broadcast_intent_with_feature_slot = nullptr;
@@ -194,6 +202,7 @@ uint32_t g_native_receiver_state = 0;
 NativeResult g_module_receiver_registration{};
 int64_t g_systemui_arbiter_generation = 0;
 uint32_t g_systemui_arbiter_ready = 0;
+__attribute__((used)) volatile uint32_t g_contextual_search_enabled = 0;
 uint32_t g_entry_reported = 0;
 uint32_t g_shell_hook_state = 0;
 uint32_t g_app_public_hook_state = 0;
@@ -252,6 +261,19 @@ __attribute__((used)) volatile uint32_t
 __attribute__((used)) volatile uint32_t g_motion_action_call_count = 0;
 __attribute__((used)) volatile uint32_t g_motion_action_masked_call_count = 0;
 __attribute__((used)) volatile uint32_t g_motion_down_capture_count = 0;
+__attribute__((used)) volatile uint32_t g_contextual_feature_hook_state = 0;
+__attribute__((used)) volatile uint32_t g_contextual_feature_query_count = 0;
+__attribute__((used)) volatile uint32_t g_contextual_feature_override_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_long_press_hook_state = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_long_press_trigger_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_long_press_passthrough_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_search_invoke_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_contextual_search_invoke_last_result = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_failure_count = 0;
@@ -267,10 +289,22 @@ __attribute__((used)) volatile uint32_t g_dynamic_side_candidate_count = 0;
 __attribute__((used)) volatile uint32_t
         g_dynamic_runtime_confirmation_count = 0;
 __attribute__((used)) volatile uint32_t g_dynamic_rstring_candidate_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_dynamic_contextual_support_candidate_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_dynamic_contextual_invoke_candidate_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_dynamic_contextual_long_press_candidate_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_dynamic_contextual_resolved = 0;
 __attribute__((used)) volatile uintptr_t g_dynamic_side_handler_offset = 0;
 __attribute__((used)) volatile uintptr_t g_dynamic_runtime_pointer_offset = 0;
 __attribute__((used)) volatile uintptr_t g_dynamic_runtime_state_offset = 0;
 __attribute__((used)) volatile uintptr_t g_dynamic_rstring_vtable_offset = 0;
+__attribute__((used)) volatile uintptr_t
+        g_dynamic_contextual_search_invoke_offset = 0;
+__attribute__((used)) volatile uintptr_t
+        g_dynamic_contextual_long_press_handler_offset = 0;
 
 // Observation-only ring for identifying the exact 4371 pilfer owner. The
 // sequence is published last, so /proc/<pid>/mem readers can reject a torn
@@ -303,7 +337,9 @@ struct LauncherInputHookSlot {
     void* original_action;
     void* original_action_masked;
     void* original_pilfer;
+    void* original_has_system_feature;
     uint32_t state;
+    uint32_t contextual_search_state;
 };
 __attribute__((used)) volatile uint32_t g_launcher_input_slot_count = 0;
 __attribute__((used)) LauncherInputHookSlot
@@ -599,8 +635,16 @@ constexpr char kSystemUiPackage[] = "com.android.systemui";
 constexpr char kArbiterStateAction[] =
         "dev.codex.miuibackgesturehook.action.SYSTEMUI_INPUT_ARBITER_STATE";
 constexpr char kArbiterStateCarrierAction[] = "com.android.systemui.fsgesture";
+constexpr char kContextualSearchEnabledExtra[] =
+        "contextual_search_enabled";
+constexpr char kPlatformContextualSearchFeature[] =
+        "android.software.contextualsearch";
+constexpr char kGoogleContextualSearchFeature[] =
+        "com.google.android.feature.CONTEXTUAL_SEARCH";
 constexpr char kArbiterQueryAction[] =
         "dev.codex.miuibackgesturehook.action.MIUI_HOME_INPUT_ARBITER_QUERY";
+constexpr char kContextualSearchTriggeredAction[] =
+        "dev.codex.miuibackgesturehook.action.CONTEXTUAL_SEARCH_TRIGGERED";
 constexpr char kRuntimeStatusResponseAction[] =
         "dev.codex.miuibackgesturehook.action.RUNTIME_STATUS_REPLY";
 constexpr char kRuntimeStatusQueryExtra[] = "status_query";
@@ -712,6 +756,18 @@ const miui_home_profiles::LauncherProfile* ResolveLauncherProfile(
                     __ATOMIC_RELAXED);
             __atomic_store_n(&g_dynamic_rstring_candidate_count,
                     diagnostics.rstring_candidate_count, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_contextual_support_candidate_count,
+                    diagnostics.contextual_support_candidate_count,
+                    __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_contextual_invoke_candidate_count,
+                    diagnostics.contextual_invoke_candidate_count,
+                    __ATOMIC_RELAXED);
+            __atomic_store_n(
+                    &g_dynamic_contextual_long_press_candidate_count,
+                    diagnostics.contextual_long_press_candidate_count,
+                    __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_contextual_resolved,
+                    diagnostics.contextual_resolved, __ATOMIC_RELAXED);
             __atomic_store_n(&g_dynamic_side_handler_offset,
                     diagnostics.side_handler_offset, __ATOMIC_RELAXED);
             __atomic_store_n(&g_dynamic_runtime_pointer_offset,
@@ -720,6 +776,13 @@ const miui_home_profiles::LauncherProfile* ResolveLauncherProfile(
                     diagnostics.runtime_state_offset, __ATOMIC_RELAXED);
             __atomic_store_n(&g_dynamic_rstring_vtable_offset,
                     diagnostics.rstring_vtable_offset, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_contextual_search_invoke_offset,
+                    diagnostics.contextual_search_invoke_offset,
+                    __ATOMIC_RELAXED);
+            __atomic_store_n(
+                    &g_dynamic_contextual_long_press_handler_offset,
+                    diagnostics.contextual_long_press_handler_offset,
+                    __ATOMIC_RELAXED);
             __atomic_store_n(&g_dynamic_profile_state,
                     static_cast<uint32_t>(diagnostics.stage),
                     __ATOMIC_RELEASE);
@@ -875,8 +938,14 @@ void ObserveArbiterStateIntent(void* intent) {
 
     void* extras = get_extras(intent);
     bool ready = false;
+    bool contextual_search_enabled = false;
     int32_t sender_uid = -1;
     int64_t generation = 0;
+    // The preference is optional for compatibility with an older companion
+    // APK. Missing or malformed state must fail closed without preventing the
+    // authenticated arbiter readiness update.
+    ReadNativeBool(extras, kContextualSearchEnabledExtra,
+                   &contextual_search_enabled);
     if (!ReadNativeBool(extras, "input_arbiter_ready", &ready) ||
             !ReadNativeI32(extras, "sender_uid", &sender_uid) ||
             !ReadNativeI64(extras, "input_arbiter_generation", &generation) ||
@@ -888,9 +957,14 @@ void ObserveArbiterStateIntent(void* intent) {
     if (generation < current) return;
     AtomicStore(&g_systemui_arbiter_generation, generation);
     AtomicStore(&g_systemui_arbiter_ready, ready ? uint32_t{1} : uint32_t{0});
+    __atomic_store_n(&g_contextual_search_enabled,
+                     contextual_search_enabled ? uint32_t{1} : uint32_t{0},
+                     __ATOMIC_RELEASE);
     __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                        "native arbiter ready=%u generation=%lld uid=%d",
+                        "native arbiter ready=%u contextual_search=%u "
+                        "generation=%lld uid=%d",
                         ready ? 1u : 0u,
+                        contextual_search_enabled ? 1u : 0u,
                         static_cast<long long>(generation), sender_uid);
 }
 
@@ -1303,6 +1377,11 @@ bool HandleRuntimeStatusQuery(void* intent) {
                            profile_resolved) ||
             !AddBundleBool(response, "status_native_profile_dynamic",
                            dynamic_profile) ||
+            !AddBundleBool(response, "status_native_contextual_dynamic",
+                           dynamic_profile &&
+                                   profile->contextual_long_press_handler_offset !=
+                                           0u &&
+                                   profile->contextual_search_invoke_offset != 0u) ||
             !AddBundleI64(response, kRuntimeStatusNonceExtra, nonce) ||
             !AddBundleI64(response, "status_native_profile_entry_offset",
                           profile_resolved
@@ -1928,6 +2007,60 @@ void CaptureMotionAction(void* event, int32_t action) {
     g_pending_down = candidate;
 }
 
+NativeResult HookPackageManagerHasSystemFeatureForSlot(
+        void* package_manager, const char* name, size_t name_length,
+        uint32_t flags, uint32_t slot_index) {
+    if (slot_index >= kLauncherInputSlotCount) return NativeResult{};
+    LauncherInputHookSlot& slot = g_launcher_input_slots[slot_index];
+    PackageManagerHasSystemFeatureFn original =
+            reinterpret_cast<PackageManagerHasSystemFeatureFn>(
+                    AtomicLoad(&slot.original_has_system_feature));
+    if (original == nullptr) return NativeResult{};
+    NativeResult result = original(package_manager, name, name_length, flags);
+    const bool contextual_feature = IsExactCallbackName(
+            name, name_length, kPlatformContextualSearchFeature) ||
+            IsExactCallbackName(name, name_length,
+                                kGoogleContextualSearchFeature);
+    if (!contextual_feature) return result;
+    __atomic_fetch_add(&g_contextual_feature_query_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    if (AtomicLoad(&g_contextual_search_enabled) != 0u &&
+            IsNativeSuccess(result) && result.bytes[1] == uint8_t{0}) {
+        // HyperOS PackageManager_has_system_feature returns Result<bool> in
+        // the 48-byte native wrapper: byte 0 is the Result tag and byte 1 is
+        // the successful boolean. Preserve errors and already-true results.
+        result.bytes[1] = uint8_t{1};
+        __atomic_fetch_add(&g_contextual_feature_override_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+    }
+    return result;
+}
+
+NativeResult HookPackageManagerHasSystemFeature0(
+        void* package_manager, const char* name, size_t name_length,
+        uint32_t flags) {
+    return HookPackageManagerHasSystemFeatureForSlot(
+            package_manager, name, name_length, flags, 0u);
+}
+NativeResult HookPackageManagerHasSystemFeature1(
+        void* package_manager, const char* name, size_t name_length,
+        uint32_t flags) {
+    return HookPackageManagerHasSystemFeatureForSlot(
+            package_manager, name, name_length, flags, 1u);
+}
+NativeResult HookPackageManagerHasSystemFeature2(
+        void* package_manager, const char* name, size_t name_length,
+        uint32_t flags) {
+    return HookPackageManagerHasSystemFeatureForSlot(
+            package_manager, name, name_length, flags, 2u);
+}
+NativeResult HookPackageManagerHasSystemFeature3(
+        void* package_manager, const char* name, size_t name_length,
+        uint32_t flags) {
+    return HookPackageManagerHasSystemFeatureForSlot(
+            package_manager, name, name_length, flags, 3u);
+}
+
 int32_t HookMotionGetActionForSlot(void* event, uint32_t slot_index,
                                    bool masked) {
     if (slot_index >= kLauncherInputSlotCount) return -1;
@@ -2068,6 +2201,166 @@ int32_t HookMotionGetActionMasked3(void* event) {
     return result;
 }
 
+// The captured native Fn owns a small closure whose tail releases the temporary
+// callback object after the completion marker is published.  We replace only
+// the Flutter terminal call, so this exact cleanup must still run or the native
+// LongPressDetector eventually remains in its completed state.
+bool CleanupContextualLongPressClosure(void* closure) {
+    if (closure == nullptr) return false;
+    void* storage = *reinterpret_cast<void**>(
+            reinterpret_cast<uint8_t*>(closure) + 0x8u);
+    void* owner = *reinterpret_cast<void**>(
+            reinterpret_cast<uint8_t*>(closure) + 0x10u);
+    // The native function legitimately takes the no-storage branch for some
+    // trigger modes; in that shape there is no temporary object to release.
+    if (storage == nullptr) return true;
+    if (owner == nullptr) return false;
+    const uintptr_t object_size = *reinterpret_cast<uintptr_t*>(
+            reinterpret_cast<uint8_t*>(owner) + 0x10u);
+    ContextualClosureCleanupFn cleanup =
+            *reinterpret_cast<ContextualClosureCleanupFn*>(
+                    reinterpret_cast<uint8_t*>(owner) + 0x28u);
+    if (object_size == 0u || cleanup == nullptr) return false;
+    const uintptr_t aligned_offset = (object_size - 1u) &
+            ~static_cast<uintptr_t>(0xfu);
+    cleanup(reinterpret_cast<uint8_t*>(storage) + aligned_offset + 0x10u);
+    return true;
+}
+
+void HookContextualLongPressHandler(void* closure, uint32_t trigger_mode) {
+    __atomic_fetch_add(&g_contextual_long_press_trigger_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    ContextualLongPressHandlerFn original =
+            reinterpret_cast<ContextualLongPressHandlerFn>(
+                    AtomicLoad(&g_original_contextual_long_press_handler));
+    ContextualSearchInvokeFn invoke =
+            reinterpret_cast<ContextualSearchInvokeFn>(
+                    AtomicLoad(&g_contextual_search_invoke));
+    if (AtomicLoad(&g_contextual_search_enabled) == 0u || closure == nullptr ||
+            invoke == nullptr) {
+        __atomic_fetch_add(&g_contextual_long_press_passthrough_count,
+                           uint32_t{1}, __ATOMIC_RELAXED);
+        if (original != nullptr) original(closure, trigger_mode);
+        return;
+    }
+
+    // DefaultLongPressHandler's native Fn closure first marks the captured
+    // detector state complete with a release byte store, then invokes its
+    // optional Flutter trigger hook. Preserve that state transition while
+    // replacing only the terminal Flutter routing that rejects NavLongPress
+    // "none" on China builds. The detector, animation and cancellation owner
+    // remain Xiaomi's LongPressDetector/LongPressManager.
+    void* completion_state = AtomicLoad(
+            reinterpret_cast<void**>(closure));
+    if (completion_state == nullptr) {
+        __atomic_fetch_add(&g_contextual_long_press_passthrough_count,
+                           uint32_t{1}, __ATOMIC_RELAXED);
+        if (original != nullptr) original(closure, trigger_mode);
+        return;
+    }
+    // Validate the same closure tail used by the captured native function
+    // before claiming the terminal route.  A layout mismatch must remain
+    // stock rather than risking a stale detector or an invalid release call.
+    void* closure_storage = *reinterpret_cast<void**>(
+            reinterpret_cast<uint8_t*>(closure) + 0x8u);
+    void* closure_owner = *reinterpret_cast<void**>(
+            reinterpret_cast<uint8_t*>(closure) + 0x10u);
+    if ((closure_storage != nullptr && closure_owner == nullptr) ||
+            (closure_storage != nullptr &&
+                    (*reinterpret_cast<uintptr_t*>(
+                            reinterpret_cast<uint8_t*>(closure_owner) + 0x10u) ==
+                            0u ||
+                     *reinterpret_cast<ContextualClosureCleanupFn*>(
+                            reinterpret_cast<uint8_t*>(closure_owner) + 0x28u) ==
+                            nullptr))) {
+        __atomic_fetch_add(&g_contextual_long_press_passthrough_count,
+                           uint32_t{1}, __ATOMIC_RELAXED);
+        if (original != nullptr) original(closure, trigger_mode);
+        return;
+    }
+    __atomic_store_n(static_cast<uint8_t*>(completion_state) + 0x10u,
+                     uint8_t{1}, __ATOMIC_RELEASE);
+    const uint8_t result = invoke(uint32_t{1});
+    __atomic_fetch_add(&g_contextual_search_invoke_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    __atomic_store_n(&g_contextual_search_invoke_last_result,
+                     static_cast<uint32_t>(result), __ATOMIC_RELEASE);
+    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                        "native contextual-search terminal invoked result=%u",
+                        static_cast<unsigned int>(result));
+    if (result != 0u && !SendNativeBroadcast(
+            kContextualSearchTriggeredAction, nullptr)) {
+        Log(ANDROID_LOG_WARN,
+            "contextual-search trigger haptic signal could not reach SystemUI");
+    }
+    if (!CleanupContextualLongPressClosure(closure)) {
+        // This should be unreachable after the validation above.  Keep the
+        // native callback as the safety net if the object changed concurrently.
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                            "contextual-search closure cleanup unavailable");
+        if (original != nullptr) original(closure, trigger_mode);
+    }
+}
+
+bool InstallContextualSearchLongPressHook(
+        uint8_t* base,
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (base == nullptr || profile == nullptr) return false;
+    const bool absent = profile->contextual_long_press_handler_offset == 0u &&
+            profile->contextual_long_press_handler_prologue == nullptr &&
+            profile->contextual_long_press_handler_prologue_size == 0u &&
+            profile->contextual_search_invoke_offset == 0u &&
+            profile->contextual_search_invoke_prologue == nullptr &&
+            profile->contextual_search_invoke_prologue_size == 0u;
+    if (absent) {
+        __atomic_store_n(&g_contextual_long_press_hook_state, uint32_t{2},
+                         __ATOMIC_RELEASE);
+        return true;
+    }
+    if (profile->contextual_long_press_handler_offset == 0u ||
+            profile->contextual_long_press_handler_prologue == nullptr ||
+            profile->contextual_long_press_handler_prologue_size == 0u ||
+            profile->contextual_search_invoke_offset == 0u ||
+            profile->contextual_search_invoke_prologue == nullptr ||
+            profile->contextual_search_invoke_prologue_size == 0u ||
+            !MatchesCode(
+                    base, profile->contextual_long_press_handler_offset,
+                    profile->contextual_long_press_handler_prologue,
+                    profile->contextual_long_press_handler_prologue_size) ||
+            !MatchesCode(base, profile->contextual_search_invoke_offset,
+                         profile->contextual_search_invoke_prologue,
+                         profile->contextual_search_invoke_prologue_size)) {
+        __atomic_store_n(&g_contextual_long_press_hook_state, uint32_t{5},
+                         __ATOMIC_RELEASE);
+        AtomicStore(&g_contextual_search_invoke, static_cast<void*>(nullptr));
+        Log(ANDROID_LOG_ERROR,
+            "contextual-search native route rejected profile fingerprints");
+        return false;
+    }
+    __atomic_store_n(&g_contextual_long_press_hook_state, uint32_t{1},
+                     __ATOMIC_RELEASE);
+    AtomicStore(&g_contextual_search_invoke,
+                static_cast<void*>(
+                        base + profile->contextual_search_invoke_offset));
+    if (g_api.inlineHook(
+                base + profile->contextual_long_press_handler_offset,
+                reinterpret_cast<void*>(HookContextualLongPressHandler),
+                &g_original_contextual_long_press_handler) != ZN_SUCCESS ||
+            AtomicLoad(&g_original_contextual_long_press_handler) == nullptr) {
+        AtomicStore(&g_contextual_search_invoke, static_cast<void*>(nullptr));
+        __atomic_store_n(&g_contextual_long_press_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_ERROR,
+            "contextual-search native long-press hook failed");
+        return false;
+    }
+    __atomic_store_n(&g_contextual_long_press_hook_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    Log(ANDROID_LOG_INFO,
+        "installed exact native contextual-search long-press route");
+    return true;
+}
+
 bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
     uint8_t* base = nullptr;
     const auto* profile = ResolveLauncherProfile(app_entry_point, &base);
@@ -2091,6 +2384,13 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
     constexpr MotionHookFn kActionMaskedHooks[kLauncherInputSlotCount] = {
             HookMotionGetActionMasked0, HookMotionGetActionMasked1,
             HookMotionGetActionMasked2, HookMotionGetActionMasked3,
+    };
+    using FeatureHookFn = NativeResult (*)(void*, const char*, size_t, uint32_t);
+    constexpr FeatureHookFn kContextualFeatureHooks[kLauncherInputSlotCount] = {
+            HookPackageManagerHasSystemFeature0,
+            HookPackageManagerHasSystemFeature1,
+            HookPackageManagerHasSystemFeature2,
+            HookPackageManagerHasSystemFeature3,
     };
     LauncherInputHookSlot& slot = g_launcher_input_slots[index];
     AtomicStore(&slot.base, reinterpret_cast<uintptr_t>(base));
@@ -2122,6 +2422,25 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
     if (AtomicLoad(&g_original_input_monitor_pilfer) == nullptr) {
         AtomicStore(&g_original_input_monitor_pilfer,
                     slot.original_pilfer);
+    }
+    AtomicStore(&slot.contextual_search_state, uint32_t{1});
+    if (g_api.pltHook(base, "PackageManager_has_system_feature",
+                      reinterpret_cast<void*>(kContextualFeatureHooks[index]),
+                      &slot.original_has_system_feature) == ZN_SUCCESS &&
+            slot.original_has_system_feature != nullptr) {
+        AtomicStore(&slot.contextual_search_state, uint32_t{3});
+        __atomic_store_n(&g_contextual_feature_hook_state, uint32_t{3},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_INFO,
+            "installed native launcher contextual-search feature hook");
+    } else {
+        AtomicStore(&slot.contextual_search_state, uint32_t{6});
+        if (AtomicLoad(&g_contextual_feature_hook_state) != uint32_t{3}) {
+            __atomic_store_n(&g_contextual_feature_hook_state, uint32_t{6},
+                             __ATOMIC_RELEASE);
+        }
+        Log(ANDROID_LOG_WARN,
+            "native launcher contextual-search feature hook unavailable");
     }
     AtomicStore(&slot.state, uint32_t{3});
     return true;
@@ -2221,6 +2540,13 @@ bool InstallClaimedBusinessHooksForProfile(void* app_entry_point, bool repair) {
             return false;
         }
     }
+    if (!InstallContextualSearchLongPressHook(base, profile)) {
+        // Contextual Search is an optional terminal route. Its exact profile
+        // failure must leave Xiaomi's original closure intact without taking
+        // down the independently proven side-gesture handoff.
+        Log(ANDROID_LOG_WARN,
+            "continuing without native contextual-search terminal route");
+    }
     AtomicStore(&g_business_hook_state, uint32_t{3});
     __android_log_print(ANDROID_LOG_INFO, kLogTag,
             "%s profile %s with %s business hook",
@@ -2269,10 +2595,19 @@ void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
             base, profile->side_handler_offset,
             profile->side_handler_prologue,
             profile->side_handler_prologue_size);
+    const bool contextual_hook_expected =
+            AtomicLoad(&g_contextual_long_press_hook_state) == uint32_t{3} &&
+            profile->contextual_long_press_handler_offset != 0u;
+    const bool contextual_handler_original = contextual_hook_expected &&
+            MatchesCode(
+                    base, profile->contextual_long_press_handler_offset,
+                    profile->contextual_long_press_handler_prologue,
+                    profile->contextual_long_press_handler_prologue_size);
     const bool legacy = profile->business_topology ==
             miui_home_profiles::BusinessHookTopology::kLegacyThreeStage;
     if (!stub_back_handler_original &&
-            (!legacy || (!outer_original && !inner_original))) {
+            (!legacy || (!outer_original && !inner_original)) &&
+            !contextual_handler_original) {
         return;
     }
     if (legacy && (outer_original != inner_original ||
@@ -2300,8 +2635,12 @@ void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
             base + profile->touch_processor_offset) : ZN_SUCCESS;
     const int outer_unhook = legacy ? g_api.inlineUnhook(
             base + profile->pointer_handler_offset) : ZN_SUCCESS;
+    const int contextual_unhook = contextual_hook_expected
+            ? g_api.inlineUnhook(
+                    base + profile->contextual_long_press_handler_offset)
+            : ZN_SUCCESS;
     if (stub_back_handler_unhook != ZN_SUCCESS || inner_unhook != ZN_SUCCESS ||
-            outer_unhook != ZN_SUCCESS) {
+            outer_unhook != ZN_SUCCESS || contextual_unhook != ZN_SUCCESS) {
         __atomic_store_n(&g_business_repair_stage, uint32_t{4},
                          __ATOMIC_RELEASE);
         AtomicStore(&g_business_hook_state, uint32_t{7});
@@ -2318,6 +2657,13 @@ void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
                 static_cast<void*>(nullptr));
     AtomicStore(&g_original_gesture_stub_pointer_handler,
                 static_cast<void*>(nullptr));
+    AtomicStore(&g_original_contextual_long_press_handler,
+                static_cast<void*>(nullptr));
+    AtomicStore(&g_contextual_search_invoke, static_cast<void*>(nullptr));
+    if (profile->contextual_long_press_handler_offset != 0u) {
+        __atomic_store_n(&g_contextual_long_press_hook_state, uint32_t{0},
+                         __ATOMIC_RELEASE);
+    }
     const bool repaired = InstallClaimedBusinessHooksForProfile(
             base + profile->entry_offset, true);
     __atomic_store_n(&g_business_repair_stage,

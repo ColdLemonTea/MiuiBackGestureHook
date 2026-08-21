@@ -38,6 +38,13 @@ struct LauncherProfile {
     size_t touch_processor_prologue_size;
     uintptr_t gesture_type_field_offset;
 
+    uintptr_t contextual_long_press_handler_offset;
+    const uint8_t* contextual_long_press_handler_prologue;
+    size_t contextual_long_press_handler_prologue_size;
+    uintptr_t contextual_search_invoke_offset;
+    const uint8_t* contextual_search_invoke_prologue;
+    size_t contextual_search_invoke_prologue_size;
+
     uintptr_t accepted_pilfer_return_offset;
     uintptr_t home_pilfer_return_offset;
     const uint8_t* accepted_pilfer_caller;

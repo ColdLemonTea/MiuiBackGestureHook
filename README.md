@@ -2,9 +2,12 @@
 
 LSPosed module using modern Xposed API 102 for SystemUI-side MIUI back gesture research.
 
-Android 16 compatibility options also restore Circle to Search from the visible gesture
-handle and can expose Google App's full-screen Live Translate action without bypassing
-the system screen-capture consent flow. Both options default to off.
+The compatibility options restore Circle to Search from the visible gesture handle and
+can expose Google App's full-screen Live Translate action without bypassing the system
+screen-capture consent flow. Both options default to off. Android 16 uses the SystemUI
+gesture-handle path; Android 17/HyperOS 4 delegates the long press, animation, cancellation,
+and contextual-search launch to MiuiHome's native implementation, enabled through the
+companion Zygisk Next module.
 
 ## Build
 

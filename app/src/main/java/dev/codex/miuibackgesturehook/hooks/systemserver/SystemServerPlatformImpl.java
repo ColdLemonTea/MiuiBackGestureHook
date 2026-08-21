@@ -26,6 +26,10 @@ abstract class SystemServerPlatformImpl {
         return true;
     }
 
+    boolean nativeLauncherOwnsContextualSearchLongPress() {
+        return false;
+    }
+
     void inspectCalculatedPredictiveTransition(SystemServerHookRuntime runtime,
                                                 XposedInterface.Chain chain,
                                                 Object result) throws Exception {

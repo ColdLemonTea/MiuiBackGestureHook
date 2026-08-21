@@ -59,6 +59,10 @@ abstract class SystemUiPlatformImpl {
         return defaultAction;
     }
 
+    boolean nativeLauncherOwnsContextualSearchLongPress() {
+        return false;
+    }
+
     void destroy() {
     }
 

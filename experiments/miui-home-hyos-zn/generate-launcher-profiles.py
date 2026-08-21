@@ -138,6 +138,27 @@ def generate(manifest: dict) -> str:
                     f"legacy profile {profile_id} is missing a diagnostic hook fingerprint"
                 )
 
+        contextual = profile.get("contextual_search")
+        contextual_handler_name = f"kContextualLongPressHandlerPrologue{suffix}"
+        contextual_invoke_name = f"kContextualSearchInvokePrologue{suffix}"
+        has_contextual = isinstance(contextual, dict)
+        if has_contextual:
+            if not add_byte_array(
+                lines,
+                contextual_handler_name,
+                contextual.get("long_press_handler_bytes", ""),
+            ):
+                raise ValueError(
+                    f"profile {profile_id} has no contextual long-press fingerprint"
+                )
+            if not add_byte_array(
+                lines,
+                contextual_invoke_name,
+                contextual.get("invoke_bytes", ""),
+            ):
+                raise ValueError(
+                    f"profile {profile_id} has no contextual-search invoke fingerprint"
+                )
         pilfer = require_mapping(profile, "pilfer", profile_id)
         caller_name = f"kAcceptedPilferCaller{suffix}"
         has_caller = add_byte_array(
@@ -178,6 +199,12 @@ def generate(manifest: dict) -> str:
                 if legacy
                 else "        0u,",
                 f"        {hex_literal(touch.get('gesture_type_field_offset')) if legacy else '0u'},",
+                f"        {hex_literal(contextual.get('long_press_handler_offset')) if has_contextual else '0u'},",
+                f"        {contextual_handler_name if has_contextual else 'nullptr'},",
+                f"        sizeof({contextual_handler_name})," if has_contextual else "        0u,",
+                f"        {hex_literal(contextual.get('invoke_offset')) if has_contextual else '0u'},",
+                f"        {contextual_invoke_name if has_contextual else 'nullptr'},",
+                f"        sizeof({contextual_invoke_name})," if has_contextual else "        0u,",
                 f"        {hex_literal(pilfer.get('accepted_return_offset'))},",
                 f"        {hex_literal(pilfer.get('home_return_offset'))},",
                 f"        {caller_name if has_caller else 'nullptr'},",

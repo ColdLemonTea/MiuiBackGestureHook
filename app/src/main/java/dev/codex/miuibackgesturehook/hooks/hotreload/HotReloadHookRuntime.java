@@ -879,6 +879,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             case "google_live_translate_system_feature":
                 return this::overrideLiveTranslateSystemFeature;
             case "google_live_translate_action_visibility":
+                return this::preserveLiveTranslateActionVisibility;
             case "google_live_translate_capability":
                 return this::overrideLiveTranslateBooleanGate;
             case "systemui_default_transition_start":

@@ -20,6 +20,7 @@ $Paths = @{
     StatusUi = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\activity\PredictiveBackSettingsActivity.kt'
     StatusSystemUi = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\systemui\SystemUiHookRuntime.java'
     StatusMiuiHome = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\miuihome\MiuiHomeHookRuntime.java'
+    LiveTranslate = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\googleapp\GoogleAppLiveTranslateRuntime.java'
     Build = Join-Path $PSScriptRoot 'build.ps1'
     AppBuild = Join-Path $PSScriptRoot '..\..\app\build.gradle'
     Readme = Join-Path $PSScriptRoot 'README.md'
@@ -63,9 +64,11 @@ $RequiredDeploy = @(
     "ExpectedVersionCode = '801024371'",
     "ExpectedVersionCode5334 = '801025334'",
     "ExpectedVersionCode5402 = '801025402'",
+    "ExpectedVersionCode5436 = '801025436'",
     '[switch]$Confirm5334',
     '[switch]$Confirm5402',
-    'exactly one of -Confirm4371, -Confirm5334, or -Confirm5402',
+    '[switch]$Confirm5436',
+    'exactly one of -Confirm4371, -Confirm5334, -Confirm5402, or -Confirm5436',
     'Get-FileHash -Algorithm SHA256',
     '.next-$ShortHash',
     'Get-ModuleMappedPids',
@@ -162,6 +165,51 @@ foreach ($Needle in @(
         throw "GestureStubView Back-only handoff contract is missing: $Needle"
     }
 }
+foreach ($Needle in @(
+        'PackageManager_has_system_feature',
+        'android.software.contextualsearch',
+        'com.google.android.feature.CONTEXTUAL_SEARCH',
+        'contextual_search_enabled',
+        'VerifySystemUiUid(sender_uid)',
+        'IsNativeSuccess(result) && result.bytes[1] == uint8_t{0}',
+        'g_contextual_feature_override_count',
+        'HookContextualLongPressHandler',
+        'CleanupContextualLongPressClosure',
+        'closure_storage',
+        'closure_owner',
+        'static_cast<uint8_t*>(completion_state) + 0x10u',
+        'profile->contextual_search_invoke_offset',
+        'g_contextual_search_invoke_count')) {
+    if (-not $Text.Native.Contains($Needle)) {
+        throw "Native launcher contextual-search contract is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'EXTRA_CONTEXTUAL_SEARCH_ENABLED',
+        'isContextualSearchLongPressEnabled()',
+        'setShareIdentityEnabled(true)')) {
+    if (-not $Text.StatusMiuiHome.Contains($Needle)) {
+        throw "SystemUI contextual-search state publication is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'contextualSearchStatePreferenceListener',
+        'registerOnSharedPreferenceChangeListener(',
+        'unregisterOnSharedPreferenceChangeListener(',
+        'contextualSearchPreference:',
+        'nativeLauncherOwnsContextualSearchLongPress()')) {
+    if (-not $Text.StatusSystemUi.Contains($Needle)) {
+        throw "SystemUI live contextual-search refresh is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'preserveLiveTranslateActionVisibility',
+        '.intercept(this::preserveLiveTranslateActionVisibility)',
+        '.intercept(this::overrideLiveTranslateBooleanGate)')) {
+    if (-not $Text.LiveTranslate.Contains($Needle)) {
+        throw "Live Translate first-screen visibility contract is missing: $Needle"
+    }
+}
 $AppVersionMatches = [regex]::Matches(
     $Text.AppBuild, '(?m)^\s*versionName\s+"[^"]+"\s*$')
 if ($AppVersionMatches.Count -ne 1 -or
@@ -194,6 +242,10 @@ foreach ($Needle in @(
         'DT_JMPREL',
         'kMotionActionMasked',
         'kRuntimeGetBinder',
+        'ResolveContextualImports',
+        'ResolveContextualSearch',
+        'kContextualLongPressPrologue',
+        'contextual_long_press_handler_offset',
         'state_offset == *pointer_offset + sizeof(uintptr_t)',
         'matches != 1u')) {
     if (-not $Text.RuntimeResolver.Contains($Needle)) {
@@ -269,7 +321,9 @@ foreach ($Needle in @(
         'SIDE_PROLOGUE',
         'Runtime_get_application_thread_binder',
         'resolve_side(image)',
-        'corrupted side boundary did not fail closed')) {
+        'resolve_contextual_long_press(image)',
+        'corrupted side boundary did not fail closed',
+        'corrupted contextual long-press Fn did not fail closed')) {
     if (-not $Text.RuntimeVerifier.Contains($Needle)) {
         throw "Runtime launcher profile regression is missing: $Needle"
     }
@@ -282,7 +336,7 @@ if ($Manifest.schema_version -ne 1) {
 $Profiles = @($Manifest.profiles)
 $ProfileIds = (@($Profiles | ForEach-Object { $_.id } | Sort-Object) -join ',')
 if ($Profiles.Count -ne 3 -or $ProfileIds -ne '4371,5334,5402') {
-    throw 'The launcher profile manifest must contain exactly 4371, 5334, and 5402.'
+    throw 'The active launcher profile manifest must contain exactly 4371, 5334, and 5402.'
 }
 $Profile4371 = @($Profiles | Where-Object { $_.id -eq '4371' })[0]
 $Profile5334 = @($Profiles | Where-Object { $_.id -eq '5334' })[0]
@@ -298,9 +352,11 @@ if ($Profile5334.hook_topology -ne 'side_boundary_only' -or
         $Profile5334.entry_offset -ne '0xc8ffd8' -or
         $Profile5334.side_handler.offset -ne '0x80c3bc' -or
         $Profile5334.side_handler.edge_field_offset -ne '0xf4' -or
+        $Profile5334.contextual_search.long_press_handler_offset -ne '0x71af90' -or
+        $Profile5334.contextual_search.invoke_offset -ne '0xadc22c' -or
         $Profile5334.abi.runtime_state_offset -ne '0x132ab80' -or
         $Profile5334.abi.runtime_ready_value -ne 0) {
-    throw '5334 launcher profile no longer matches the reviewed static boundary.'
+    throw '5334 launcher profile no longer matches the reviewed static boundary and contextual-search route.'
 }
 if ($Profile5402.version_code -ne 801025402 -or
         $Profile5402.version_name -ne 'RELEASE-8.01.02.5402-260807-08181825-R' -or

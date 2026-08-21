@@ -141,6 +141,35 @@ Android 17 launcher safety rule:
   register no MiuiHome-process LSPosed hooks. Cold package loading and hot-reload backfill must
   both fail closed; hot reload from an older build must unhook every old MiuiHome handle instead
   of replacing it. Android 17 launcher-side research belongs to the native ZN module.
+- Keep Circle to Search bottom-long-press ownership in MiuiHome's native
+  `LongPressDetector`/`LongPressManager`. Do not add a global MotionEvent hook, synthetic input,
+  or a second bottom-gesture recognizer. Override a successful false result only for the exact
+  `android.software.contextualsearch` and
+  `com.google.android.feature.CONTEXTUAL_SEARCH` PackageManager queries. On China builds whose
+  terminal Flutter route rejects the absent `NavLongPress` setting, an exact static profile or
+  the bounded runtime resolver may replace only the normal native `Fn` terminal callback after
+  the Xiaomi detector commits: preserve its captured completion marker and call Xiaomi's existing
+  `circle_to_search_helper::invoke(1)`. Do not hook the consuming `FnOnce` shim, copy a GPL
+  implementation, or issue a hand-written voice-interaction Binder transaction. Every profile,
+  callback, helper, or closure-layout mismatch preserves the original callback. Runtime resolution
+  must independently prove one PackageManager-backed support function, its one direct Xiaomi
+  invoke caller, and one normal `Fn` carrying the exact completion release-store shape; ambiguity
+  leaves all contextual-search offsets empty without rejecting the base dynamic side profile.
+- Mirror the Circle to Search preference on the existing explicit SystemUI-to-MiuiHome arbiter
+  broadcast. Store it only after the shared caller package and sending UID pass the existing
+  authentication and the generation is current. Missing, malformed, stale, or unauthenticated
+  state fails closed. Android 17 SystemUI must not attach the Android 16 gesture-handle input
+  receiver while native MiuiHome owns this gesture.
+- Authenticate the platform contextual-search start call against the platform owner. Android 17
+  accepts it only when the Binder calling UID owns exactly `com.miui.home`; Android 16 continues
+  to accept only `com.android.systemui`. Keep the Google provider callback under its separate
+  exact Google-package authentication and never broaden either boundary to arbitrary system UIDs.
+- After the Android 17 native module has loaded, Circle to Search preference changes must apply
+  without restarting the phone. Listen through API-102 remote preferences in SystemUI and
+  republish the current authenticated arbiter generation; the already-installed native terminal
+  hook reads the new state on the next long press and Xiaomi's helper rechecks the exact feature
+  query. Unregister the listener during hot reload and never rebuild or replace the native
+  long-press owner.
 
 Keep scope minimal. Do not add other target applications or further `system_server` cleanup or
 compatibility hooks unless new SystemUI/server evidence requires them.

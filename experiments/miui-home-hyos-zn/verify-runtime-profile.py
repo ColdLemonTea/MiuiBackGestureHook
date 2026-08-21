@@ -50,6 +50,9 @@ IMPORT_NAMES = (
     "Runtime_get_application_thread_binder",
     "Runtime_dec_strong",
     "Bundle_default",
+    "Bundle_drop",
+    "PackageManager_default",
+    "PackageManager_has_system_feature",
     "malloc",
     "memcpy",
 )
@@ -70,6 +73,9 @@ class Resolution:
     runtime_state: int
     runtime_confirmations: int
     rstring: int
+    contextual_support: int
+    contextual_invoke: int
+    contextual_long_press: int
 
 
 class LoadedElf:
@@ -269,10 +275,10 @@ def resolve_rstring(image: LoadedElf) -> tuple[int, int]:
             not call_targets(image, offset, IMPORT_NAMES[7])
             or image.u32(offset + 4) != 0xAA0003FB
             or image.u32(offset + 8) != 0x52800120
-            or not call_targets(image, offset + 12, IMPORT_NAMES[8])
+            or not call_targets(image, offset + 12, "malloc")
             or image.u32(offset + 16) & 0xFF00001F != 0xB4000000
-            or not call_targets(image, offset + 0x5C, IMPORT_NAMES[8])
-            or not call_targets(image, offset + 0x70, IMPORT_NAMES[9])
+            or not call_targets(image, offset + 0x5C, "malloc")
+            or not call_targets(image, offset + 0x70, "memcpy")
         ):
             continue
         first = decode_address_pair(image, offset + 0x44, 9)
@@ -289,6 +295,116 @@ def resolve_rstring(image: LoadedElf) -> tuple[int, int]:
     return matches[0], len(matches)
 
 
+def resolve_contextual_support(image: LoadedElf) -> int:
+    prologue = (0xD10383FF, 0xA90C7BFD, 0xA90D4FF4, 0x910303FD)
+    prologue_bytes = struct.pack("<4I", *prologue)
+    matches: list[int] = []
+    for offset in image.executable_offsets(0xD4):
+        if image.image[offset : offset + len(prologue_bytes)] != prologue_bytes:
+            continue
+        first_page = decode_adrp(image.u32(offset + 0x14), offset + 0x14, 1)
+        first_add = decode_add(image.u32(offset + 0x18), 1, 1)
+        second_page = decode_adrp(image.u32(offset + 0xB4), offset + 0xB4, 1)
+        second_add = decode_add(image.u32(offset + 0xB8), 1, 1)
+        if (
+            not call_targets(image, offset + 0x10, "PackageManager_default")
+            or first_page is None
+            or first_add is None
+            or not image.contains(first_page + first_add, 33, PF_R, PF_X)
+            or image.u32(offset + 0x1C) != 0x910143E8
+            or image.u32(offset + 0x20) != 0x52800422
+            or image.u32(offset + 0x24) != 0x2A1F03E3
+            or image.u32(offset + 0x28) != 0xAA0003F3
+            or not call_targets(
+                image, offset + 0x2C, "PackageManager_has_system_feature"
+            )
+            or second_page is None
+            or second_add is None
+            or not image.contains(second_page + second_add, 44, PF_R, PF_X)
+            or image.u32(offset + 0xC0) != 0x910143E8
+            or image.u32(offset + 0xC4) != 0xAA1303E0
+            or image.u32(offset + 0xC8) != 0x52800582
+            or image.u32(offset + 0xCC) != 0x2A1F03E3
+            or not call_targets(
+                image, offset + 0xD0, "PackageManager_has_system_feature"
+            )
+        ):
+            continue
+        matches.append(offset)
+    if len(matches) != 1:
+        raise ValueError(f"expected one contextual support function, found {len(matches)}")
+    return matches[0]
+
+
+def resolve_contextual_invoke(image: LoadedElf, support: int) -> int:
+    prologue = (
+        0xD10543FF,
+        0xA9117BFD,
+        0xA9125FFC,
+        0xA91357F6,
+        0xA9144FF4,
+        0x910443FD,
+        0x9100C3F6,
+        0xB90007E0,
+    )
+    prologue_bytes = struct.pack("<8I", *prologue)
+    matches: list[int] = []
+    for offset in image.executable_offsets(0x2C):
+        if image.image[offset : offset + len(prologue_bytes)] != prologue_bytes:
+            continue
+        if (
+            decode_bl(image, offset + 0x20) != support
+            or image.u32(offset + 0x28) & 0xFFF8001F != 0x36000000
+        ):
+            continue
+        matches.append(offset)
+    if len(matches) != 1:
+        raise ValueError(f"expected one contextual invoke function, found {len(matches)}")
+    return matches[0]
+
+
+def resolve_contextual_long_press(image: LoadedElf) -> int:
+    prologue = (0xD102C3FF, 0xA9097BFD, 0xA90A4FF4, 0x910243FD)
+    prologue_bytes = struct.pack("<4I", *prologue)
+    exact = {
+        0x14: 0xAA0003F3,
+        0x58: 0x2A0103F4,
+        0xE0: 0xD63F0100,
+        0xE4: 0x2A1403E1,
+        0xE8: 0xF9400268,
+        0xEC: 0x52800029,
+        0xF0: 0x91004108,
+        0xF4: 0x089FFD09,
+        0xF8: 0xF9400668,
+        0x100: 0xF9400A69,
+        0x104: 0xF940092A,
+        0x108: 0xF9401529,
+        0x10C: 0xD100054A,
+        0x110: 0x927CED4A,
+        0x114: 0x8B0A0108,
+        0x118: 0x91004100,
+        0x11C: 0xD63F0120,
+    }
+    matches: list[int] = []
+    for offset in image.executable_offsets(0x140):
+        if image.image[offset : offset + len(prologue_bytes)] != prologue_bytes:
+            continue
+        fallback = decode_bl(image, offset + 0x134)
+        if (
+            any(image.u32(offset + relative) != word for relative, word in exact.items())
+            or image.u32(offset + 0xFC) & 0xFF00001F != 0xB4000008
+            or fallback is None
+            or fallback == offset
+            or image.u32(offset + 0x138) & 0xFF00001F != 0xB4000000
+            or not call_targets(image, offset + 0x13C, "Bundle_drop")
+        ):
+            continue
+        matches.append(offset)
+    if len(matches) != 1:
+        raise ValueError(f"expected one contextual long-press Fn, found {len(matches)}")
+    return matches[0]
+
+
 def resolve(image: LoadedElf, entry: int) -> Resolution:
     if (
         not image.contains(entry, 48, PF_R | PF_X)
@@ -298,7 +414,13 @@ def resolve(image: LoadedElf, entry: int) -> Resolution:
     side, edge, _ = resolve_side(image)
     pointer, state, confirmations = resolve_runtime(image)
     rstring, _ = resolve_rstring(image)
-    return Resolution(side, edge, pointer, state, confirmations, rstring)
+    support = resolve_contextual_support(image)
+    invoke = resolve_contextual_invoke(image, support)
+    long_press = resolve_contextual_long_press(image)
+    return Resolution(
+        side, edge, pointer, state, confirmations, rstring,
+        support, invoke, long_press,
+    )
 
 
 def parse_int(value: str) -> int:
@@ -313,6 +435,7 @@ def verify(profile: dict, path: Path) -> None:
         raise ValueError(f"{profile['id']} immutable library hash mismatch")
     entry = parse_int(profile["entry_offset"])
     result = resolve(image, entry)
+    contextual = profile.get("contextual_search")
     expected = Resolution(
         parse_int(profile["side_handler"]["offset"]),
         parse_int(profile["side_handler"]["edge_field_offset"]),
@@ -320,6 +443,11 @@ def verify(profile: dict, path: Path) -> None:
         parse_int(profile["abi"]["runtime_state_offset"]),
         result.runtime_confirmations,
         parse_int(profile["abi"]["rstring_vtable_offset"]),
+        result.contextual_support,
+        parse_int(contextual["invoke_offset"])
+        if contextual else result.contextual_invoke,
+        parse_int(contextual["long_press_handler_offset"])
+        if contextual else result.contextual_long_press,
     )
     if result != expected:
         raise ValueError(f"{profile['id']} resolution mismatch: {result} != {expected}")
@@ -335,10 +463,25 @@ def verify(profile: dict, path: Path) -> None:
     finally:
         image.image[result.side] = original
 
+    original = image.image[result.contextual_long_press + 0xF4]
+    image.image[result.contextual_long_press + 0xF4] ^= 1
+    try:
+        resolve_contextual_long_press(image)
+    except ValueError:
+        pass
+    else:
+        raise ValueError(
+            f"{profile['id']} corrupted contextual long-press Fn did not fail closed"
+        )
+    finally:
+        image.image[result.contextual_long_press + 0xF4] = original
+
     print(
         f"{profile['id']}: PASS side=0x{result.side:x} edge=0x{result.edge:x} "
         f"rstring=0x{result.rstring:x} runtime=0x{result.runtime_pointer:x}/"
-        f"0x{result.runtime_state:x} confirmations={result.runtime_confirmations}"
+        f"0x{result.runtime_state:x} confirmations={result.runtime_confirmations} "
+        f"contextual=0x{result.contextual_long_press:x}/"
+        f"0x{result.contextual_invoke:x} support=0x{result.contextual_support:x}"
     )
 
 

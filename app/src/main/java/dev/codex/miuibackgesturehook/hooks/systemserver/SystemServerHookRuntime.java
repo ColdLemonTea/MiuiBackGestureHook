@@ -107,8 +107,13 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
             installContextualSearchStateHook(stubClass, existingHookIds);
             installContextualSearchPermissionHook(serviceClass, existingHookIds);
             installContextualSearchProviderHook(serviceClass, existingHookIds);
+            SystemServerPlatformImpl implementation = systemServerPlatformImpl;
+            String callerPackage = implementation != null
+                    && implementation.nativeLauncherOwnsContextualSearchLongPress()
+                    ? MIUI_HOME : SYSTEM_UI;
             moduleLog(Log.INFO, TAG,
-                    "Installed Android 16 contextual-search compatibility bridge"
+                    "Installed contextual-search compatibility bridge"
+                            + ", callerPackage=" + callerPackage
                             + ", enabled=" + isContextualSearchLongPressEnabled());
         } catch (Throwable throwable) {
             moduleLog(Log.WARN, TAG,
@@ -249,7 +254,16 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
 
     protected Object bridgeContextualSearchSystemUiCall(
             XposedInterface.Chain chain) throws Throwable {
-        return runContextualSearchBridge(chain, SYSTEM_UI);
+        SystemServerPlatformImpl implementation = systemServerPlatformImpl;
+        if (implementation == null) {
+            moduleLog(Log.WARN, TAG,
+                    "Contextual-search caller policy unavailable; preserving platform call");
+            return chain.proceed();
+        }
+        String requiredPackage = implementation
+                .nativeLauncherOwnsContextualSearchLongPress()
+                ? MIUI_HOME : SYSTEM_UI;
+        return runContextualSearchBridge(chain, requiredPackage);
     }
 
     protected Object bridgeContextualSearchProviderCall(

@@ -3241,11 +3241,15 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             return;
         }
         try {
+            boolean contextualSearchEnabled =
+                    isContextualSearchLongPressEnabled();
             Intent stateIntent = new Intent(systemUiInputArbiterStateAction());
             stateIntent.setPackage(MIUI_HOME);
             stateIntent.putExtra(EXTRA_INPUT_ARBITER_READY, ready);
             stateIntent.putExtra(EXTRA_INPUT_ARBITER_GENERATION,
                     systemUiInputArbiterGeneration);
+            stateIntent.putExtra(EXTRA_CONTEXTUAL_SEARCH_ENABLED,
+                    contextualSearchEnabled);
             stateIntent.putExtra("sender_uid", Process.myUid());
             Bundle options = BroadcastOptions.makeBasic()
                     .setShareIdentityEnabled(true)
@@ -3253,6 +3257,7 @@ public abstract class MiuiHomeHookRuntime extends MiuiHomeReturnHomeRuntime {
             context.getApplicationContext().sendBroadcast(stateIntent, null, options);
             moduleLog(Log.INFO, TAG, "Published SystemUI input-arbiter state"
                     + ", ready=" + ready
+                    + ", contextualSearch=" + contextualSearchEnabled
                     + ", generation=" + systemUiInputArbiterGeneration
                     + ", monitors=" + systemUiInputArbiterMonitorCount.get()
                     + ", reason=" + reason);

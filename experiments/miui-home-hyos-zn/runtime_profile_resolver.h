@@ -14,7 +14,8 @@ enum class ResolveStage : uint32_t {
     kResolvingSideBoundary = 3,
     kResolvingRuntime = 4,
     kResolvingRString = 5,
-    kComplete = 6,
+    kResolvingContextualSearch = 6,
+    kComplete = 7,
     kRejectedElf = 101,
     kRejectedImports = 102,
     kRejectedSideBoundary = 103,
@@ -27,6 +28,8 @@ struct ResolutionStorage {
     miui_home_profiles::CodeFingerprint identity_fingerprint;
     uint8_t entry_fingerprint[48];
     uint8_t side_prologue[32];
+    uint8_t contextual_long_press_prologue[32];
+    uint8_t contextual_search_invoke_prologue[32];
 };
 
 struct ResolutionDiagnostics {
@@ -34,16 +37,22 @@ struct ResolutionDiagnostics {
     uint32_t side_candidate_count;
     uint32_t runtime_confirmation_count;
     uint32_t rstring_candidate_count;
+    uint32_t contextual_support_candidate_count;
+    uint32_t contextual_invoke_candidate_count;
+    uint32_t contextual_long_press_candidate_count;
+    uint32_t contextual_resolved;
     uintptr_t side_handler_offset;
     uintptr_t runtime_pointer_offset;
     uintptr_t runtime_state_offset;
     uintptr_t rstring_vtable_offset;
+    uintptr_t contextual_search_invoke_offset;
+    uintptr_t contextual_long_press_handler_offset;
 };
 
-// Resolves only the Android 17 side-boundary launcher family represented by
-// the 5334 and 5402 profiles. Every discovered address must be backed by a
-// mapped ELF segment and by the expected imported-call graph. No partial
-// result is published on failure.
+// Resolves only the Android 17 side-boundary launcher family. Every published
+// address is backed by a mapped ELF segment and the expected imported/internal
+// call graph. The contextual-search extension is optional: ambiguity leaves
+// all of its profile fields empty without weakening the base side profile.
 bool ResolveSideBoundaryProfile(const uint8_t* base, void* app_entry_point,
                                 ResolutionStorage* storage,
                                 ResolutionDiagnostics* diagnostics);

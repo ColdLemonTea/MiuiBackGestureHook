@@ -281,6 +281,8 @@ public abstract class HookRuntimeCore extends XposedModule {
             ZnStatusProtocol.ACTION_SYSTEMUI_STATE;
     protected static final String MODULE_MIUI_HOME_INPUT_ARBITER_QUERY =
             "dev.codex.miuibackgesturehook.action.MIUI_HOME_INPUT_ARBITER_QUERY";
+    protected static final String MODULE_CONTEXTUAL_SEARCH_TRIGGERED =
+            "dev.codex.miuibackgesturehook.action.CONTEXTUAL_SEARCH_TRIGGERED";
     protected static final String MODULE_RUNTIME_STATUS_QUERY =
             ZnStatusProtocol.ACTION_QUERY;
     protected static final String MODULE_RUNTIME_STATUS_REPLY =
@@ -321,6 +323,8 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected static final String EXTRA_INPUT_ARBITER_READY = "input_arbiter_ready";
     protected static final String EXTRA_INPUT_ARBITER_GENERATION =
             "input_arbiter_generation";
+    protected static final String EXTRA_CONTEXTUAL_SEARCH_ENABLED =
+            "contextual_search_enabled";
     protected static final String EXTRA_INPUT_ACCEPTED = "input_accepted";
     protected static final String EXTRA_INPUT_EVENT_ID = "input_event_id";
     protected static final String EXTRA_INPUT_DOWN_TIME = "input_down_time";

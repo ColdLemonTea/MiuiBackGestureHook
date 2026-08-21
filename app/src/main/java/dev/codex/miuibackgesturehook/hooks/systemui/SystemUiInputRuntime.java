@@ -6,6 +6,7 @@ import dev.codex.miuibackgesturehook.hooks.core.HookRuntimeCore;
 import android.animation.Animator;
 import android.app.ActivityManager;
 import android.app.KeyguardManager;
+import android.media.AudioAttributes;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -19,6 +20,8 @@ import android.hardware.input.InputManager;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.provider.Settings;
 import android.util.Log;
 import android.util.Pair;
@@ -80,6 +83,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             Collections.synchronizedMap(new WeakHashMap<>());
     protected final Map<Object, ContextualSearchInputReceiver> contextualSearchInputReceivers =
             Collections.synchronizedMap(new WeakHashMap<>());
+    /** NavigationBar instances remain discoverable while the Android 16 switch is disabled. */
+    protected final Set<Object> contextualSearchNavigationBars =
+            Collections.newSetFromMap(new WeakHashMap<>());
     protected volatile Object[] pendingHotReloadContextualSearchNavigationBars = new Object[0];
 
     protected volatile SharedPreferences hyperOsIndicatorPreferences;
@@ -117,8 +123,59 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         }
     }
 
+    protected boolean isContextualSearchHapticsEnabled() {
+        try {
+            SharedPreferences preferences = contextualSearchPreferences;
+            if (preferences == null) {
+                synchronized (this) {
+                    preferences = contextualSearchPreferences;
+                    if (preferences == null) {
+                        preferences = getRemotePreferences(PredictiveBackPreferences.GROUP);
+                        contextualSearchPreferences = preferences;
+                    }
+                }
+            }
+            return preferences.getBoolean(
+                    PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_HAPTICS,
+                    PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_HAPTICS);
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Contextual-search haptic preference unavailable, policy=disabled",
+                    throwable);
+            return false;
+        }
+    }
+
+    /** MiCTS-compatible click feedback, emitted only after native CTS succeeds. */
+    protected boolean playContextualSearchHaptic(Context context) {
+        if (context == null || !isContextualSearchHapticsEnabled()) {
+            return false;
+        }
+        try {
+            Vibrator vibrator = context.getSystemService(Vibrator.class);
+            if (vibrator == null || !vibrator.hasVibrator()) {
+                return false;
+            }
+            AudioAttributes attributes = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                    .setFlags(128)
+                    .build();
+            vibrator.vibrate(VibrationEffect.createPredefined(
+                    VibrationEffect.EFFECT_CLICK), attributes);
+            moduleLog(Log.INFO, TAG, "Played contextual-search trigger haptic");
+            return true;
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to play contextual-search trigger haptic", throwable);
+            return false;
+        }
+    }
+
     protected void attachContextualSearchInputReceiver(Object navigationBar) {
         detachContextualSearchInputReceiver(navigationBar);
+        synchronized (contextualSearchNavigationBars) {
+            contextualSearchNavigationBars.add(navigationBar);
+        }
         if (!isContextualSearchLongPressEnabled()) {
             return;
         }
@@ -181,11 +238,47 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         }
     }
 
+    protected void forgetContextualSearchNavigationBar(Object navigationBar) {
+        synchronized (contextualSearchNavigationBars) {
+            contextualSearchNavigationBars.remove(navigationBar);
+        }
+    }
+
+    /**
+     * Reconcile the Android 16 input observer set after the remote switch changes.
+     * Android 17's native launcher path does not call this method; it receives the
+     * existing arbiter-state update instead.
+     */
+    protected void refreshContextualSearchInputReceivers() {
+        Object[] navigationBars;
+        synchronized (contextualSearchNavigationBars) {
+            navigationBars = contextualSearchNavigationBars.toArray();
+        }
+        for (Object navigationBar : navigationBars) {
+            if (navigationBar != null) {
+                detachContextualSearchInputReceiver(navigationBar);
+            }
+        }
+        if (!isContextualSearchLongPressEnabled()) {
+            return;
+        }
+        for (Object navigationBar : navigationBars) {
+            if (navigationBar != null) {
+                attachContextualSearchInputReceiver(navigationBar);
+            }
+        }
+        moduleLog(Log.INFO, TAG,
+                "Refreshed Android 16 contextual-search gesture observers"
+                        + ", count=" + navigationBars.length);
+    }
+
     protected Object[] detachAllContextualSearchInputReceiversForHotReload() {
         Object[] navigationBars;
         ContextualSearchInputReceiver[] receivers;
+        synchronized (contextualSearchNavigationBars) {
+            navigationBars = contextualSearchNavigationBars.toArray();
+        }
         synchronized (contextualSearchInputReceivers) {
-            navigationBars = contextualSearchInputReceivers.keySet().toArray();
             receivers = contextualSearchInputReceivers.values().toArray(
                     new ContextualSearchInputReceiver[0]);
             contextualSearchInputReceivers.clear();

@@ -6,17 +6,38 @@ DOWN owner; this module identifies an accepted launcher stream and publishes
 its immutable input identity to the companion SystemUI hook. SystemUI then owns
 the indicator, pilfering, Shell navigation, and predictive-back animation.
 
+It also enables HyperOS 4's existing native Circle to Search path when the companion app
+preference is on. MiuiHome remains the sole owner of the bottom long press through its
+`LongPressDetector`/`LongPressManager`, including native animation and cancellation. The
+module does not install another input monitor. It changes a successful false result only
+for MiuiHome's exact `android.software.contextualsearch` or
+`com.google.android.feature.CONTEXTUAL_SEARCH` feature query. On exact 5334/5436 profiles, or
+when the bounded runtime resolver proves the same unique route, it also preserves the normal
+native long-press closure's completion marker and routes that terminal callback directly to
+Xiaomi's existing `circle_to_search_helper::invoke(1)`,
+bypassing only Flutter's rejection of the absent `NavLongPress` setting. It does not hook the
+consuming `FnOnce` shim or issue its own voice-interaction Binder transaction. The preference arrives on
+the existing identity-sharing SystemUI arbiter broadcast after sender-package and UID
+verification; missing or invalid state defaults off.
+SystemUI listens for the remote preference change and republishes the authenticated
+state with the current arbiter generation, so an already loaded HyperOS 4 native module
+applies the switch on the next long press without restarting the phone. Xiaomi's helper
+rechecks feature support; no native gesture owner is rebuilt.
+
 This is no longer an observation-only probe. It contains device-proven profiles
 for MiuiHome `4371` and `5334`, plus a statically reviewed and device-tested
-`5402` profile.
+`5402` profile. The exact `5436` bytes remain offline reference evidence, but
+that profile is deliberately absent from the active manifest so the current
+desktop exercises the bounded runtime resolver.
 
 ## Requirements and scope
 
 - Android 17 HyperOS with the exact supported `hyos_spawner` build below.
 - arm64 device with Zygisk Next.
 - MiuiHome `4371`, `5334`, or `5402`, selected automatically from immutable
-  native identity. The ZIP contains all three static profiles. A bounded
-  runtime resolver may also recognize a later build in the reviewed
+  native identity. The ZIP contains these active static profiles. The current
+  `5436` build intentionally falls through to the bounded runtime resolver,
+  which may also recognize a later build in the reviewed
   `side_boundary_only` family; it does not extend the host deployment allowlist.
 - The companion LSPosed module enabled for its existing Android 17 SystemUI
   and `system` scopes. This ZN module alone does not create an AOSP gesture.
@@ -59,16 +80,17 @@ Launcher profiles:
 | Profile | Package identity | Native identity | Hook topology |
 | --- | --- | --- | --- |
 | `4371` | `801024371` / `RELEASE-8.01.02.4371-260727-08131546-R` | SHA-256 `a84365f864f88f85165b086bc03ba563efd09386c72f0c21926788fd90a028f9`; entry `0x885d00`; side boundary `0xc6e954`; edge `+0xec` | `legacy_three_stage` |
-| `5334` | `801025334` / `RELEASE-8.01.02.5334-260807-08151151-R` | SHA-256 `a67fe9e3ef3880f920cce92eb1c006c7fe12a83c0632f2397b118e6915043091`; entry `0xc8ffd8`; side boundary `0x80c3bc`; edge `+0xf4` | `side_boundary_only` |
+| `5334` | `801025334` / `RELEASE-8.01.02.5334-260807-08151151-R` | SHA-256 `a67fe9e3ef3880f920cce92eb1c006c7fe12a83c0632f2397b118e6915043091`; entry `0xc8ffd8`; side boundary `0x80c3bc`; edge `+0xf4`; long-press `Fn` `0x71af90`; native invoke `0xadc22c` | `side_boundary_only` |
 | `5402` | `801025402` / `RELEASE-8.01.02.5402-260807-08181825-R` | SHA-256 `053b3b6ad84815fb319b2f87e766f67cbf1a22fcfe7f7ed2cd03502e569e0f98`; entry `0xc94b14`; side boundary `0x810010`; edge `+0xf4` | `side_boundary_only` |
+| `5436` (offline reference) | `801025436` / `RELEASE-8.01.02.5436-260807-08202148-R` | SHA-256 `638dd126d9e6acf6185bcda1e7d798e86f9e172927689348f2b6a99de57004a4`; entry `0xc940c8`; side boundary `0x810374`; edge `+0xf4`; long-press `Fn` `0x71d75c`; native invoke `0xadff10` | `side_boundary_only` (not active) |
 
 Package version is enforced by the host deployment script. At runtime the
 module first validates the exact `app_entry_point` RVA and immutable code
-fingerprints of the three static profiles. Hook sites validate their own
+fingerprints of the active static profiles. Hook sites validate their own
 prologues again.
 
 If no static profile matches, the v1 runtime resolver is limited to the Android
-17 `side_boundary_only` family represented by `5334` and `5402`. The side
+17 `side_boundary_only` family represented by `5334`, `5402`, and `5436`. The side
 prologue is only a candidate seed. A candidate is accepted only when its edge
 field load and the ordered `getActionMasked`, `getActionIndex`, `getRawX`, and
 `getRawY` calls resolve through the corresponding ELF PLT relocations. The
@@ -80,6 +102,13 @@ state, and two identical RString-vtable constructions anchored by
 in-process profile snapshot published. Zero matches, multiple matches, a
 broken relationship, or a partial result installs no business hook.
 
+Circle to Search is an independent optional extension of that snapshot. It requires one support
+function with the two ordered `PackageManager_has_system_feature` calls, one Xiaomi invoke
+function that directly calls that support function, and one normal long-press `Fn` with the exact
+captured `completion_state + 0x10` release-store and fallback shape. Only a unique triple publishes
+the two hook addresses. Missing imports or any ambiguity leaves those addresses empty while
+preserving the already-proven dynamic side profile.
+
 This is not a generic AOB scanner, and it never copies offsets from the nearest
 version. `4371` remains strict-static because its legacy three-stage topology
 is outside the dynamic family. Library SHA-256 remains an offline
@@ -87,7 +116,7 @@ profile-verification input; the runtime resolver uses only the already loaded
 ELF image and does not open the APK or parse a writable configuration file.
 
 `4371` keeps two transparent legacy diagnostic hooks around the side boundary.
-`5334` and `5402` use only the reviewed side boundary because Xiaomi inlined
+`5334`, `5402`, and `5436` use only the reviewed side boundary because Xiaomi inlined
 the older processor stages. All profiles hand off only a launcher-accepted BACK
 stream.
 

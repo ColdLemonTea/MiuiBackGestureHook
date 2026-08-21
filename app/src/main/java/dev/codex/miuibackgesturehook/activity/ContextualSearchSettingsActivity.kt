@@ -1,0 +1,412 @@
+// SPDX-License-Identifier: Apache-2.0
+package dev.codex.miuibackgesturehook.activity
+
+import android.annotation.SuppressLint
+import android.content.SharedPreferences
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import dev.codex.miuibackgesturehook.ModuleApplication
+import dev.codex.miuibackgesturehook.PredictiveBackPreferences
+import dev.codex.miuibackgesturehook.R
+import dev.codex.miuibackgesturehook.util.miuixBlurEffect
+import dev.codex.miuibackgesturehook.util.rememberMiuixBlurBackdrop
+import io.github.libxposed.service.XposedService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.darkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+
+class ContextualSearchSettingsActivity :
+    ComponentActivity(),
+    ModuleApplication.ServiceStateListener {
+    private var xposedService: XposedService? by mutableStateOf(null)
+    private var serviceStateObserved by mutableStateOf(false)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
+            MiuixTheme(colors = colors) {
+                ContextualSearchSettingsScreen(
+                    service = xposedService,
+                    serviceStateObserved = serviceStateObserved,
+                    onClose = { finish() },
+                )
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ModuleApplication.addServiceStateListener(this, notifyImmediately = true)
+    }
+
+    override fun onStop() {
+        ModuleApplication.removeServiceStateListener(this)
+        super.onStop()
+    }
+
+    override fun onServiceStateChanged(service: XposedService?) {
+        xposedService = service
+        serviceStateObserved = true
+    }
+}
+
+private data class ContextualSearchValues(
+    val preferences: SharedPreferences,
+    val longPressEnabled: Boolean,
+    val liveTranslateEnabled: Boolean,
+    val hapticsEnabled: Boolean,
+)
+
+private enum class ContextualSearchStatusSeverity {
+    Info,
+    Error,
+}
+
+private data class ContextualSearchStatus(
+    val text: String,
+    val severity: ContextualSearchStatusSeverity,
+)
+
+@Composable
+@SuppressLint("ApplySharedPref")
+private fun ContextualSearchSettingsScreen(
+    service: XposedService?,
+    serviceStateObserved: Boolean,
+    onClose: () -> Unit,
+) {
+    val configurationErrorMessage = stringResource(R.string.predictive_back_config_error)
+    val saveErrorMessage = stringResource(R.string.predictive_back_save_error)
+    val serviceLoadingMessage = stringResource(R.string.predictive_back_service_loading)
+    val serviceUnavailableMessage =
+        stringResource(R.string.predictive_back_service_unavailable)
+    val scope = rememberCoroutineScope()
+    var preferences by remember { mutableStateOf<SharedPreferences?>(null) }
+    var configurationLoading by remember { mutableStateOf(true) }
+    var configurationError by remember { mutableStateOf<String?>(null) }
+    var saveError by remember { mutableStateOf<String?>(null) }
+    var longPressEnabled by remember {
+        mutableStateOf(PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS)
+    }
+    var confirmedLongPressEnabled by remember {
+        mutableStateOf(PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS)
+    }
+    var liveTranslateEnabled by remember {
+        mutableStateOf(PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE)
+    }
+    var confirmedLiveTranslateEnabled by remember {
+        mutableStateOf(PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE)
+    }
+    var hapticsEnabled by remember {
+        mutableStateOf(PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_HAPTICS)
+    }
+    var confirmedHapticsEnabled by remember {
+        mutableStateOf(PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_HAPTICS)
+    }
+    val writeMutex = remember(preferences) { Mutex() }
+    val lazyListState = rememberLazyListState()
+    val scrollBehavior = MiuixScrollBehavior()
+    val horizontalSafeInsets = WindowInsets.safeDrawing
+        .only(WindowInsetsSides.Horizontal)
+        .asPaddingValues()
+    val topBarBackdrop = rememberMiuixBlurBackdrop()
+
+    LaunchedEffect(service, serviceStateObserved, configurationErrorMessage) {
+        preferences = null
+        configurationError = null
+        saveError = null
+        longPressEnabled = PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS
+        confirmedLongPressEnabled = longPressEnabled
+        liveTranslateEnabled = PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE
+        confirmedLiveTranslateEnabled = liveTranslateEnabled
+        hapticsEnabled = PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_HAPTICS
+        confirmedHapticsEnabled = hapticsEnabled
+        if (!serviceStateObserved) {
+            configurationLoading = true
+            return@LaunchedEffect
+        }
+        if (service == null) {
+            configurationLoading = false
+            return@LaunchedEffect
+        }
+        configurationLoading = true
+        try {
+            val loaded = withContext(Dispatchers.IO) {
+                val remotePreferences =
+                    service.getRemotePreferences(PredictiveBackPreferences.GROUP)
+                ContextualSearchValues(
+                    preferences = remotePreferences,
+                    longPressEnabled = remotePreferences.getBoolean(
+                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS,
+                        PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS,
+                    ),
+                    liveTranslateEnabled = remotePreferences.getBoolean(
+                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
+                        PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
+                    ),
+                    hapticsEnabled = remotePreferences.getBoolean(
+                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_HAPTICS,
+                        PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_HAPTICS,
+                    ),
+                )
+            }
+            preferences = loaded.preferences
+            longPressEnabled = loaded.longPressEnabled
+            confirmedLongPressEnabled = loaded.longPressEnabled
+            liveTranslateEnabled = loaded.liveTranslateEnabled
+            confirmedLiveTranslateEnabled = loaded.liveTranslateEnabled
+            hapticsEnabled = loaded.hapticsEnabled
+            confirmedHapticsEnabled = loaded.hapticsEnabled
+        } catch (_: Throwable) {
+            configurationError = configurationErrorMessage
+        } finally {
+            configurationLoading = false
+        }
+    }
+
+    fun persistBooleanPreference(
+        key: String,
+        requestedEnabled: Boolean,
+        setLocal: (Boolean) -> Unit,
+        getConfirmed: () -> Boolean,
+        setConfirmed: (Boolean) -> Unit,
+    ) {
+        val activePreferences = preferences ?: return
+        setLocal(requestedEnabled)
+        saveError = null
+        scope.launch {
+            val saved = writeMutex.withLock {
+                val fallbackEnabled = getConfirmed()
+                val commitSucceeded = withContext(Dispatchers.IO) {
+                    val succeeded = try {
+                        activePreferences.edit().putBoolean(key, requestedEnabled).commit()
+                    } catch (_: Throwable) {
+                        false
+                    }
+                    if (!succeeded) {
+                        try {
+                            activePreferences.edit().putBoolean(key, fallbackEnabled).commit()
+                        } catch (_: Throwable) {
+                            // Keep the last confirmed local value below.
+                        }
+                    }
+                    succeeded
+                }
+                if (preferences === activePreferences && commitSucceeded) {
+                    setConfirmed(requestedEnabled)
+                }
+                commitSucceeded
+            }
+            if (preferences === activePreferences && !saved) {
+                setLocal(getConfirmed())
+                saveError = saveErrorMessage
+            }
+        }
+    }
+
+    val configurationEnabled = preferences != null && !configurationLoading
+    val statusMessage = when {
+        configurationLoading -> ContextualSearchStatus(
+            serviceLoadingMessage,
+            ContextualSearchStatusSeverity.Info,
+        )
+        configurationError != null -> ContextualSearchStatus(
+            configurationError.orEmpty(),
+            ContextualSearchStatusSeverity.Error,
+        )
+        saveError != null -> ContextualSearchStatus(
+            saveError.orEmpty(),
+            ContextualSearchStatusSeverity.Error,
+        )
+        serviceStateObserved && service == null -> ContextualSearchStatus(
+            serviceUnavailableMessage,
+            ContextualSearchStatusSeverity.Error,
+        )
+        else -> null
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                modifier = Modifier
+                    .miuixBlurEffect(topBarBackdrop)
+                    .background(Color.Transparent),
+                color = Color.Transparent,
+                scrollBehavior = scrollBehavior,
+                title = stringResource(R.string.contextual_search_title),
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = MiuixIcons.Regular.Back,
+                            contentDescription = stringResource(R.string.back),
+                        )
+                    }
+                },
+            )
+        },
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .layerBackdrop(topBarBackdrop)
+                .scrollEndHaptic()
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            state = lazyListState,
+            contentPadding = PaddingValues(
+                start = horizontalSafeInsets.calculateLeftPadding(LocalLayoutDirection.current),
+                top = paddingValues.calculateTopPadding() + 8.dp,
+                end = horizontalSafeInsets.calculateRightPadding(LocalLayoutDirection.current),
+                bottom = paddingValues.calculateBottomPadding(),
+            ),
+            overscrollEffect = null,
+        ) {
+            item(key = "contextual_search_switches") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 8.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    SwitchPreference(
+                        title = stringResource(R.string.contextual_search_title),
+                        summary = stringResource(R.string.contextual_search_summary),
+                        checked = longPressEnabled,
+                        enabled = configurationEnabled,
+                        onCheckedChange = { requested ->
+                            persistBooleanPreference(
+                                PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS,
+                                requested,
+                                { longPressEnabled = it },
+                                { confirmedLongPressEnabled },
+                                { confirmedLongPressEnabled = it },
+                            )
+                        },
+                    )
+                    SwitchPreference(
+                        title = stringResource(R.string.contextual_search_live_translate_title),
+                        summary = stringResource(R.string.contextual_search_live_translate_summary),
+                        checked = liveTranslateEnabled,
+                        enabled = configurationEnabled && longPressEnabled,
+                        onCheckedChange = { requested ->
+                            persistBooleanPreference(
+                                PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
+                                requested,
+                                { liveTranslateEnabled = it },
+                                { confirmedLiveTranslateEnabled },
+                                { confirmedLiveTranslateEnabled = it },
+                            )
+                        },
+                    )
+                    SwitchPreference(
+                        title = stringResource(R.string.contextual_search_haptics_title),
+                        summary = stringResource(R.string.contextual_search_haptics_summary),
+                        checked = hapticsEnabled,
+                        enabled = configurationEnabled && longPressEnabled,
+                        onCheckedChange = { requested ->
+                            persistBooleanPreference(
+                                PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_HAPTICS,
+                                requested,
+                                { hapticsEnabled = it },
+                                { confirmedHapticsEnabled },
+                                { confirmedHapticsEnabled = it },
+                            )
+                        },
+                    )
+                }
+            }
+            if (statusMessage != null) {
+                item(key = "contextual_search_status") {
+                    ContextualSearchStatusCard(
+                        message = statusMessage.text,
+                        severity = statusMessage.severity,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .padding(bottom = 8.dp),
+                    )
+                }
+            }
+            item(key = "contextual_search_bottom_spacer") {
+                androidx.compose.foundation.layout.Spacer(
+                    modifier = Modifier.navigationBarsPadding(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContextualSearchStatusCard(
+    message: String,
+    severity: ContextualSearchStatusSeverity,
+    modifier: Modifier = Modifier,
+) {
+    val accent = when (severity) {
+        ContextualSearchStatusSeverity.Info -> MiuixTheme.colorScheme.primary
+        ContextualSearchStatusSeverity.Error -> MiuixTheme.colorScheme.error
+    }
+    Card(
+        modifier = modifier,
+        insideMargin = PaddingValues(16.dp),
+        colors = CardDefaults.defaultColors(
+            color = accent.copy(alpha = 0.2f),
+            contentColor = accent,
+        ),
+    ) {
+        Text(
+            text = message,
+            style = MiuixTheme.textStyles.body2,
+        )
+    }
+}

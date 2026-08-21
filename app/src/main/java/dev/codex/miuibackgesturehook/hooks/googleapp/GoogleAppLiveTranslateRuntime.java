@@ -171,7 +171,10 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
         boolean deoptimized = deoptimize(visibility);
         recordHookHandle(hook(visibility)
                 .setId("google_live_translate_action_visibility")
-                .intercept(this::overrideLiveTranslateBooleanGate));
+                // The native action list owns first-screen visibility.  Live Translate is
+                // only added after the user taps the native Translate affordance; forcing
+                // this gate makes a dead button appear on the initial Circle-to-Search page.
+                .intercept(this::preserveLiveTranslateActionVisibility));
         moduleLog(deoptimized ? Log.INFO : Log.WARN, TAG,
                 "Prepared live-translate action visibility"
                         + ", owner=" + actionClass.getName()
@@ -242,6 +245,16 @@ public abstract class GoogleAppLiveTranslateRuntime extends MiuiHomeHookRuntime 
             XposedInterface.Chain chain) throws Throwable {
         Object result = chain.proceed();
         return isContextualSearchLiveTranslateEnabled() ? Boolean.TRUE : result;
+    }
+
+    /**
+     * Keep the native action-list visibility decision intact.  The capability hook above is
+     * deliberately separate: it makes the feature usable once the native flow requests it,
+     * but it must not manufacture a Translate item on the initial results page.
+     */
+    protected Object preserveLiveTranslateActionVisibility(
+            XposedInterface.Chain chain) throws Throwable {
+        return chain.proceed();
     }
 
     protected boolean isContextualSearchLiveTranslateEnabled() {

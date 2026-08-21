@@ -10,6 +10,7 @@ module.prop
 
 # Local reverse-engineering helpers; keep Ghidra/JADX workspaces out of Git.
 ghidra/
+.local/
 
 # Retained locally as an abandoned observation probe; not linked by current CMake.
 accepted_log_boundary_hook.S

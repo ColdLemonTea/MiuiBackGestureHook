@@ -187,6 +187,14 @@ class PredictiveBackSettingsActivity :
                             ),
                         )
                     },
+                    onOpenContextualSearchSettings = {
+                        startActivity(
+                            Intent(
+                                this,
+                                ContextualSearchSettingsActivity::class.java,
+                            ),
+                        )
+                    },
                 )
             }
         }
@@ -492,6 +500,7 @@ private fun PredictiveBackSettingsScreen(
     onClose: () -> Unit,
     onOpenGestureTriggerSettings: () -> Unit,
     onOpenAppList: () -> Unit,
+    onOpenContextualSearchSettings: () -> Unit,
 ) {
     val configurationErrorMessage = stringResource(R.string.predictive_back_config_error)
     val saveErrorMessage = stringResource(R.string.predictive_back_save_error)
@@ -515,10 +524,6 @@ private fun PredictiveBackSettingsScreen(
     var confirmedOneUiCrossTaskAnimation by remember { mutableStateOf(false) }
     var moduleLogging by remember { mutableStateOf(true) }
     var confirmedModuleLogging by remember { mutableStateOf(true) }
-    var contextualSearchLongPress by remember { mutableStateOf(false) }
-    var confirmedContextualSearchLongPress by remember { mutableStateOf(false) }
-    var contextualSearchLiveTranslate by remember { mutableStateOf(false) }
-    var confirmedContextualSearchLiveTranslate by remember { mutableStateOf(false) }
     val writeMutex = remember(preferences) { Mutex() }
     val lazyListState = rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
@@ -544,14 +549,6 @@ private fun PredictiveBackSettingsScreen(
         confirmedOneUiCrossTaskAnimation = false
         moduleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
         confirmedModuleLogging = PredictiveBackPreferences.DEFAULT_MODULE_LOGGING
-        contextualSearchLongPress =
-            PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS
-        confirmedContextualSearchLongPress =
-            PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS
-        contextualSearchLiveTranslate =
-            PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE
-        confirmedContextualSearchLiveTranslate =
-            PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE
         if (!serviceStateObserved) {
             configurationLoading = true
             return@LaunchedEffect
@@ -608,14 +605,6 @@ private fun PredictiveBackSettingsScreen(
                         PredictiveBackPreferences.KEY_MODULE_LOGGING,
                         PredictiveBackPreferences.DEFAULT_MODULE_LOGGING,
                     ),
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS,
-                        PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS,
-                    ),
-                    remotePreferences.getBoolean(
-                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
-                        PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
-                    ),
                 )
                 remotePreferences to flags
             }
@@ -632,10 +621,6 @@ private fun PredictiveBackSettingsScreen(
             confirmedOneUiCrossTaskAnimation = loaded.second[4]
             moduleLogging = loaded.second[5]
             confirmedModuleLogging = loaded.second[5]
-            contextualSearchLongPress = loaded.second[6]
-            confirmedContextualSearchLongPress = loaded.second[6]
-            contextualSearchLiveTranslate = loaded.second[7]
-            confirmedContextualSearchLiveTranslate = loaded.second[7]
         } catch (_: Throwable) {
             configurationError = configurationErrorMessage
         } finally {
@@ -742,24 +727,6 @@ private fun PredictiveBackSettingsScreen(
             { confirmedModuleLogging = it },
         )
     }
-    val persistContextualSearchLongPress: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS,
-            requestedEnabled,
-            { contextualSearchLongPress = it },
-            { confirmedContextualSearchLongPress },
-            { confirmedContextualSearchLongPress = it },
-        )
-    }
-    val persistContextualSearchLiveTranslate: (Boolean) -> Unit = { requestedEnabled ->
-        persistBooleanPreference(
-            PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
-            requestedEnabled,
-            { contextualSearchLiveTranslate = it },
-            { confirmedContextualSearchLiveTranslate },
-            { confirmedContextualSearchLiveTranslate = it },
-        )
-    }
     val statusMessage = when {
         configurationLoading -> SettingsStatusCardMessage(
             text = serviceLoadingMessage,
@@ -864,12 +831,8 @@ private fun PredictiveBackSettingsScreen(
                 )
             }
             item(key = "contextual_search") {
-                ContextualSearchCard(
-                    longPressEnabled = contextualSearchLongPress,
-                    liveTranslateEnabled = contextualSearchLiveTranslate,
-                    configurationEnabled = configurationEnabled,
-                    onLongPressToggle = persistContextualSearchLongPress,
-                    onLiveTranslateToggle = persistContextualSearchLiveTranslate,
+                ContextualSearchNavigationCard(
+                    onClick = onOpenContextualSearchSettings,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 8.dp),
@@ -1050,31 +1013,18 @@ private fun ModuleLoggingCard(
 }
 
 @Composable
-private fun ContextualSearchCard(
-    longPressEnabled: Boolean,
-    liveTranslateEnabled: Boolean,
-    configurationEnabled: Boolean,
-    onLongPressToggle: (Boolean) -> Unit,
-    onLiveTranslateToggle: (Boolean) -> Unit,
+private fun ContextualSearchNavigationCard(
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
         insideMargin = PaddingValues(0.dp),
     ) {
-        SwitchPreference(
-            title = stringResource(R.string.contextual_search_title),
-            summary = stringResource(R.string.contextual_search_summary),
-            checked = longPressEnabled,
-            enabled = configurationEnabled,
-            onCheckedChange = onLongPressToggle,
-        )
-        SwitchPreference(
-            title = stringResource(R.string.contextual_search_live_translate_title),
-            summary = stringResource(R.string.contextual_search_live_translate_summary),
-            checked = liveTranslateEnabled,
-            enabled = configurationEnabled && longPressEnabled,
-            onCheckedChange = onLiveTranslateToggle,
+        ArrowPreference(
+            title = stringResource(R.string.contextual_search_entry_title),
+            summary = stringResource(R.string.contextual_search_entry_summary),
+            onClick = onClick,
         )
     }
 }

@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.graphics.Insets;
 import android.graphics.Matrix;
 import android.graphics.Point;
@@ -56,11 +57,40 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import dev.codex.miuibackgesturehook.PredictiveBackPreferences;
 import io.github.libxposed.api.XposedInterface;
 
 public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     private volatile SystemUiPlatformImpl systemUiPlatformImpl;
+    private volatile SharedPreferences contextualSearchStatePreferences;
+    private volatile Context contextualSearchStateContext;
+    private final SharedPreferences.OnSharedPreferenceChangeListener
+            contextualSearchStatePreferenceListener = (preferences, key) -> {
+                if (!PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LONG_PRESS
+                        .equals(key)) {
+                    return;
+                }
+                contextualSearchPreferences = preferences;
+                Context context = contextualSearchStateContext;
+                SystemUiPlatformImpl implementation = systemUiPlatformImpl;
+                if (context == null || implementation == null) {
+                    return;
+                }
+                Handler mainHandler = new Handler(context.getMainLooper());
+                mainHandler.post(() -> {
+                    if (contextualSearchStateContext != context) {
+                        return;
+                    }
+                    if (!implementation.nativeLauncherOwnsContextualSearchLongPress()) {
+                        refreshContextualSearchInputReceivers();
+                        return;
+                    }
+                    publishSystemUiInputArbiterState(context,
+                            systemUiInputArbiterMonitorCount.get() > 0,
+                            "contextualSearchPreference:" + key);
+                });
+            };
 
 
     protected void installSystemUiHooks(ClassLoader classLoader) {
@@ -129,14 +159,67 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     protected Object attachContextualSearchAfterNavigationBarAttached(
             XposedInterface.Chain chain) throws Throwable {
         Object result = chain.proceed();
-        attachContextualSearchInputReceiver(chain.getThisObject());
+        if (!requireSystemUiPlatformImpl()
+                .nativeLauncherOwnsContextualSearchLongPress()) {
+            attachContextualSearchInputReceiver(chain.getThisObject());
+        }
         return result;
     }
 
     protected Object detachContextualSearchBeforeNavigationBarDetached(
             XposedInterface.Chain chain) throws Throwable {
+        forgetContextualSearchNavigationBar(chain.getThisObject());
         detachContextualSearchInputReceiver(chain.getThisObject());
         return chain.proceed();
+    }
+
+    @Override
+    protected void restoreContextualSearchInputReceivers(Object[] navigationBars) {
+        if (requireSystemUiPlatformImpl()
+                .nativeLauncherOwnsContextualSearchLongPress()) {
+            return;
+        }
+        super.restoreContextualSearchInputReceivers(navigationBars);
+    }
+
+    protected synchronized void ensureContextualSearchStatePreferenceListener(
+            Context context) {
+        if (context == null || contextualSearchStatePreferences != null) {
+            return;
+        }
+        try {
+            SharedPreferences preferences = getRemotePreferences(
+                    PredictiveBackPreferences.GROUP);
+            preferences.registerOnSharedPreferenceChangeListener(
+                    contextualSearchStatePreferenceListener);
+            contextualSearchPreferences = preferences;
+            contextualSearchStatePreferences = preferences;
+            contextualSearchStateContext = context.getApplicationContext();
+            moduleLog(Log.INFO, TAG,
+                    "Registered live contextual-search preference listener");
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Live contextual-search preference listener unavailable",
+                    throwable);
+        }
+    }
+
+    protected synchronized void releaseContextualSearchStatePreferenceListener() {
+        SharedPreferences preferences = contextualSearchStatePreferences;
+        contextualSearchStatePreferences = null;
+        contextualSearchStateContext = null;
+        contextualSearchPreferences = null;
+        if (preferences == null) {
+            return;
+        }
+        try {
+            preferences.unregisterOnSharedPreferenceChangeListener(
+                    contextualSearchStatePreferenceListener);
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to unregister live contextual-search preference listener",
+                    throwable);
+        }
     }
 
     protected void selectSystemUiPlatformImpl(ClassLoader classLoader) throws Exception {
@@ -5664,6 +5747,20 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             getSentFromUid(), getSentFromPackage(), intent);
                     return;
                 }
+                if (MODULE_CONTEXTUAL_SEARCH_TRIGGERED.equals(action)) {
+                    int senderUid = getSentFromUid();
+                    String senderPackage = getSentFromPackage();
+                    if (!isTrustedMiuiHomeBroadcastSender(
+                            receiverContext, senderUid, senderPackage)) {
+                        moduleLog(Log.WARN, TAG,
+                                "Rejected untrusted contextual-search trigger"
+                                        + ", uid=" + senderUid
+                                        + ", package=" + senderPackage);
+                        return;
+                    }
+                    playContextualSearchHaptic(receiverContext);
+                    return;
+                }
                 if (!MODULE_MIUI_OVERVIEW_STATE_CHANGE.equals(action)
                         && !MODULE_MIUI_HOME_INPUT_ARBITER_QUERY.equals(action)) {
                     return;
@@ -5780,11 +5877,13 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             IntentFilter filter = new IntentFilter(MODULE_MIUI_OVERVIEW_STATE_CHANGE);
             filter.addAction(MODULE_MIUI_HOME_INPUT_ARBITER_QUERY);
+            filter.addAction(MODULE_CONTEXTUAL_SEARCH_TRIGGERED);
             filter.addAction(MODULE_RUNTIME_STATUS_QUERY);
             filter.addAction(MODULE_RUNTIME_STATUS_REPLY);
             appContext.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
             miuiOverviewReceiverContext = appContext;
             miuiOverviewReceiver = receiver;
+            ensureContextualSearchStatePreferenceListener(appContext);
             moduleLog(Log.INFO, TAG, "Registered Miui launcher overview-state receiver"
                     + ", currentOverviewVisible=" + miuiOverviewVisible);
         } catch (Throwable throwable) {
@@ -5911,6 +6010,13 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     .putExtra(EXTRA_INPUT_ARBITER_READY, ready)
                     .putExtra(EXTRA_INPUT_ARBITER_GENERATION,
                             systemUiInputArbiterGeneration)
+                    // The native launcher receiver consumes this marked query as
+                    // an arbiter-state update too.  Keep the feature bit on the
+                    // query; omitting it makes Bundle_get_boolean fail closed
+                    // and silently disables Circle to Search until SystemUI is
+                    // restarted and publishes a full state broadcast.
+                    .putExtra(EXTRA_CONTEXTUAL_SEARCH_ENABLED,
+                            isContextualSearchLongPressEnabled())
                     .putExtra("sender_uid", Process.myUid());
             Bundle options = BroadcastOptions.makeBasic()
                     .setShareIdentityEnabled(true)
@@ -6096,6 +6202,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
     }
 
     protected synchronized void unregisterMiuiOverviewStateReceiver() {
+        releaseContextualSearchStatePreferenceListener();
         BroadcastReceiver receiver = miuiOverviewReceiver;
         Context receiverContext = miuiOverviewReceiverContext;
         miuiOverviewReceiver = null;

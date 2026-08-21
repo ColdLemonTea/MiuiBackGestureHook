@@ -63,6 +63,12 @@
         "bytes": "ff 03 06 d1 ea 8b 00 fd e9 a3 11 6d fd fb 12 a9 fc 9f 00 f9 fa 67 14 a9 f8 5f 15 a9 f6 57 16 a9",
         "edge_field_offset": "0xf4"
       },
+      "contextual_search": {
+        "long_press_handler_offset": "0x71af90",
+        "long_press_handler_bytes": "ff c3 02 d1 fd 7b 09 a9 f4 4f 0a a9 fd 43 02 91 e8 60 00 b0 f3 03 00 aa 08 ad 45 f9 1f 0d 00 f1",
+        "invoke_offset": "0xadc22c",
+        "invoke_bytes": "ff 43 05 d1 fd 7b 11 a9 fc 5f 12 a9 f6 57 13 a9 f4 4f 14 a9 fd 43 04 91 f6 c3 00 91 e0 07 00 b9"
+      },
       "pilfer": {
         "accepted_return_offset": "0x0",
         "home_return_offset": "0x0",
