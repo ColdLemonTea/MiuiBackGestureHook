@@ -116,11 +116,20 @@ if ($Dynamic -match 'NEEDED.*(?:libc\+\+|libstdc\+\+)') {
     throw 'Native output has an unexpected shared C++ runtime dependency.'
 }
 
-$AppBuildGradle = Get-Content -LiteralPath (Join-Path $RepoRoot 'app\build.gradle') -Raw
+$AppBuildFile = @(
+    (Join-Path $RepoRoot 'app\build.gradle.kts'),
+    (Join-Path $RepoRoot 'app\build.gradle')
+) |
+    Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+    Select-Object -First 1
+if ($null -eq $AppBuildFile) {
+    throw 'Unable to locate the app Gradle build file.'
+}
+$AppBuildGradle = Get-Content -LiteralPath $AppBuildFile -Raw
 $VersionMatches = [regex]::Matches(
-    $AppBuildGradle, '(?m)^\s*versionName\s+"([^"]+)"\s*$')
+    $AppBuildGradle, '(?m)^\s*versionName\s*(?:=\s*)?"([^"]+)"\s*$')
 if ($VersionMatches.Count -ne 1) {
-    throw 'Unable to resolve one canonical app versionName from app/build.gradle.'
+    throw "Unable to resolve one canonical app versionName from $AppBuildFile."
 }
 $Version = $VersionMatches[0].Groups[1].Value
 $VersionCode = (& git -C $RepoRoot rev-list --count HEAD).Trim()

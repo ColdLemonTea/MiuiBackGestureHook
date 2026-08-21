@@ -202,14 +202,19 @@ the profile, build a Debug ZIP, and use the deployment flow below.
 From the repository root:
 
 ```powershell
-.\experiments\miui-home-hyos-zn\build.ps1 -Configuration Debug
+.\gradlew.bat buildZnPackage -PznConfiguration=Debug
 ```
 
 Use `Release` only for a distributable package:
 
 ```powershell
-.\experiments\miui-home-hyos-zn\build.ps1 -Configuration Release
+.\gradlew.bat buildZnPackage -PznConfiguration=Release
 ```
+
+The Gradle task invokes the cross-platform build_zn_package.py builder. It
+uses ANDROID_NDK_HOME and cmake from PATH by default; override them with
+-PznNdkPath=... and -PznCmakePath=... when necessary. build.ps1 remains as a
+Windows compatibility entry point.
 
 Output is written under:
 
@@ -218,10 +223,10 @@ out/miui-home-hyos-zn/<Configuration>/
 out/packages/miui-home-hyos-zn-<timestamp>.zip
 ```
 
-The build runs the controller contract checks, invokes the Python profile
-generator, verifies ELF64/AArch64 plus BTI/PAC, enforces the single `zn_module`
-export, checks both assembly tail shims, generates `diagnostics.map`, and then
-packages the module. Its version name comes from `app/build.gradle`; its version
+The build invokes the Python profile generator, verifies ELF64/AArch64 plus
+BTI/PAC, enforces the single `zn_module` export, checks both assembly tail
+shims, generates `diagnostics.map`, and then packages the module. Its version
+name comes from `app/build.gradle.kts`; its version
 code is the current Git commit count, matching the main app BuildConfig source.
 
 The ZIP intentionally contains no Xiaomi library, APK, Ghidra project, JADX

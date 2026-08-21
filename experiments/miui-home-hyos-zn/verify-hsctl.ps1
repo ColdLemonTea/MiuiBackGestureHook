@@ -22,7 +22,7 @@ $Paths = @{
     StatusMiuiHome = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\miuihome\MiuiHomeHookRuntime.java'
     LiveTranslate = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\googleapp\GoogleAppLiveTranslateRuntime.java'
     Build = Join-Path $PSScriptRoot 'build.ps1'
-    AppBuild = Join-Path $PSScriptRoot '..\..\app\build.gradle'
+    AppBuild = Join-Path $PSScriptRoot '..\..\app\build.gradle.kts'
     Readme = Join-Path $PSScriptRoot 'README.md'
     Customize = Join-Path $PSScriptRoot 'customize.sh.in'
     Uninstall = Join-Path $PSScriptRoot 'uninstall.sh'
@@ -211,7 +211,7 @@ foreach ($Needle in @(
     }
 }
 $AppVersionMatches = [regex]::Matches(
-    $Text.AppBuild, '(?m)^\s*versionName\s+"[^"]+"\s*$')
+    $Text.AppBuild, '(?m)^\s*versionName\s*(?:=\s*)?"[^"]+"\s*$')
 if ($AppVersionMatches.Count -ne 1 -or
         -not $Text.Build.Contains('$PSVersionTable.PSEdition') -or
         -not $Text.Build.Contains("Join-Path `$RepoRoot 'app\build.gradle'") -or

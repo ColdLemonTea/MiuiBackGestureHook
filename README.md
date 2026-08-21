@@ -11,6 +11,14 @@ companion Zygisk Next module.
 
 ## Build
 
+The arm64-v8a Zygisk Next native package can be built with:
+
+    .\gradlew.bat buildZnPackage -PznConfiguration=Release
+
+The task uses the cross-platform Python builder under
+experiments/miui-home-hyos-zn/ and accepts -PznNdkPath, -PznCmakePath, and
+-PznPython overrides.
+
 ```powershell
 .\gradlew.bat assembleDebug
 ```
