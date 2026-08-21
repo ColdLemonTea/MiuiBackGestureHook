@@ -30,6 +30,8 @@
     <string name="module_logging_summary">Keep informational logs enabled; warnings and errors are always kept</string>
     <string name="contextual_search_title">Google Circle to Search</string>
     <string name="contextual_search_summary">Long-press the visible gesture handle to start contextual search. Enabling it requires Google App support and one device restart.</string>
+    <string name="contextual_search_live_translate_title">Live Translate in Circle to Search</string>
+    <string name="contextual_search_live_translate_summary">Show the full-screen translation action in the Circle to Search overlay; Circle to Search above must be enabled first. The first use still requires system screen-capture consent; force-stop and reopen Google App after changing this switch.</string>
     <string name="gesture_trigger_title">Side trigger area</string>
     <string name="gesture_trigger_entry_title">Side trigger area</string>
     <string name="gesture_trigger_entry_summary">Adjust the height and vertical position of both side trigger areas</string>

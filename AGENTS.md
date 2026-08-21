@@ -91,11 +91,25 @@ Current static scope:
 ```text
 com.android.systemui
 com.miui.home
+com.google.android.googlequicksearchbox
 system
 ```
 
-Keep scope minimal. Do not add target applications or further `system_server` cleanup or
+Keep scope minimal. Do not add other target applications or further `system_server` cleanup or
 compatibility hooks unless new SystemUI/server evidence requires them.
+
+Live Translate rules:
+
+- `com.google.android.googlequicksearchbox` is scoped only for the optional Android 16
+  Circle to Search Live Translate action. The preference defaults off; when either it or
+  Circle to Search is off, every installed Google-side hook must preserve the original result.
+- Resolve the Google action bean from the stable action id and then require the exact Android 16
+  constructor and boolean-gate shapes. Ambiguous, missing, or unreadable matches fail closed.
+- Override only the exact Live Translate system-feature query and the final View/Compose
+  visibility gates. Never forge a MediaProjection token, bypass screen-capture consent, or
+  replace the Google-owned click/translation flow.
+- Treat the Google hook IDs as hot-reload lifecycle keys. Replace existing handles before
+  backfilling missing gates, and defer reload while the dex resolver owns an active bridge.
 
 Predictive opt-in rules:
 

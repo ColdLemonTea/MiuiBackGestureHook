@@ -2,6 +2,10 @@
 
 LSPosed module using modern Xposed API 102 for SystemUI-side MIUI back gesture research.
 
+Android 16 compatibility options also restore Circle to Search from the visible gesture
+handle and can expose Google App's full-screen Live Translate action without bypassing
+the system screen-capture consent flow. Both options default to off.
+
 ## Build
 
 ```powershell
@@ -42,8 +46,11 @@ Current scopes:
 ```text
 com.android.systemui
 com.miui.home
+com.google.android.googlequicksearchbox
 system
 ```
+
+The Google App scope is inert unless the Live Translate option is enabled.
 
 ## Compatibility
 
@@ -77,3 +84,6 @@ app/src/main/resources/META-INF/xposed/java_init.list
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE).
+
+Bundled third-party components and their separate license terms are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

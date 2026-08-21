@@ -102,6 +102,7 @@ dependencies {
     compileOnly project(":hidden-api")
 
     implementation "io.github.libxposed:service:102.0.0"
+    implementation "org.luckypray:dexkit:2.2.0"
     implementation "androidx.activity:activity-compose:1.13.0"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
     implementation "top.yukonga.miuix.kmp:miuix-blur-android:0.9.3"

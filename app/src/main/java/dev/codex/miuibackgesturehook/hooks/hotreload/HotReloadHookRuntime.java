@@ -20,6 +20,12 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
 
     @Override
     public boolean onHotReloading(XposedModuleInterface.HotReloadingParam param) {
+        if (googleLiveTranslateResolutionInFlight.get() != 0) {
+            moduleLog(Log.WARN, TAG,
+                    "Deferred hot reload during Google live-translate resolution"
+                            + ", process=" + processName);
+            return false;
+        }
         if (contextualSearchBridgeCallsInFlight.get() != 0) {
             moduleLog(Log.WARN, TAG,
                     "Deferred hot reload during an authenticated contextual-search call"
@@ -614,6 +620,12 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                         throwable);
             }
         }
+        if ((GOOGLE_APP.equals(processName)
+                || processName.startsWith(GOOGLE_APP + ":"))
+                && hotReloadClassLoader != null) {
+            installGoogleAppLiveTranslateHooks(
+                    hotReloadClassLoader, resolveGoogleAppSourceDir(), oldHookIds);
+        }
         moduleLog(Log.INFO, TAG, "Hot reloaded, build=" + BUILD_MARK
                 + ", process=" + processName
                 + ", oldHooksReplaced=" + replaced
@@ -737,6 +749,11 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::scopeContextualSearchPermission;
             case "server_contextual_search_provider":
                 return this::scopeContextualSearchProvider;
+            case "google_live_translate_system_feature":
+                return this::overrideLiveTranslateSystemFeature;
+            case "google_live_translate_action_visibility":
+            case "google_live_translate_capability":
+                return this::overrideLiveTranslateBooleanGate;
             case "systemui_default_transition_start":
                 return this::registerDefaultTransitionHandler;
             case "systemui_default_transition_merge":
@@ -940,6 +957,11 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             installSystemUiHooks(param.getDefaultClassLoader());
         } else if (MIUI_HOME.equals(processName)) {
             installMiuiHomeHooks(param.getDefaultClassLoader());
+        } else if (GOOGLE_APP.equals(processName)) {
+            installGoogleAppLiveTranslateHooks(
+                    param.getDefaultClassLoader(),
+                    param.getApplicationInfo().sourceDir,
+                    Collections.emptySet());
         }
     }
 

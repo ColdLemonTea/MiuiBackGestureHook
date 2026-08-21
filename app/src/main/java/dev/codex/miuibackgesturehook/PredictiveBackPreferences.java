@@ -21,6 +21,9 @@ public final class PredictiveBackPreferences {
     public static final String KEY_CONTEXTUAL_SEARCH_LONG_PRESS =
             "contextual_search_long_press";
     public static final boolean DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS = false;
+    public static final String KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE =
+            "contextual_search_live_translate";
+    public static final boolean DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE = false;
 
     /** The vertical size of both Xiaomi side trigger areas, expressed as a percentage. */
     public static final String KEY_GESTURE_TRIGGER_HEIGHT_PERCENT =
