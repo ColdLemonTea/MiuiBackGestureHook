@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import org.json.JSONArray;
@@ -48,6 +49,12 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
     protected volatile Field serverTransitionChangeInfoFlagsField;
     private static final String GOOGLE_CONTEXTUAL_SEARCH_PACKAGE =
             "com.google.android.googlequicksearchbox";
+    private static final String MIUI_SECURITY_CENTER_PACKAGE =
+            "com.miui.securitycenter";
+    private static final String MIUI_SECURITY_SIDEBAR_HANDLE_TITLE =
+            "FloatAssistantView";
+    private static final int TYPE_DISPLAY_OVERLAY = 2026;
+    private static final long SIDEBAR_GESTURE_MAX_AGE_MS = 2000L;
     private final ThreadLocal<Boolean> contextualSearchBridgeInvocation = new ThreadLocal<>();
     protected final AtomicInteger contextualSearchBridgeCallsInFlight = new AtomicInteger();
     private volatile PackageManager contextualSearchPackageManager;
@@ -614,6 +621,14 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
 
     protected Object interceptSecuritySidebarTransientBars(XposedInterface.Chain chain)
             throws Throwable {
+        if (Build.VERSION.SDK_INT >= ANDROID_17_API_LEVEL) {
+            if (isAndroid17SecuritySidebarTransientRequest(chain)) {
+                moduleLog(Log.INFO, TAG,
+                        "Blocked Android 17 transient bars from security sidebar handle"
+                                + ", overload=" + chain.getExecutable().toGenericString());
+                return null;
+            }
+        }
         if (isSidebarTransientGesture(chain.getThisObject())) {
             moduleLog(Log.INFO, TAG, "Blocked transient bars from sidebar bounds"
                     + ", overload=" + chain.getExecutable().toGenericString());
@@ -636,7 +651,7 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
             } catch (NoSuchMethodException ignored) {
                 continue;
             }
-            if ("com.miui.securitycenter".equals(owner)) {
+            if (MIUI_SECURITY_CENTER_PACKAGE.equals(owner)) {
                 moduleLog(Log.INFO, TAG, "Blocked transient bars from security sidebar"
                         + ", target=" + shortObject(argument));
                 return null;
@@ -668,6 +683,94 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
         return chain.proceed();
     }
 
+    protected boolean isAndroid17SecuritySidebarTransientRequest(
+            XposedInterface.Chain chain) {
+        Object displayPolicy = chain.getThisObject();
+        try {
+            Object gestures = readField(displayPolicy, "mSystemGestures");
+            float[] downXs = (float[]) readField(gestures, "mDownX");
+            float[] downYs = (float[]) readField(gestures, "mDownY");
+            long[] downTimes = (long[]) readField(gestures, "mDownTime");
+            int downPointers = ((Number) readField(
+                    gestures, "mDownPointers")).intValue();
+            if (downXs == null || downYs == null || downTimes == null
+                    || downPointers <= 0) {
+                return false;
+            }
+
+            Object displayContent = readField(displayPolicy, "mDisplayContent");
+            Object windowManagerLock = readField(displayPolicy, "mLock");
+            if (displayContent == null || windowManagerLock == null) {
+                return false;
+            }
+            int pointerCount = Math.min(downPointers,
+                    Math.min(downXs.length, Math.min(downYs.length, downTimes.length)));
+            long now = SystemClock.uptimeMillis();
+            for (int pointer = 0; pointer < pointerCount; pointer++) {
+                long age = now - downTimes[pointer];
+                if (downTimes[pointer] <= 0L || age < 0L
+                        || age > SIDEBAR_GESTURE_MAX_AGE_MS) {
+                    continue;
+                }
+                int x = Math.round(downXs[pointer]);
+                int y = Math.round(downYs[pointer]);
+                Throwable[] matchFailure = new Throwable[1];
+                Predicate<Object> matcher = window -> {
+                    try {
+                        return isAndroid17SecuritySidebarHandleWindow(window, x, y);
+                    } catch (Throwable throwable) {
+                        matchFailure[0] = throwable;
+                        return false;
+                    }
+                };
+                Object matchedWindow;
+                synchronized (windowManagerLock) {
+                    matchedWindow = invokeAnyMethod(
+                            displayContent, "getWindow", new Object[]{matcher});
+                }
+                if (matchedWindow != null) {
+                    moduleLog(Log.INFO, TAG,
+                            "Matched Android 17 security sidebar handle"
+                                    + ", pointer=" + pointer
+                                    + ", x=" + x + ", y=" + y
+                                    + ", window=" + shortObject(matchedWindow));
+                    return true;
+                }
+                if (matchFailure[0] != null) {
+                    throw matchFailure[0];
+                }
+            }
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to inspect Android 17 security sidebar handle gesture",
+                    throwable);
+        }
+        return false;
+    }
+
+    protected boolean isAndroid17SecuritySidebarHandleWindow(
+            Object window, int x, int y) throws Exception {
+        if (window == null
+                || !MIUI_SECURITY_CENTER_PACKAGE.equals(String.valueOf(invokeAnyMethod(
+                window, "getOwningPackage", new Object[0])))
+                || ((Number) invokeAnyMethod(
+                window, "getWindowType", new Object[0])).intValue()
+                != TYPE_DISPLAY_OVERLAY
+                || !MIUI_SECURITY_SIDEBAR_HANDLE_TITLE.equals(String.valueOf(invokeAnyMethod(
+                window, "getWindowTag", new Object[0])))
+                || !Boolean.TRUE.equals(invokeAnyMethod(
+                window, "isVisible", new Object[0]))) {
+            return false;
+        }
+        Object frameObject = invokeAnyMethod(window, "getFrame", new Object[0]);
+        if (!(frameObject instanceof Rect)) {
+            throw new IllegalStateException(
+                    "Unexpected security sidebar handle frame=" + shortObject(frameObject));
+        }
+        Rect frame = new Rect((Rect) frameObject);
+        return !frame.isEmpty() && frame.contains(x, y);
+    }
+
     protected boolean isSidebarTransientGesture(Object displayPolicy) {
         try {
             Context context = (Context) readField(displayPolicy, "mContext");
@@ -693,7 +796,8 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
             long now = SystemClock.uptimeMillis();
             for (int pointer = 0; pointer < pointerCount; pointer++) {
                 // Ignore stale slots left behind by an earlier system gesture.
-                if (downTimes[pointer] <= 0L || now - downTimes[pointer] > 2000L) {
+                if (downTimes[pointer] <= 0L
+                        || now - downTimes[pointer] > SIDEBAR_GESTURE_MAX_AGE_MS) {
                     continue;
                 }
                 int x = Math.round(downXs[pointer]);
