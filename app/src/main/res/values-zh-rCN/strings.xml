@@ -63,6 +63,9 @@
     <string name="contextual_search_summary">长按可见的底部手势提示线启动圈定即搜，并要求 Google App 支持此功能。切换后会在下一次长按时生效。</string>
     <string name="contextual_search_live_translate_title">圈定即搜内实时翻译</string>
     <string name="contextual_search_live_translate_summary">在圈定即搜浮层中显示“全屏翻译”按钮。首次使用可能需要通过系统录屏授权。</string>
+    <string name="contextual_search_live_translate_scope_request">请在 LSPosed 通知中批准 Google 应用作用域请求；批准前实时翻译将保持关闭。</string>
+    <string name="contextual_search_live_translate_scope_approved">已将 Google 应用加入模块作用域并开启实时翻译。使用前请彻底重启 Google 应用。</string>
+    <string name="contextual_search_live_translate_scope_failed">未能将 Google 应用加入模块作用域，实时翻译保持关闭。</string>
     <string name="contextual_search_haptics_title">圈定即搜触发时震动</string>
     <string name="contextual_search_haptics_summary">圈定即搜成功打开后播放震动。</string>
     <string name="contextual_search_entry_title">Google 圈定即搜</string>

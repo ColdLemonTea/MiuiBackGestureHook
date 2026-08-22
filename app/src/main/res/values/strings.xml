@@ -65,6 +65,9 @@
     <string name="contextual_search_summary">Long-press the visible gesture handle to start contextual search. Google App support is required. Changes apply on the next long press.</string>
     <string name="contextual_search_live_translate_title">Live Translate in Circle to Search</string>
     <string name="contextual_search_live_translate_summary">Show the full-screen translation action in the Circle to Search overlay. The first use maybe require system screen-capture consent.</string>
+    <string name="contextual_search_live_translate_scope_request">Approve the Google App scope request in the LSPosed notification. Live Translate remains off until approval.</string>
+    <string name="contextual_search_live_translate_scope_approved">Google App was added to the module scope and Live Translate is enabled. Fully restart Google App before using it.</string>
+    <string name="contextual_search_live_translate_scope_failed">Google App was not added to the module scope. Live Translate remains off.</string>
     <string name="contextual_search_haptics_title">Vibrate when Circle to Search is triggered</string>
     <string name="contextual_search_haptics_summary">Vibrate after Circle to Search opens successfully.</string>
     <string name="contextual_search_entry_title">Google Circle to Search</string>

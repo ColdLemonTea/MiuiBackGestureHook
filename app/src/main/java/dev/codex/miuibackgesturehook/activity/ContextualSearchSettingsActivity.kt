@@ -40,7 +40,10 @@ import dev.codex.miuibackgesturehook.R
 import dev.codex.miuibackgesturehook.util.miuixBlurEffect
 import dev.codex.miuibackgesturehook.util.rememberMiuixBlurBackdrop
 import io.github.libxposed.service.XposedService
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -62,6 +65,7 @@ import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import java.util.concurrent.atomic.AtomicLong
 
 class ContextualSearchSettingsActivity :
     ComponentActivity(),
@@ -117,6 +121,53 @@ private data class ContextualSearchStatus(
     val severity: ContextualSearchStatusSeverity,
 )
 
+private enum class GoogleAppScopeResult {
+    AlreadyPresent,
+    Approved,
+    Failed,
+}
+
+private const val GOOGLE_APP_PACKAGE = "com.google.android.googlequicksearchbox"
+
+private suspend fun ensureGoogleAppScope(service: XposedService): GoogleAppScopeResult =
+    withContext(Dispatchers.IO) {
+        try {
+            if (service.getScope().contains(GOOGLE_APP_PACKAGE)) {
+                return@withContext GoogleAppScopeResult.AlreadyPresent
+            }
+            val approval = CompletableDeferred<Boolean>()
+            fun complete(result: Boolean) {
+                approval.complete(result)
+            }
+            try {
+                service.requestScope(
+                    listOf(GOOGLE_APP_PACKAGE),
+                    object : XposedService.OnScopeEventListener {
+                        override fun onScopeRequestApproved(approved: List<String>) {
+                            complete(approved.contains(GOOGLE_APP_PACKAGE))
+                        }
+
+                        override fun onScopeRequestFailed(message: String) {
+                            complete(false)
+                        }
+                    },
+                )
+            } catch (_: Throwable) {
+                complete(false)
+            }
+            val approved = approval.await()
+            if (approved && service.getScope().contains(GOOGLE_APP_PACKAGE)) {
+                GoogleAppScopeResult.Approved
+            } else {
+                GoogleAppScopeResult.Failed
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            GoogleAppScopeResult.Failed
+        }
+    }
+
 @Composable
 @SuppressLint("ApplySharedPref")
 private fun ContextualSearchSettingsScreen(
@@ -129,11 +180,21 @@ private fun ContextualSearchSettingsScreen(
     val serviceLoadingMessage = stringResource(R.string.predictive_back_service_loading)
     val serviceUnavailableMessage =
         stringResource(R.string.predictive_back_service_unavailable)
+    val scopeRequestMessage =
+        stringResource(R.string.contextual_search_live_translate_scope_request)
+    val scopeApprovedMessage =
+        stringResource(R.string.contextual_search_live_translate_scope_approved)
+    val scopeFailedMessage =
+        stringResource(R.string.contextual_search_live_translate_scope_failed)
     val scope = rememberCoroutineScope()
     var preferences by remember { mutableStateOf<SharedPreferences?>(null) }
     var configurationLoading by remember { mutableStateOf(true) }
     var configurationError by remember { mutableStateOf<String?>(null) }
     var saveError by remember { mutableStateOf<String?>(null) }
+    var scopeRequestInFlight by remember { mutableStateOf(false) }
+    var scopeStatus by remember { mutableStateOf<ContextualSearchStatus?>(null) }
+    var scopeRequestJob by remember { mutableStateOf<Job?>(null) }
+    val scopeRequestGeneration = remember { AtomicLong() }
     var longPressEnabled by remember {
         mutableStateOf(PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS)
     }
@@ -161,9 +222,14 @@ private fun ContextualSearchSettingsScreen(
     val topBarBackdrop = rememberMiuixBlurBackdrop()
 
     LaunchedEffect(service, serviceStateObserved, configurationErrorMessage) {
+        scopeRequestJob?.cancel()
+        scopeRequestJob = null
+        scopeRequestGeneration.incrementAndGet()
         preferences = null
         configurationError = null
         saveError = null
+        scopeRequestInFlight = false
+        scopeStatus = null
         longPressEnabled = PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LONG_PRESS
         confirmedLongPressEnabled = longPressEnabled
         liveTranslateEnabled = PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE
@@ -253,6 +319,66 @@ private fun ContextualSearchSettingsScreen(
         }
     }
 
+    fun enableLiveTranslateWithScope() {
+        val activeService = service ?: return
+        val activePreferences = preferences ?: return
+        val requestGeneration = scopeRequestGeneration.incrementAndGet()
+        scopeRequestJob?.cancel()
+        liveTranslateEnabled = confirmedLiveTranslateEnabled
+        saveError = null
+        scopeRequestInFlight = true
+        scopeStatus = ContextualSearchStatus(
+            scopeRequestMessage,
+            ContextualSearchStatusSeverity.Info,
+        )
+        scopeRequestJob = scope.launch {
+            val result = ensureGoogleAppScope(activeService)
+            if (
+                scopeRequestGeneration.get() != requestGeneration ||
+                service !== activeService ||
+                preferences !== activePreferences
+            ) {
+                return@launch
+            }
+            scopeRequestInFlight = false
+            scopeRequestJob = null
+            when (result) {
+                GoogleAppScopeResult.AlreadyPresent -> {
+                    scopeStatus = null
+                    persistBooleanPreference(
+                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
+                        true,
+                        { liveTranslateEnabled = it },
+                        { confirmedLiveTranslateEnabled },
+                        { confirmedLiveTranslateEnabled = it },
+                    )
+                }
+
+                GoogleAppScopeResult.Approved -> {
+                    scopeStatus = ContextualSearchStatus(
+                        scopeApprovedMessage,
+                        ContextualSearchStatusSeverity.Info,
+                    )
+                    persistBooleanPreference(
+                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
+                        true,
+                        { liveTranslateEnabled = it },
+                        { confirmedLiveTranslateEnabled },
+                        { confirmedLiveTranslateEnabled = it },
+                    )
+                }
+
+                GoogleAppScopeResult.Failed -> {
+                    liveTranslateEnabled = confirmedLiveTranslateEnabled
+                    scopeStatus = ContextualSearchStatus(
+                        scopeFailedMessage,
+                        ContextualSearchStatusSeverity.Error,
+                    )
+                }
+            }
+        }
+    }
+
     val configurationEnabled = preferences != null && !configurationLoading
     val statusMessage = when {
         configurationLoading -> ContextualSearchStatus(
@@ -267,6 +393,7 @@ private fun ContextualSearchSettingsScreen(
             saveError.orEmpty(),
             ContextualSearchStatusSeverity.Error,
         )
+        scopeStatus != null -> scopeStatus
         serviceStateObserved && service == null -> ContextualSearchStatus(
             serviceUnavailableMessage,
             ContextualSearchStatusSeverity.Error,
@@ -337,15 +464,20 @@ private fun ContextualSearchSettingsScreen(
                         title = stringResource(R.string.contextual_search_live_translate_title),
                         summary = stringResource(R.string.contextual_search_live_translate_summary),
                         checked = liveTranslateEnabled,
-                        enabled = configurationEnabled && longPressEnabled,
+                        enabled = configurationEnabled && longPressEnabled && !scopeRequestInFlight,
                         onCheckedChange = { requested ->
-                            persistBooleanPreference(
-                                PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
-                                requested,
-                                { liveTranslateEnabled = it },
-                                { confirmedLiveTranslateEnabled },
-                                { confirmedLiveTranslateEnabled = it },
-                            )
+                            if (requested) {
+                                enableLiveTranslateWithScope()
+                            } else {
+                                scopeStatus = null
+                                persistBooleanPreference(
+                                    PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
+                                    false,
+                                    { liveTranslateEnabled = it },
+                                    { confirmedLiveTranslateEnabled },
+                                    { confirmedLiveTranslateEnabled = it },
+                                )
+                            }
                         },
                     )
                     SwitchPreference(
