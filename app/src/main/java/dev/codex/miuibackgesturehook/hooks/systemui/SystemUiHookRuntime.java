@@ -6510,12 +6510,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     .putExtra(EXTRA_INPUT_ARBITER_GENERATION,
                             systemUiInputArbiterGeneration)
                     // The native launcher receiver consumes this marked query as
-                    // an arbiter-state update too.  Keep the feature bit on the
-                    // query; omitting it makes Bundle_get_boolean fail closed
-                    // and silently disables Circle to Search until SystemUI is
-                    // restarted and publishes a full state broadcast.
+                    // an arbiter-state update too. Keep the effective runtime bit
+                    // on the query so a missing boot-created service remains
+                    // fail-closed after an API-102 hot upgrade.
                     .putExtra(EXTRA_CONTEXTUAL_SEARCH_ENABLED,
-                            isContextualSearchLongPressEnabled())
+                            isContextualSearchLongPressRuntimeEnabled())
                     .putExtra("sender_uid", Process.myUid());
             Bundle options = BroadcastOptions.makeBasic()
                     .setShareIdentityEnabled(true)

@@ -17,6 +17,7 @@ import android.content.pm.ResolveInfo;
 import android.graphics.Rect;
 import android.graphics.Region;
 import android.hardware.input.InputManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -95,6 +96,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     protected volatile boolean gestureTriggerPreferencesFailureLogged;
     protected volatile SharedPreferences contextualSearchPreferences;
     protected volatile boolean contextualSearchPreferencesFailureLogged;
+    protected volatile boolean contextualSearchServiceUnavailableLogged;
 
     protected boolean isContextualSearchLongPressEnabled() {
         try {
@@ -118,6 +120,57 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 contextualSearchPreferencesFailureLogged = true;
                 moduleLog(Log.ERROR, TAG, "Contextual-search preference unavailable"
                         + ", policy=failClosed", throwable);
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Android 17 delegates the terminal long-press callback to native MiuiHome.  Xiaomi's
+     * helper aborts the launcher when the platform contextual-search Binder service is absent,
+     * which can happen after an API-102 hot upgrade because the service startup gate has already
+     * run.  Never publish the requested preference to that native owner until the service really
+     * exists.  Android 16 keeps its existing Java path, whose Binder request already fails closed.
+     */
+    protected boolean isContextualSearchLongPressRuntimeEnabled() {
+        if (!isContextualSearchLongPressEnabled()) {
+            contextualSearchServiceUnavailableLogged = false;
+            return false;
+        }
+        if (Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL) {
+            return true;
+        }
+        try {
+            Class<?> serviceManagerClass = Class.forName("android.os.ServiceManager");
+            Object binderObject = serviceManagerClass
+                    .getMethod("getService", String.class)
+                    .invoke(null, "contextual_search");
+            boolean available = binderObject instanceof IBinder
+                    && ((IBinder) binderObject).isBinderAlive();
+            if (available) {
+                if (contextualSearchServiceUnavailableLogged) {
+                    moduleLog(Log.INFO, TAG,
+                            "Contextual-search service became available;"
+                                    + " native launcher state may be enabled");
+                }
+                contextualSearchServiceUnavailableLogged = false;
+                return true;
+            }
+            if (!contextualSearchServiceUnavailableLogged) {
+                contextualSearchServiceUnavailableLogged = true;
+                moduleLog(Log.WARN, TAG,
+                        "Suppressed Android 17 native contextual search because the"
+                                + " contextual_search service is not registered;"
+                                + " policy=failClosed, restartRequiredAfterHotUpgrade=true");
+            }
+            return false;
+        } catch (Throwable throwable) {
+            if (!contextualSearchServiceUnavailableLogged) {
+                contextualSearchServiceUnavailableLogged = true;
+                moduleLog(Log.ERROR, TAG,
+                        "Failed to verify Android 17 contextual-search service;"
+                                + " policy=failClosed",
+                        throwable);
             }
             return false;
         }
