@@ -497,7 +497,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                     "systemui_navigation_bar_controller_onNavigationModeChanged")) {
                 hookNavigationBarControllerMode(hotReloadClassLoader);
             }
-            if (!oldHookIds.contains("systemui_default_transition_start")) {
+            String defaultTransitionOpenCaptureHookId =
+                    defaultTransitionOpenCaptureHookId();
+            if (!oldHookIds.contains(defaultTransitionOpenCaptureHookId)) {
                 hookDefaultTransitionHandler(hotReloadClassLoader);
             }
             if (!oldHookIds.contains("systemui_default_transition_merge")) {
@@ -884,6 +886,20 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::overrideLiveTranslateBooleanGate;
             case "systemui_default_transition_start":
                 return this::registerDefaultTransitionHandler;
+            case "systemui_a17_default_transition_dispatch_start":
+                // Retired experimental hook: Android 17 inlines this final overload.
+                return XposedInterface.Chain::proceed;
+            case "systemui_a17_transitions_play_open_capture":
+                // Retired wrapper hook: ART also inlines it into processReadyQueue.
+                return XposedInterface.Chain::proceed;
+            case "systemui_a17_transitions_ready_open_capture":
+                // Retired ready-queue hook: its compiled callers bypassed the entry.
+                return XposedInterface.Chain::proceed;
+            case "systemui_a17_transition_ready_inner_open_capture":
+                // Retired inner hook: compiled synthetic lambda callers bypassed it.
+                return XposedInterface.Chain::proceed;
+            case "systemui_a17_transition_player_ready_open_capture":
+                return this::capturePostedDefaultOpenTransition;
             case "systemui_default_transition_merge":
                 return this::trackMiuiOpenCloseMerge;
             case "systemui_back_send_event_guard":

@@ -3074,7 +3074,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             }
             if (active != null) {
                 moduleLog(Log.INFO, TAG, "Detected reversible running OPEN transition"
-                        + ", animatorCount=" + active.animators.length
+                        + ", animatorCount=" + active.animationCount()
                         + ", info=" + shortObject(active.transitionInfo));
             }
             return active;

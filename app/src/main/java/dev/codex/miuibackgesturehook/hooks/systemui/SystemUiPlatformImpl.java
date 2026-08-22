@@ -1,5 +1,6 @@
 package dev.codex.miuibackgesturehook.hooks.systemui;
 
+import android.animation.Animator;
 import android.content.Context;
 
 import java.lang.reflect.Field;
@@ -33,6 +34,22 @@ abstract class SystemUiPlatformImpl {
 
     int backAnimationBackgroundEnsureParameterCount() {
         return 6;
+    }
+
+    String defaultTransitionAnimatorsFieldName() {
+        return "mAnimations";
+    }
+
+    String defaultTransitionOpenCaptureHookId() {
+        return "systemui_default_transition_start";
+    }
+
+    boolean captureOpenFromTransitionsOwner() {
+        return false;
+    }
+
+    Animator unwrapDefaultTransitionAnimator(Object entry) throws Exception {
+        return entry instanceof Animator ? (Animator) entry : null;
     }
 
     Method brokenBackAnimationStatusBarResetMethod(ClassLoader classLoader)

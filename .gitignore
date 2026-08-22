@@ -34,5 +34,7 @@ out/
 /refs/**/*.vdex
 /refs/**/*.oat
 
+/feedback
+
 # Native Zygisk Next build/package/evidence outputs are also ignored by
 # miui-home-hyos-zn/.gitignore.

@@ -1,5 +1,6 @@
 package dev.codex.miuibackgesturehook.hooks.systemui;
 
+import android.animation.Animator;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -281,6 +282,41 @@ final class SystemUiAndroid17Impl extends SystemUiPlatformImpl {
     int backAnimationBackgroundEnsureParameterCount() {
         // Exact HyperOS 4371: ensureBackground(Rect, int, Transaction, int, int).
         return 5;
+    }
+
+    @Override
+    String defaultTransitionAnimatorsFieldName() {
+        // Android 17 renamed DefaultTransitionHandler's token-to-animator-list map.
+        // Keep the versioned name here so Android 16 retains mAnimations and an
+        // unknown platform shape continues to fail closed.
+        return "mTransitionAnimators";
+    }
+
+    @Override
+    String defaultTransitionOpenCaptureHookId() {
+        return "systemui_a17_transition_player_ready_open_capture";
+    }
+
+    @Override
+    boolean captureOpenFromTransitionsOwner() {
+        // Hook the Binder-facing player boundary, then enqueue capture behind its own
+        // ready task on the same Shell executor. This avoids every inlined inner call.
+        return true;
+    }
+
+    @Override
+    Animator unwrapDefaultTransitionAnimator(Object entry) throws Exception {
+        if (entry instanceof Animator) {
+            return (Animator) entry;
+        }
+        if (entry == null || !"com.android.wm.shell.transition.WindowAnimation"
+                .equals(entry.getClass().getName())) {
+            return null;
+        }
+        Field animatorField = entry.getClass().getDeclaredField("mAnimator");
+        animatorField.setAccessible(true);
+        Object animator = animatorField.get(entry);
+        return animator instanceof Animator ? (Animator) animator : null;
     }
 
     @Override

@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -47,6 +48,12 @@ import io.github.libxposed.api.XposedModuleInterface;
 public abstract class HookRuntimeCore extends XposedModule {
     protected abstract void invalidateOpenTransitionSnapshot(
             OpenTransitionSnapshot snapshot, String reason);
+
+    protected void onOpenTransitionAnimatorEnded(
+            OpenTransitionSnapshot snapshot, boolean isReverse) {
+        invalidateOpenTransitionSnapshot(snapshot,
+                isReverse ? "reverseEnd" : "end");
+    }
 
     protected abstract int readTransitionDebugId(Object infoOrExpose);
 
@@ -645,18 +652,70 @@ public abstract class HookRuntimeCore extends XposedModule {
         public final Animator[] animators;
         public final Executor animExecutor;
         public final long generation;
+        public final boolean miuiSpring;
+        public final Object platformHandler;
+        public final Object animationManager;
+        public final Object[] animationGroups;
+        public final Object[] springAnimations;
+        public final Object miuiShellTransitionInfo;
+        public final Object shellTransitions;
+        public final int transitionDebugId;
         public final AtomicInteger state = new AtomicInteger(OPEN_SNAPSHOT_PENDING);
+        public final AtomicBoolean endSignalQueued = new AtomicBoolean();
         public volatile AnimatorListenerAdapter listener;
+        public volatile Object springEndListener;
 
         public OpenTransitionSnapshot(Object token, Object transitionInfo, Animator[] animators,
                                       int originalAnimatorCount, Executor animExecutor,
                                       long generation) {
+            this(token, transitionInfo, animators, originalAnimatorCount,
+                    animExecutor, generation, null);
+        }
+
+        public OpenTransitionSnapshot(Object token, Object transitionInfo, Animator[] animators,
+                                      int originalAnimatorCount, Executor animExecutor,
+                                      long generation, Object shellTransitions) {
             this.token = token;
             this.transitionInfo = transitionInfo;
             this.originalAnimatorCount = originalAnimatorCount;
             this.animators = animators;
             this.animExecutor = animExecutor;
             this.generation = generation;
+            this.miuiSpring = false;
+            this.platformHandler = null;
+            this.animationManager = null;
+            this.animationGroups = new Object[0];
+            this.springAnimations = new Object[0];
+            this.miuiShellTransitionInfo = null;
+            this.shellTransitions = shellTransitions;
+            this.transitionDebugId = -1;
+        }
+
+        public OpenTransitionSnapshot(Object token, Object transitionInfo,
+                                      int springAnimationCount, Executor animExecutor,
+                                      long generation, Object platformHandler,
+                                      Object animationManager, Object[] animationGroups,
+                                      Object[] springAnimations,
+                                      Object miuiShellTransitionInfo,
+                                      int transitionDebugId) {
+            this.token = token;
+            this.transitionInfo = transitionInfo;
+            this.originalAnimatorCount = springAnimationCount;
+            this.animators = new Animator[0];
+            this.animExecutor = animExecutor;
+            this.generation = generation;
+            this.miuiSpring = true;
+            this.platformHandler = platformHandler;
+            this.animationManager = animationManager;
+            this.animationGroups = animationGroups;
+            this.springAnimations = springAnimations;
+            this.miuiShellTransitionInfo = miuiShellTransitionInfo;
+            this.shellTransitions = null;
+            this.transitionDebugId = transitionDebugId;
+        }
+
+        public int animationCount() {
+            return miuiSpring ? originalAnimatorCount : animators.length;
         }
     }
 
@@ -685,8 +744,7 @@ public abstract class HookRuntimeCore extends XposedModule {
         public void onAnimationEnd(Animator animation, boolean isReverse) {
             HookRuntimeCore hook = owner.get();
             if (hook != null) {
-                hook.invalidateOpenTransitionSnapshot(snapshot,
-                        isReverse ? "reverseEnd" : "end");
+                hook.onOpenTransitionAnimatorEnded(snapshot, isReverse);
             } else {
                 animation.removeListener(this);
             }

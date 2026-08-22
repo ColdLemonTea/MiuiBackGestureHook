@@ -245,6 +245,10 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         return implementation;
     }
 
+    protected String defaultTransitionOpenCaptureHookId() {
+        return requireSystemUiPlatformImpl().defaultTransitionOpenCaptureHookId();
+    }
+
     protected String systemUiInputArbiterStateAction() {
         SystemUiPlatformImpl implementation = systemUiPlatformImpl;
         return implementation == null
@@ -337,19 +341,35 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         try {
             Class<?> handlerClass = Class.forName(DEFAULT_TRANSITION_HANDLER, false,
                     classLoader);
-            Class<?> transitionInfoClass = TransitionInfo.class;
+            resolveDefaultTransitionSnapshotReflection(handlerClass);
+            SystemUiPlatformImpl implementation = requireSystemUiPlatformImpl();
+            if (implementation.captureOpenFromTransitionsOwner()) {
+                Class<?> playerClass = Class.forName(
+                        "com.android.wm.shell.transition.Transitions$TransitionPlayerImpl",
+                        false, classLoader);
+                Method onTransitionReady = playerClass.getDeclaredMethod(
+                        "onTransitionReady", IBinder.class, TransitionInfo.class,
+                        SurfaceControl.Transaction.class, SurfaceControl.Transaction.class);
+                onTransitionReady.setAccessible(true);
+                recordHookHandle(hook(onTransitionReady)
+                        .setId(implementation.defaultTransitionOpenCaptureHookId())
+                        .intercept(this::capturePostedDefaultOpenTransition));
+                moduleLog(Log.INFO, TAG,
+                        "Hooked Android 17 TransitionPlayerImpl.onTransitionReady OPEN capture");
+                return;
+            }
             Class<?> finishCallbackClass = Class.forName(
                     "com.android.wm.shell.transition.Transitions$TransitionFinishCallback",
                     false, classLoader);
-            resolveDefaultTransitionSnapshotReflection(handlerClass);
             Method startAnimation = handlerClass.getDeclaredMethod("startAnimation",
-                    IBinder.class, transitionInfoClass, SurfaceControl.Transaction.class,
+                    IBinder.class, TransitionInfo.class, SurfaceControl.Transaction.class,
                     SurfaceControl.Transaction.class, finishCallbackClass);
             startAnimation.setAccessible(true);
             recordHookHandle(hook(startAnimation)
-                    .setId("systemui_default_transition_start")
+                    .setId(implementation.defaultTransitionOpenCaptureHookId())
                     .intercept(this::registerDefaultTransitionHandler));
-            moduleLog(Log.INFO, TAG, "Hooked exact DefaultTransitionHandler.startAnimation");
+            moduleLog(Log.INFO, TAG, "Hooked exact DefaultTransitionHandler.startAnimation"
+                    + ", impl=" + implementation.name());
         } catch (Throwable throwable) {
             moduleLog(Log.ERROR, TAG, "Failed to hook DefaultTransitionHandler", throwable);
         }
@@ -364,7 +384,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 && animatorCanReverseMethod != null) {
             return;
         }
-        Field animationsField = handlerClass.getDeclaredField("mAnimations");
+        String animatorsFieldName = requireSystemUiPlatformImpl()
+                .defaultTransitionAnimatorsFieldName();
+        Field animationsField = handlerClass.getDeclaredField(animatorsFieldName);
         Field animationSizeField = handlerClass.getDeclaredField("mAnimationSize");
         Field animExecutorField = handlerClass.getDeclaredField("mAnimExecutor");
         // Animator.canReverse() is a boot-classpath hidden API. LSPosed loads this code inside
@@ -386,6 +408,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         if (!Boolean.TRUE.equals(result)) {
             return result;
         }
+        if (requireSystemUiPlatformImpl().captureOpenFromTransitionsOwner()) {
+            // Neutralize an Android 16-style handle left behind by hot reload. Android 17
+            // captures from the non-inlined Transitions owner after handler selection.
+            return result;
+        }
         try {
             captureRunningOpenTransition(chain.getThisObject(), chain.getArg(0),
                     chain.getArg(1));
@@ -396,7 +423,393 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         return result;
     }
 
+    protected Object capturePostedDefaultOpenTransition(XposedInterface.Chain chain)
+            throws Throwable {
+        Object token = chain.getArg(0);
+        Object info = chain.getArg(1);
+        int transitionType = info instanceof TransitionInfo
+                ? ((TransitionInfo) info).getType() : -1;
+        boolean open = transitionType == 1;
+        if (open) {
+            moduleLog(Log.INFO, TAG,
+                    "Entered Android 17 TransitionPlayer OPEN ready hook"
+                            + ", token=" + shortObject(token)
+                            + ", thread=" + Thread.currentThread().getName());
+        }
+        Object result = chain.proceed();
+        if (!open && transitionType != 2) {
+            return result;
+        }
+        try {
+            Object transitions = readField(chain.getThisObject(), "this$0");
+            Object executorObject = readField(transitions, "mMainExecutor");
+            if (!(executorObject instanceof Executor)) {
+                throw new IllegalStateException("Unexpected Shell main executor: "
+                        + shortObject(executorObject));
+            }
+            ((Executor) executorObject).execute(() -> {
+                if (open) {
+                    capturePostedDefaultOpenTransitionOnOwner(
+                            transitions, token, info);
+                } else {
+                    observePostedMiuiOpenCloseMerge(info);
+                }
+            });
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to enqueue Android 17 OPEN transition capture",
+                    throwable);
+        }
+        return result;
+    }
+
+    private void capturePostedDefaultOpenTransitionOnOwner(
+            Object transitions, Object token, Object info) {
+        try {
+            Object knownObject = readField(transitions, "mKnownTransitions");
+            Object activeTransition = knownObject instanceof Map
+                    ? ((Map<?, ?>) knownObject).get(token) : null;
+            Object handler = activeTransition == null
+                    ? null : readField(activeTransition, "mHandler");
+            moduleLog(Log.INFO, TAG,
+                    "Resolved Android 17 OPEN owner after dispatch"
+                            + ", token=" + shortObject(token)
+                            + ", active=" + shortObject(activeTransition)
+                            + ", handler=" + shortObject(handler)
+                            + ", handlerClass="
+                            + (handler == null ? "null" : handler.getClass().getName())
+                            + ", thread=" + Thread.currentThread().getName());
+            if (handler == null) {
+                return;
+            }
+            String handlerClass = handler.getClass().getName();
+            if (DEFAULT_TRANSITION_HANDLER.equals(handlerClass)) {
+                captureRunningOpenTransition(handler, token, info, transitions);
+            } else if ("com.android.wm.shell.common.transition.MiuiTransitionHandler"
+                    .equals(handlerClass)) {
+                captureRunningMiuiSpringOpenTransition(
+                        handler, token, info);
+            }
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to capture Android 17 posted OPEN transition snapshot",
+                    throwable);
+        }
+    }
+
+    private void captureRunningMiuiSpringOpenTransition(
+            Object handler, Object token, Object info)
+            throws Exception {
+        Object transitionMapObject = readField(handler, "mTransitions");
+        Object executorObject = readField(handler, "mAnimExecutor");
+        if (!(transitionMapObject instanceof Map)
+                || ((Map<?, ?>) transitionMapObject).get(token) != info
+                || !(executorObject instanceof Executor)
+                || !(info instanceof TransitionInfo)) {
+            moduleLog(Log.INFO, TAG,
+                    "Skipped Android 17 Xiaomi OPEN without exact active owner"
+                            + ", token=" + shortObject(token));
+            return;
+        }
+        Class<?> managerClass = Class.forName(
+                "com.android.wm.shell.common.transition.animation."
+                        + "MiuiSpringAnimationManager",
+                false, handler.getClass().getClassLoader());
+        Method getInstance = managerClass.getDeclaredMethod("getInstance");
+        getInstance.setAccessible(true);
+        Object manager = getInstance.invoke(null);
+        int transitionDebugId = ((TransitionInfo) info).getDebugId();
+        long generation = openSnapshotGeneration.get();
+        if (!acceptingOpenSnapshots) {
+            return;
+        }
+        openSnapshotLifecycleEpoch.incrementAndGet();
+        ((Executor) executorObject).execute(() ->
+                captureRunningMiuiSpringOpenTransitionOnAnim(
+                        handler, manager, token, info,
+                        transitionDebugId, generation,
+                        (Executor) executorObject));
+    }
+
+    private void captureRunningMiuiSpringOpenTransitionOnAnim(
+            Object handler, Object manager,
+            Object token, Object info, int transitionDebugId,
+            long generation, Executor animExecutor) {
+        try {
+            if (!acceptingOpenSnapshots
+                    || generation != openSnapshotGeneration.get()) {
+                return;
+            }
+            Object groupsByTransitionObject = readField(
+                    manager, "mRunningAnimGroupMapByTransition");
+            Object groupMapObject = groupsByTransitionObject instanceof Map
+                    ? ((Map<?, ?>) groupsByTransitionObject).get(
+                    Integer.valueOf(transitionDebugId)) : null;
+            if (!(groupMapObject instanceof Map)
+                    || ((Map<?, ?>) groupMapObject).isEmpty()) {
+                moduleLog(Log.INFO, TAG,
+                        "Skipped Android 17 Xiaomi OPEN without running spring groups"
+                                + ", transitionId=" + transitionDebugId);
+                return;
+            }
+            Object[] groups = ((Map<?, ?>) groupMapObject).values().toArray();
+            Object[] springAnimations = collectRunningMiuiSpringAnimations(
+                    groups, true);
+            if (springAnimations.length == 0) {
+                return;
+            }
+            Object shellTransitionInfo = readField(
+                    groups[0], "mMiuiShellTransitionInfo");
+            OpenTransitionSnapshot snapshot = new OpenTransitionSnapshot(
+                    token, info, springAnimations.length, animExecutor, generation,
+                    handler, manager, groups, springAnimations,
+                    shellTransitionInfo, transitionDebugId);
+            OpenTransitionSnapshot previous = runningOpenTransitions.put(token, snapshot);
+            if (previous != null) {
+                invalidateOpenTransitionSnapshot(previous, "replaced");
+            }
+            verifyAndActivateMiuiSpringOpenTransition(snapshot);
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to capture Android 17 Xiaomi spring OPEN snapshot",
+                    throwable);
+        }
+    }
+
+    private Object[] collectRunningMiuiSpringAnimations(
+            Object[] groups, boolean requireRunning) throws Exception {
+        ArrayList<Object> animations = new ArrayList<>();
+        for (Object group : groups) {
+            Object wrappersObject = readField(group, "mMiuiSpringAnimations");
+            if (!(wrappersObject instanceof List)
+                    || ((List<?>) wrappersObject).isEmpty()) {
+                return new Object[0];
+            }
+            for (Object wrapper : (List<?>) wrappersObject) {
+                Method getSpringAnimation = wrapper.getClass()
+                        .getDeclaredMethod("getMiuiSpringAnimation");
+                getSpringAnimation.setAccessible(true);
+                Object spring = getSpringAnimation.invoke(wrapper);
+                if (spring == null
+                        || (requireRunning && !isMiuiSpringRunning(spring))) {
+                    return new Object[0];
+                }
+                animations.add(spring);
+            }
+        }
+        return animations.toArray();
+    }
+
+    private boolean isMiuiSpringRunning(Object spring) throws Exception {
+        Method isRunning = spring.getClass().getMethod("isRunning");
+        isRunning.setAccessible(true);
+        return Boolean.TRUE.equals(isRunning.invoke(spring));
+    }
+
+    private void verifyAndActivateMiuiSpringOpenTransition(
+            OpenTransitionSnapshot snapshot) {
+        try {
+            if (!acceptingOpenSnapshots
+                    || snapshot.generation != openSnapshotGeneration.get()
+                    || runningOpenTransitions.get(snapshot.token) != snapshot
+                    || snapshot.state.get() != OPEN_SNAPSHOT_PENDING) {
+                invalidateOpenTransitionSnapshot(snapshot, "staleValidator");
+                return;
+            }
+            Object transitionMapObject = readField(
+                    snapshot.platformHandler, "mTransitions");
+            Object groupsByTransitionObject = readField(
+                    snapshot.animationManager,
+                    "mRunningAnimGroupMapByTransition");
+            Object groupMapObject = groupsByTransitionObject instanceof Map
+                    ? ((Map<?, ?>) groupsByTransitionObject).get(
+                    Integer.valueOf(snapshot.transitionDebugId)) : null;
+            if (!(transitionMapObject instanceof Map)
+                    || ((Map<?, ?>) transitionMapObject).get(snapshot.token)
+                    != snapshot.transitionInfo
+                    || !(groupMapObject instanceof Map)
+                    || ((Map<?, ?>) groupMapObject).size()
+                    != snapshot.animationGroups.length) {
+                invalidateOpenTransitionSnapshot(snapshot, "ownerChanged");
+                return;
+            }
+            for (Object group : snapshot.animationGroups) {
+                if (!((Map<?, ?>) groupMapObject).containsValue(group)) {
+                    invalidateOpenTransitionSnapshot(snapshot, "groupChanged");
+                    return;
+                }
+            }
+            Object[] currentSprings = collectRunningMiuiSpringAnimations(
+                    snapshot.animationGroups, true);
+            if (currentSprings.length != snapshot.springAnimations.length) {
+                invalidateOpenTransitionSnapshot(snapshot, "animationSetChanged");
+                return;
+            }
+            for (Object spring : snapshot.springAnimations) {
+                if (!containsIdentity(currentSprings, spring)) {
+                    invalidateOpenTransitionSnapshot(snapshot, "animationChanged");
+                    return;
+                }
+            }
+            attachMiuiOpenEndListener(snapshot);
+            if (!acceptingOpenSnapshots
+                    || snapshot.generation != openSnapshotGeneration.get()
+                    || runningOpenTransitions.get(snapshot.token) != snapshot
+                    || !snapshot.state.compareAndSet(
+                    OPEN_SNAPSHOT_PENDING, OPEN_SNAPSHOT_ACTIVE)) {
+                removeOpenTransitionListeners(snapshot);
+                invalidateOpenTransitionSnapshot(snapshot, "notReversible");
+                return;
+            }
+            moduleLog(Log.INFO, TAG,
+                    "Published reversible Android 17 Xiaomi OPEN snapshot"
+                            + ", springAnimationCount="
+                            + snapshot.originalAnimatorCount
+                            + ", transitionId="
+                            + snapshot.transitionDebugId);
+        } catch (Throwable throwable) {
+            invalidateOpenTransitionSnapshot(snapshot, "verificationFailure");
+            moduleLog(Log.WARN, TAG,
+                    "Failed to verify Android 17 Xiaomi spring OPEN snapshot",
+                    throwable);
+        }
+    }
+
+    private boolean containsIdentity(Object[] values, Object expected) {
+        for (Object value : values) {
+            if (value == expected) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void attachMiuiOpenEndListener(OpenTransitionSnapshot snapshot)
+            throws Exception {
+        if (snapshot.springAnimations.length == 0) {
+            throw new IllegalStateException("Missing Xiaomi spring animation identity");
+        }
+        ClassLoader classLoader = snapshot.platformHandler.getClass().getClassLoader();
+        Class<?> listenerInterface = Class.forName(
+                "com.android.wm.shell.common.transition.animation.spring."
+                        + "MiuiDynamicAnimation$OnAnimationEndListener",
+                false, classLoader);
+        Object listener = Proxy.newProxyInstance(classLoader,
+                new Class<?>[]{listenerInterface}, (proxy, method, args) -> {
+                    if (method.getDeclaringClass() == Object.class) {
+                        switch (method.getName()) {
+                            case "equals":
+                                return args != null && args.length == 1
+                                        && proxy == args[0];
+                            case "hashCode":
+                                return System.identityHashCode(proxy);
+                            case "toString":
+                                return "MiuiOpenSpringEndListener@"
+                                        + Integer.toHexString(
+                                        System.identityHashCode(proxy));
+                            default:
+                                return null;
+                        }
+                    }
+                    if ("onAnimationEnd".equals(method.getName())) {
+                        boolean canceled = args != null && args.length > 1
+                                && Boolean.TRUE.equals(args[1]);
+                        onMiuiOpenSpringEnded(snapshot, canceled);
+                    }
+                    return null;
+                });
+        snapshot.springEndListener = listener;
+        try {
+            for (Object spring : snapshot.springAnimations) {
+                Method addEndListener = spring.getClass().getMethod(
+                        "addEndListener", listenerInterface);
+                addEndListener.setAccessible(true);
+                addEndListener.invoke(spring, listener);
+            }
+        } catch (Throwable throwable) {
+            removeOpenTransitionListeners(snapshot);
+            if (throwable instanceof Exception) {
+                throw (Exception) throwable;
+            }
+            throw new ReflectiveOperationException(
+                    "Failed to attach Xiaomi spring end listener", throwable);
+        }
+    }
+
+    private void onMiuiOpenSpringEnded(
+            OpenTransitionSnapshot snapshot, boolean canceled) {
+        if (snapshot.state.get() != OPEN_SNAPSHOT_ACTIVE
+                || runningOpenTransitions.get(snapshot.token) != snapshot) {
+            return;
+        }
+        try {
+            if (canceled) {
+                invalidateOpenTransitionSnapshot(snapshot, "cancel");
+                return;
+            }
+            if (snapshot.miuiShellTransitionInfo != null
+                    && Boolean.TRUE.equals(readField(
+                    snapshot.miuiShellTransitionInfo,
+                    "mIsMergeOtherTransition"))) {
+                invalidateOpenTransitionSnapshot(snapshot, "reverseMerge");
+                correlateLegacyBackMerge(snapshot.transitionInfo);
+                return;
+            }
+            for (Object spring : snapshot.springAnimations) {
+                if (isMiuiSpringRunning(spring)) {
+                    return;
+                }
+            }
+            // The native final spring listener may post transition cleanup to the
+            // Shell main executor before this module listener runs. At this point
+            // immutable spring identity, cancellation, merge state, snapshot state,
+            // and gesture ownership are the authoritative natural-end proof; the
+            // handler's token map is allowed to have completed normally already.
+            invalidateOpenTransitionSnapshot(snapshot, "end");
+        } catch (Throwable throwable) {
+            invalidateOpenTransitionSnapshot(snapshot, "endVerificationFailure");
+            moduleLog(Log.WARN, TAG,
+                    "Failed to verify Android 17 Xiaomi OPEN spring end",
+                    throwable);
+        }
+    }
+
+    private void observePostedMiuiOpenCloseMerge(Object incomingInfo) {
+        for (OpenTransitionSnapshot snapshot : runningOpenTransitions.values()) {
+            if (!snapshot.miuiSpring
+                    || snapshot.state.get() != OPEN_SNAPSHOT_ACTIVE
+                    || snapshot.miuiShellTransitionInfo == null) {
+                continue;
+            }
+            try {
+                if (!Boolean.TRUE.equals(readField(
+                        snapshot.miuiShellTransitionInfo,
+                        "mIsMergeOtherTransition"))) {
+                    continue;
+                }
+                invalidateOpenTransitionSnapshot(snapshot, "reverseMerge");
+                correlateLegacyBackMerge(snapshot.transitionInfo);
+                moduleLog(Log.INFO, TAG,
+                        "Observed accepted Android 17 Xiaomi OPEN/CLOSE merge"
+                                + ", runningTransitionId="
+                                + snapshot.transitionDebugId
+                                + ", incomingInfo="
+                                + shortObject(incomingInfo));
+            } catch (Throwable throwable) {
+                moduleLog(Log.WARN, TAG,
+                        "Failed to verify Android 17 Xiaomi OPEN/CLOSE merge",
+                        throwable);
+            }
+        }
+    }
+
     protected void captureRunningOpenTransition(Object handler, Object token, Object info)
+            throws Exception {
+        captureRunningOpenTransition(handler, token, info, null);
+    }
+
+    protected void captureRunningOpenTransition(
+            Object handler, Object token, Object info, Object shellTransitions)
             throws Exception {
         if (handler == null || token == null || info == null) {
             return;
@@ -418,22 +831,34 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         Object animatorListObject = ((Map<?, ?>) animationsObject).get(token);
         if (!(animatorListObject instanceof List)) {
+            moduleLog(Log.INFO, TAG, "Skipped Xiaomi OPEN snapshot without animator list"
+                    + ", token=" + shortObject(token)
+                    + ", mapClass=" + animationsObject.getClass().getName()
+                    + ", mapSize=" + ((Map<?, ?>) animationsObject).size()
+                    + ", containsToken="
+                    + ((Map<?, ?>) animationsObject).containsKey(token)
+                    + ", value=" + shortObject(animatorListObject));
             return;
         }
         List<?> animatorList = (List<?>) animatorListObject;
         Animator[] animators = new Animator[animatorList.size()];
         for (int index = 0; index < animatorList.size(); index++) {
-            Object animator = animatorList.get(index);
-            if (!(animator instanceof Animator)) {
+            Object entry = animatorList.get(index);
+            Animator animator = requireSystemUiPlatformImpl()
+                    .unwrapDefaultTransitionAnimator(entry);
+            if (animator == null) {
                 throw new IllegalStateException("Unexpected transition animator="
-                        + shortObject(animator));
+                        + shortObject(entry));
             }
-            animators[index] = (Animator) animator;
+            animators[index] = animator;
         }
         Object originalSizeObject = ((Map<?, ?>) animationSizeObject).get(token);
         int originalSize = originalSizeObject instanceof Number
                 ? ((Number) originalSizeObject).intValue() : 0;
         if (animators.length == 0) {
+            moduleLog(Log.INFO, TAG, "Skipped Xiaomi OPEN snapshot with empty animator list"
+                    + ", token=" + shortObject(token)
+                    + ", originalAnimatorCount=" + originalSize);
             return;
         }
         long generation = openSnapshotGeneration.get();
@@ -441,7 +866,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             return;
         }
         OpenTransitionSnapshot snapshot = new OpenTransitionSnapshot(token, info, animators,
-                originalSize, (Executor) executorObject, generation);
+                originalSize, (Executor) executorObject, generation,
+                shellTransitions);
         OpenTransitionSnapshot previous = runningOpenTransitions.put(token, snapshot);
         if (previous != null) {
             invalidateOpenTransitionSnapshot(previous, "replaced");
@@ -507,6 +933,60 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
     }
 
+    @Override
+    protected void onOpenTransitionAnimatorEnded(
+            OpenTransitionSnapshot snapshot, boolean isReverse) {
+        if (isReverse || snapshot.shellTransitions == null) {
+            super.onOpenTransitionAnimatorEnded(snapshot, isReverse);
+            return;
+        }
+        if (!snapshot.endSignalQueued.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            Object executorObject = readField(
+                    snapshot.shellTransitions, "mMainExecutor");
+            if (!(executorObject instanceof Executor)) {
+                throw new IllegalStateException(
+                        "Unexpected Transitions main executor="
+                                + shortObject(executorObject));
+            }
+            ((Executor) executorObject).execute(() ->
+                    registerDefaultOpenEndAfterShellIdle(snapshot));
+        } catch (Throwable throwable) {
+            invalidateOpenTransitionSnapshot(snapshot,
+                    "idleRegistrationFailure");
+            moduleLog(Log.WARN, TAG,
+                    "Failed to enqueue Android 17 default OPEN idle end",
+                    throwable);
+        }
+    }
+
+    private void registerDefaultOpenEndAfterShellIdle(
+            OpenTransitionSnapshot snapshot) {
+        if (snapshot.state.get() != OPEN_SNAPSHOT_ACTIVE
+                || runningOpenTransitions.get(snapshot.token) != snapshot) {
+            return;
+        }
+        try {
+            Method runOnIdle = snapshot.shellTransitions.getClass()
+                    .getDeclaredMethod("runOnIdle", Runnable.class);
+            runOnIdle.setAccessible(true);
+            runOnIdle.invoke(snapshot.shellTransitions, (Runnable) () -> {
+                if (snapshot.state.get() == OPEN_SNAPSHOT_ACTIVE
+                        && runningOpenTransitions.get(snapshot.token) == snapshot) {
+                    invalidateOpenTransitionSnapshot(snapshot, "end");
+                }
+            });
+        } catch (Throwable throwable) {
+            invalidateOpenTransitionSnapshot(snapshot,
+                    "idleRegistrationFailure");
+            moduleLog(Log.WARN, TAG,
+                    "Failed to register Android 17 default OPEN idle end",
+                    throwable);
+        }
+    }
+
     protected void invalidateOpenTransitionSnapshot(OpenTransitionSnapshot snapshot,
                                                     String reason) {
         if (snapshot == null) {
@@ -522,7 +1002,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         runningOpenTransitions.remove(snapshot.token, snapshot);
         AnimatorListenerAdapter listener = snapshot.listener;
-        if (listener != null) {
+        if (listener != null || snapshot.springEndListener != null) {
             try {
                 snapshot.animExecutor.execute(() -> removeOpenTransitionListeners(snapshot));
             } catch (Throwable throwable) {
@@ -532,7 +1012,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
         }
         moduleLog(Log.INFO, TAG, "Invalidated Xiaomi OPEN transition snapshot"
                 + ", reason=" + reason
-                + ", animatorCount=" + snapshot.animators.length);
+                    + ", animatorCount=" + snapshot.animationCount());
         if (previousState == OPEN_SNAPSHOT_ACTIVE && normalEnd) {
             long handoffEpoch = openSnapshotLifecycleEpoch.incrementAndGet();
             new Handler(Looper.getMainLooper()).post(() -> {
@@ -549,13 +1029,32 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
 
     protected void removeOpenTransitionListeners(OpenTransitionSnapshot snapshot) {
         AnimatorListenerAdapter listener = snapshot.listener;
-        if (listener == null) {
+        if (listener != null) {
+            for (Animator animator : snapshot.animators) {
+                animator.removeListener(listener);
+            }
+            snapshot.listener = null;
+        }
+        Object springEndListener = snapshot.springEndListener;
+        if (springEndListener == null) {
             return;
         }
-        for (Animator animator : snapshot.animators) {
-            animator.removeListener(listener);
+        try {
+            Class<?> listenerInterface = springEndListener.getClass()
+                    .getInterfaces()[0];
+            for (Object spring : snapshot.springAnimations) {
+                Method removeEndListener = spring.getClass().getMethod(
+                        "removeEndListener", listenerInterface);
+                removeEndListener.setAccessible(true);
+                removeEndListener.invoke(spring, springEndListener);
+            }
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to remove Android 17 Xiaomi OPEN spring listener",
+                    throwable);
+        } finally {
+            snapshot.springEndListener = null;
         }
-        snapshot.listener = null;
     }
 
     protected void invalidateOpenTransitionForInfo(Object info, String reason) {
