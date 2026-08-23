@@ -30,6 +30,10 @@ abstract class SystemServerPlatformImpl {
         return false;
     }
 
+    boolean alwaysRegisterContextualSearchService() {
+        return false;
+    }
+
     void inspectCalculatedPredictiveTransition(SystemServerHookRuntime runtime,
                                                 XposedInterface.Chain chain,
                                                 Object result) throws Exception {

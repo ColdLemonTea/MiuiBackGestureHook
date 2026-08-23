@@ -18,6 +18,14 @@ final class SystemServerAndroid16Impl extends SystemServerPlatformImpl {
     }
 
     @Override
+    boolean alwaysRegisterContextualSearchService() {
+        // SystemServer evaluates this gate only during boot. Keep the dormant service
+        // available so the authenticated runtime preference can be enabled later without
+        // having missed its one registration opportunity.
+        return true;
+    }
+
+    @Override
     Method calculateTransitionInfoMethod(Class<?> transitionClass)
             throws NoSuchMethodException {
         Method method = findCalculateTransitionInfo(transitionClass);

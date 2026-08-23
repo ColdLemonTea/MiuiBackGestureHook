@@ -274,7 +274,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             }
             moduleLog(Log.INFO, TAG, "Contextual-search gesture observer attached"
                     + ", displayId=" + displayId
-                    + ", enabled=" + isContextualSearchLongPressEnabled());
+                    + ", enabled=" + isContextualSearchLongPressEnabled()
+                    + ", recognitionTimeoutMs=" + receiver.getRecognitionTimeoutMillis());
         } catch (Throwable throwable) {
             moduleLog(Log.WARN, TAG,
                     "Failed to attach contextual-search gesture observer", throwable);
@@ -410,7 +411,11 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     }
 
     protected final class ContextualSearchInputReceiver extends InputEventReceiver {
-        private static final int HANDLE_TOUCH_PADDING_DP = 24;
+        private static final int HANDLE_HORIZONTAL_PADDING_DP = 12;
+        private static final int HANDLE_BOTTOM_REGION_HEIGHT_DP = 32;
+        private static final int HANDLE_MAX_TOUCH_WIDTH_DP = 192;
+        private static final long LONG_PRESS_OWNERSHIP_LEAD_MILLIS = 75L;
+        private static final long MIN_LONG_PRESS_TIMEOUT_MILLIS = 200L;
 
         private final Object navigationBar;
         private final View navigationView;
@@ -427,8 +432,6 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         private float downY;
         private float lastX;
         private float lastY;
-        private boolean eligibilityFailureLogged;
-
         private final Runnable longPress;
 
         private void onLongPressTimeout() {
@@ -465,8 +468,20 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             this.upwardIntentDistance = Math.max(
                     touchSlop * 0.5f,
                     4.0f * context.getResources().getDisplayMetrics().density);
-            this.longPressTimeoutMillis = ViewConfiguration.getLongPressTimeout();
+            long systemLongPressTimeoutMillis = ViewConfiguration.getLongPressTimeout();
+            // Xiaomi's navigation-handle assistant action uses the platform long-press
+            // deadline. Claim slightly before that deadline so the spy monitor can pilfer the
+            // same physical stream before the competing callback commits.
+            this.longPressTimeoutMillis = Math.min(
+                    systemLongPressTimeoutMillis,
+                    Math.max(MIN_LONG_PRESS_TIMEOUT_MILLIS,
+                            systemLongPressTimeoutMillis
+                                    - LONG_PRESS_OWNERSHIP_LEAD_MILLIS));
             this.longPress = this::onLongPressTimeout;
+        }
+
+        long getRecognitionTimeoutMillis() {
+            return longPressTimeoutMillis;
         }
 
         @Override
@@ -506,25 +521,36 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 case MotionEvent.ACTION_DOWN:
                     cancelTracking(true);
                     if (!isEligibleForLongPress()
-                            || !containsGestureHandle(event.getRawX(), event.getRawY())) {
+                            || !containsGestureHandle(event.getX(), event.getY())) {
                         return false;
                     }
                     tracking = true;
-                    downX = event.getRawX();
-                    downY = event.getRawY();
+                    downX = event.getX();
+                    downY = event.getY();
                     lastX = downX;
                     lastY = downY;
+                    moduleLog(Log.INFO, TAG,
+                            "Tracking navigation-handle long press"
+                                    + ", displayId=" + displayId
+                                    + ", x=" + Math.round(downX)
+                                    + ", y=" + Math.round(downY));
                     mainHandler.postDelayed(longPress, longPressTimeoutMillis);
                     return false;
                 case MotionEvent.ACTION_MOVE:
                     if (tracking && !pilfered) {
-                        lastX = event.getRawX();
-                        lastY = event.getRawY();
+                        lastX = event.getX();
+                        lastY = event.getY();
                         float deltaX = lastX - downX;
                         float deltaY = lastY - downY;
                         if (event.getPointerCount() != 1
                                 || hasUpwardGestureIntent()
                                 || deltaX * deltaX + deltaY * deltaY > touchSlopSquared) {
+                            moduleLog(Log.INFO, TAG,
+                                    "Cancelled navigation-handle long press on movement"
+                                            + ", displayId=" + displayId
+                                            + ", dx=" + Math.round(deltaX)
+                                            + ", dy=" + Math.round(deltaY)
+                                            + ", pointers=" + event.getPointerCount());
                             cancelTracking(false);
                         }
                     }
@@ -552,32 +578,18 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         }
 
         private boolean isEligibleForLongPress() {
-            if (!isContextualSearchLongPressEnabled()
-                    || keyguardManager != null && keyguardManager.isKeyguardLocked()
-                    || !navigationView.isAttachedToWindow()
-                    || !navigationView.isShown()) {
-                return false;
-            }
-            try {
-                Object disabled = invokeAnyMethod(
-                        navigationBar, "shouldDisableNavbarGestures", new Object[0]);
-                if (!(disabled instanceof Boolean)) {
-                    return false;
-                }
-                eligibilityFailureLogged = false;
-                return !((Boolean) disabled).booleanValue();
-            } catch (Throwable throwable) {
-                if (!eligibilityFailureLogged) {
-                    eligibilityFailureLogged = true;
-                    moduleLog(Log.WARN, TAG,
-                            "Cannot verify NavigationBar gesture eligibility"
-                                    + ", policy=failClosed", throwable);
-                }
-                return false;
-            }
+            // HyperOS 3 / Android 16 does not expose
+            // NavigationBar.shouldDisableNavbarGestures().  The observer is attached only to
+            // the live default-display NavigationBar and the DOWN must still hit its visible
+            // home handle, so keep the stable ownership checks here instead of failing every
+            // stream on a version-specific helper.
+            return isContextualSearchLongPressEnabled()
+                    && (keyguardManager == null || !keyguardManager.isKeyguardLocked())
+                    && navigationView.isAttachedToWindow()
+                    && navigationView.isShown();
         }
 
-        private boolean containsGestureHandle(float rawX, float rawY) {
+        private boolean containsGestureHandle(float x, float y) {
             int handleId = navigationView.getResources().getIdentifier(
                     "home_handle", "id", SYSTEM_UI);
             if (handleId == 0) {
@@ -591,11 +603,19 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             if (!handle.getGlobalVisibleRect(bounds) || bounds.isEmpty()) {
                 return false;
             }
-            int padding = Math.max(1, Math.round(
-                    HANDLE_TOUCH_PADDING_DP
-                            * navigationView.getResources().getDisplayMetrics().density));
-            bounds.inset(-padding, -padding);
-            return bounds.contains(Math.round(rawX), Math.round(rawY));
+            float density = navigationView.getResources().getDisplayMetrics().density;
+            int screenHeight = navigationView.getResources()
+                    .getDisplayMetrics().heightPixels;
+            float bottomRegionHeight = HANDLE_BOTTOM_REGION_HEIGHT_DP * density;
+            if (y < screenHeight - bottomRegionHeight || y > screenHeight) {
+                return false;
+            }
+            float touchWidth = Math.min(
+                    HANDLE_MAX_TOUCH_WIDTH_DP * density,
+                    bounds.width() + 2.0f * HANDLE_HORIZONTAL_PADDING_DP * density);
+            float centerX = bounds.exactCenterX();
+            return x >= centerX - touchWidth / 2.0f
+                    && x <= centerX + touchWidth / 2.0f;
         }
 
         private void cancelTracking(boolean clearPilfered) {

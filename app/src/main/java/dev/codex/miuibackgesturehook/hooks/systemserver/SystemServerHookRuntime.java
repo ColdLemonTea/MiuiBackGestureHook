@@ -248,12 +248,20 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
                     chain.getExecutable().getDeclaringClass().getClassLoader());
         }
         Object requestedResource = chain.getArg(1);
+        SystemServerPlatformImpl implementation = systemServerPlatformImpl;
+        boolean alwaysRegister = implementation != null
+                && implementation.alwaysRegisterContextualSearchService();
+        boolean preferenceEnabled = isContextualSearchLongPressEnabled();
         if (requestedResource instanceof Number
                 && ((Number) requestedResource).intValue() == resourceId
-                && isContextualSearchLongPressEnabled()) {
+                && (alwaysRegister || preferenceEnabled)) {
             moduleLog(Log.INFO, TAG,
                     "Enabled ContextualSearchManagerService startup"
-                            + ", providerConfiguredAtCallTime=true");
+                            + ", providerConfiguredAtCallTime=true"
+                            + ", platform=" + (implementation == null
+                            ? "unresolved" : implementation.name())
+                            + ", alwaysRegister=" + alwaysRegister
+                            + ", preferenceEnabled=" + preferenceEnabled);
             return Boolean.TRUE;
         }
         return chain.proceed();
