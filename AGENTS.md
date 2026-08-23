@@ -174,11 +174,13 @@ Android 17 launcher safety rule:
 Keep scope minimal. Do not add other target applications or further `system_server` cleanup or
 compatibility hooks unless new SystemUI/server evidence requires them.
 
-Live Translate rules:
+Google App optional-feature rules:
 
 - `com.google.android.googlequicksearchbox` is scoped only for the optional Android 16
-  Circle to Search Live Translate action. The preference defaults off; when either it or
-  Circle to Search is off, every installed Google-side hook must preserve the original result.
+  Circle to Search Live Translate action and the optional Lensient contextual searchbox.
+  Both preferences default off. When a feature is off, every hook belonging to that
+  feature must preserve the original result; Live Translate additionally preserves the original
+  result whenever Circle to Search is off.
 - Resolve the Google action bean from the stable action id and then require the exact Android 16
   constructor and boolean-gate shapes. Ambiguous, missing, or unreadable matches fail closed.
 - Override only the exact Live Translate system-feature query and the final View/Compose
@@ -186,6 +188,10 @@ Live Translate rules:
   replace the Google-owned click/translation flow.
 - Treat the Google hook IDs as hot-reload lifecycle keys. Replace existing handles before
   backfilling missing gates, and defer reload while the dex resolver owns an active bridge.
+- For the Lensient contextual searchbox, require the unique one-argument boolean screen-thumbnail
+  retention method carrying the exact `vidcip` marker. Ambiguous, missing, or unreadable matches
+  fail closed. Override only its successful false result; do not replace text,
+  forge a thumbnail, spoof Build identity, bypass consent, or manufacture a capture/token path.
 
 Predictive opt-in rules:
 

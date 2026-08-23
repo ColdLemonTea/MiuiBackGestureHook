@@ -108,6 +108,7 @@ private data class ContextualSearchValues(
     val preferences: SharedPreferences,
     val longPressEnabled: Boolean,
     val liveTranslateEnabled: Boolean,
+    val lensContextualSearchboxEnabled: Boolean,
     val hapticsEnabled: Boolean,
 )
 
@@ -184,6 +185,8 @@ private fun ContextualSearchSettingsScreen(
         stringResource(R.string.contextual_search_live_translate_scope_request)
     val scopeApprovedMessage =
         stringResource(R.string.contextual_search_live_translate_scope_approved)
+    val lensScopeApprovedMessage =
+        stringResource(R.string.google_lens_contextual_searchbox_scope_approved)
     val scopeFailedMessage =
         stringResource(R.string.contextual_search_live_translate_scope_failed)
     val scope = rememberCoroutineScope()
@@ -206,6 +209,12 @@ private fun ContextualSearchSettingsScreen(
     }
     var confirmedLiveTranslateEnabled by remember {
         mutableStateOf(PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE)
+    }
+    var lensContextualSearchboxEnabled by remember {
+        mutableStateOf(PredictiveBackPreferences.DEFAULT_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX)
+    }
+    var confirmedLensContextualSearchboxEnabled by remember {
+        mutableStateOf(PredictiveBackPreferences.DEFAULT_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX)
     }
     var hapticsEnabled by remember {
         mutableStateOf(PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_HAPTICS)
@@ -234,6 +243,9 @@ private fun ContextualSearchSettingsScreen(
         confirmedLongPressEnabled = longPressEnabled
         liveTranslateEnabled = PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE
         confirmedLiveTranslateEnabled = liveTranslateEnabled
+        lensContextualSearchboxEnabled =
+            PredictiveBackPreferences.DEFAULT_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX
+        confirmedLensContextualSearchboxEnabled = lensContextualSearchboxEnabled
         hapticsEnabled = PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_HAPTICS
         confirmedHapticsEnabled = hapticsEnabled
         if (!serviceStateObserved) {
@@ -259,6 +271,10 @@ private fun ContextualSearchSettingsScreen(
                         PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
                         PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
                     ),
+                    lensContextualSearchboxEnabled = remotePreferences.getBoolean(
+                        PredictiveBackPreferences.KEY_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX,
+                        PredictiveBackPreferences.DEFAULT_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX,
+                    ),
                     hapticsEnabled = remotePreferences.getBoolean(
                         PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_HAPTICS,
                         PredictiveBackPreferences.DEFAULT_CONTEXTUAL_SEARCH_HAPTICS,
@@ -270,6 +286,8 @@ private fun ContextualSearchSettingsScreen(
             confirmedLongPressEnabled = loaded.longPressEnabled
             liveTranslateEnabled = loaded.liveTranslateEnabled
             confirmedLiveTranslateEnabled = loaded.liveTranslateEnabled
+            lensContextualSearchboxEnabled = loaded.lensContextualSearchboxEnabled
+            confirmedLensContextualSearchboxEnabled = loaded.lensContextualSearchboxEnabled
             hapticsEnabled = loaded.hapticsEnabled
             confirmedHapticsEnabled = loaded.hapticsEnabled
         } catch (_: Throwable) {
@@ -319,12 +337,18 @@ private fun ContextualSearchSettingsScreen(
         }
     }
 
-    fun enableLiveTranslateWithScope() {
+    fun enableGoogleScopedFeature(
+        preferenceKey: String,
+        approvedMessage: String,
+        setLocal: (Boolean) -> Unit,
+        getConfirmed: () -> Boolean,
+        setConfirmed: (Boolean) -> Unit,
+    ) {
         val activeService = service ?: return
         val activePreferences = preferences ?: return
         val requestGeneration = scopeRequestGeneration.incrementAndGet()
         scopeRequestJob?.cancel()
-        liveTranslateEnabled = confirmedLiveTranslateEnabled
+        setLocal(getConfirmed())
         saveError = null
         scopeRequestInFlight = true
         scopeStatus = ContextualSearchStatus(
@@ -346,30 +370,30 @@ private fun ContextualSearchSettingsScreen(
                 GoogleAppScopeResult.AlreadyPresent -> {
                     scopeStatus = null
                     persistBooleanPreference(
-                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
+                        preferenceKey,
                         true,
-                        { liveTranslateEnabled = it },
-                        { confirmedLiveTranslateEnabled },
-                        { confirmedLiveTranslateEnabled = it },
+                        setLocal,
+                        getConfirmed,
+                        setConfirmed,
                     )
                 }
 
                 GoogleAppScopeResult.Approved -> {
                     scopeStatus = ContextualSearchStatus(
-                        scopeApprovedMessage,
+                        approvedMessage,
                         ContextualSearchStatusSeverity.Info,
                     )
                     persistBooleanPreference(
-                        PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
+                        preferenceKey,
                         true,
-                        { liveTranslateEnabled = it },
-                        { confirmedLiveTranslateEnabled },
-                        { confirmedLiveTranslateEnabled = it },
+                        setLocal,
+                        getConfirmed,
+                        setConfirmed,
                     )
                 }
 
                 GoogleAppScopeResult.Failed -> {
-                    liveTranslateEnabled = confirmedLiveTranslateEnabled
+                    setLocal(getConfirmed())
                     scopeStatus = ContextualSearchStatus(
                         scopeFailedMessage,
                         ContextualSearchStatusSeverity.Error,
@@ -467,7 +491,13 @@ private fun ContextualSearchSettingsScreen(
                         enabled = configurationEnabled && longPressEnabled && !scopeRequestInFlight,
                         onCheckedChange = { requested ->
                             if (requested) {
-                                enableLiveTranslateWithScope()
+                                enableGoogleScopedFeature(
+                                    PredictiveBackPreferences.KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE,
+                                    scopeApprovedMessage,
+                                    { liveTranslateEnabled = it },
+                                    { confirmedLiveTranslateEnabled },
+                                    { confirmedLiveTranslateEnabled = it },
+                                )
                             } else {
                                 scopeStatus = null
                                 persistBooleanPreference(
@@ -476,6 +506,32 @@ private fun ContextualSearchSettingsScreen(
                                     { liveTranslateEnabled = it },
                                     { confirmedLiveTranslateEnabled },
                                     { confirmedLiveTranslateEnabled = it },
+                                )
+                            }
+                        },
+                    )
+                    SwitchPreference(
+                        title = stringResource(R.string.google_lens_contextual_searchbox_title),
+                        summary = stringResource(R.string.google_lens_contextual_searchbox_summary),
+                        checked = lensContextualSearchboxEnabled,
+                        enabled = configurationEnabled && longPressEnabled && !scopeRequestInFlight,
+                        onCheckedChange = { requested ->
+                            if (requested) {
+                                enableGoogleScopedFeature(
+                                    PredictiveBackPreferences.KEY_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX,
+                                    lensScopeApprovedMessage,
+                                    { lensContextualSearchboxEnabled = it },
+                                    { confirmedLensContextualSearchboxEnabled },
+                                    { confirmedLensContextualSearchboxEnabled = it },
+                                )
+                            } else {
+                                scopeStatus = null
+                                persistBooleanPreference(
+                                    PredictiveBackPreferences.KEY_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX,
+                                    false,
+                                    { lensContextualSearchboxEnabled = it },
+                                    { confirmedLensContextualSearchboxEnabled },
+                                    { confirmedLensContextualSearchboxEnabled = it },
                                 )
                             }
                         },

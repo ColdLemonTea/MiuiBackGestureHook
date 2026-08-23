@@ -27,6 +27,9 @@ public final class PredictiveBackPreferences {
     public static final String KEY_CONTEXTUAL_SEARCH_LIVE_TRANSLATE =
             "contextual_search_live_translate";
     public static final boolean DEFAULT_CONTEXTUAL_SEARCH_LIVE_TRANSLATE = false;
+    public static final String KEY_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX =
+            "google_lens_contextual_searchbox";
+    public static final boolean DEFAULT_GOOGLE_LENS_CONTEXTUAL_SEARCHBOX = false;
     public static final String KEY_CONTEXTUAL_SEARCH_HAPTICS =
             "contextual_search_haptics";
     public static final boolean DEFAULT_CONTEXTUAL_SEARCH_HAPTICS = false;

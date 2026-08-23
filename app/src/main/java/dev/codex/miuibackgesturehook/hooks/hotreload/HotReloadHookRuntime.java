@@ -29,9 +29,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                             + ", process=" + processName);
             return true;
         }
-        if (googleLiveTranslateResolutionInFlight.get() != 0) {
+        if (googleDexResolutionInFlight.get() != 0) {
             moduleLog(Log.WARN, TAG,
-                    "Deferred hot reload during Google live-translate resolution"
+                    "Deferred hot reload during Google dex resolution"
                             + ", process=" + processName);
             return false;
         }
@@ -748,7 +748,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         if ((GOOGLE_APP.equals(processName)
                 || processName.startsWith(GOOGLE_APP + ":"))
                 && hotReloadClassLoader != null) {
-            installGoogleAppLiveTranslateHooks(
+            installGoogleAppHooks(
                     hotReloadClassLoader, resolveGoogleAppSourceDir(), oldHookIds);
         }
         moduleLog(Log.INFO, TAG, "Hot reloaded, build=" + BUILD_MARK
@@ -884,6 +884,8 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
                 return this::preserveLiveTranslateActionVisibility;
             case "google_live_translate_capability":
                 return this::overrideLiveTranslateBooleanGate;
+            case "google_lens_aim_screen_capability":
+                return this::overrideGoogleLensScreenCapability;
             case "systemui_default_transition_start":
                 return this::registerDefaultTransitionHandler;
             case "systemui_a17_default_transition_dispatch_start":
@@ -1117,7 +1119,7 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         } else if (MIUI_HOME.equals(loadedPackage)) {
             installMiuiHomeHooks(param.getDefaultClassLoader());
         } else if (GOOGLE_APP.equals(loadedPackage)) {
-            installGoogleAppLiveTranslateHooks(
+            installGoogleAppHooks(
                     param.getDefaultClassLoader(),
                     param.getApplicationInfo().sourceDir,
                     Collections.emptySet());
