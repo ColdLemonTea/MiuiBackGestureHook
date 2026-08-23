@@ -48,9 +48,6 @@ constexpr char kLogTag[] = "MiuiHomeHyosZn";
 // with the public wrapper's 48-byte result and aborted in Scudo.  The raw tail
 // shim preserves that ABI. Device validation remains bounded by the Zygisk
 // Next module enabled state, the exact process, and immutable library IDs.
-constexpr char kNativeReceiverExperimentLeasePath[] =
-        "/data/user_de/0/com.miui.home/cache/"
-        "miui_home_hyos_zn_native_receiver_once";
 constexpr char kSpawnerPath[] = "/system_ext/bin/hyos_spawner";
 constexpr char kShellPath[] = "/system_ext/lib64/libhyper_os_shell.so";
 constexpr char kShellName[] = "libhyper_os_shell.so";
@@ -84,11 +81,6 @@ using DlopenFn = void* (*)(const char*, int);
 using AndroidDlopenExtFn = void* (*)(const char*, int,
                                     const android_dlextinfo*);
 using DlsymFn = void* (*)(void*, const char*);
-using BackCallbackQueryFn = uint8_t (*)(void*, void*, const char*, size_t);
-using BackSwipeStartFn = void (*)(void*, void*, uint32_t);
-using BackCancelledFn = void (*)(void*);
-using BackInvokeFn = void (*)(void*, uint32_t);
-using InterruptOpenPollFn = uint8_t (*)(void*, void*);
 using MotionEventIntFn = int32_t (*)(void*);
 using MotionEventLongFn = int64_t (*)(void*);
 using MotionEventFloatFn = float (*)(void*);
@@ -143,8 +135,6 @@ struct NativeI64Option {
 using IntentGetActionFn = BorrowedROptionRString (*)(void*);
 using IntentGetSenderPackageFn = BorrowedROptionRString (*)(void*);
 using BroadcastReceiverOnReceiveFn = void (*)(void*, void*, void*);
-using BroadcastRegisterReceiverFn = NativeResult (*)(
-        void*, void*, void*, void*, void*, uint32_t);
 using BroadcastSendFn = NativeResult (*)(void*, void*);
 using IntentDefaultFn = void* (*)();
 using IntentDropFn = void (*)(void*);
@@ -159,8 +149,6 @@ using BundleInsertI64Fn = void (*)(void*, RString*, int64_t);
 using BundleGetBoolFn = uint64_t (*)(void*, const char*, size_t);
 using BundleGetI32Fn = uint64_t (*)(void*, const char*, size_t);
 using BundleGetI64Fn = NativeI64Option (*)(void*, const char*, size_t);
-using IntentFilterDefaultFn = void* (*)();
-using IntentFilterAddActionFn = void (*)(void*, RString*);
 using RuntimeStrongFn = void (*)(void*);
 using PackageManagerGetApplicationInfoFn = NativeResult (*)(
         const char*, size_t, uint64_t);
@@ -174,11 +162,6 @@ void* g_original_shell_android_dlopen_ext = nullptr;
 void* g_original_shell_dlsym = nullptr;
 void* g_original_app_public_dlsym = nullptr;
 void* g_launcher_handle = nullptr;
-void* g_original_back_callback_query = nullptr;
-void* g_original_back_swipe_start = nullptr;
-void* g_original_back_cancelled = nullptr;
-void* g_original_back_invoke = nullptr;
-void* g_original_interrupt_open_poll = nullptr;
 void* g_original_motion_get_action = nullptr;
 void* g_original_motion_get_action_masked = nullptr;
 void* g_original_input_monitor_pilfer = nullptr;
@@ -188,7 +171,6 @@ void* g_original_gesture_stub_back_handler = nullptr;
 void* g_original_contextual_long_press_handler = nullptr;
 void* g_contextual_search_invoke = nullptr;
 void* g_original_broadcast_receiver_on_receive = nullptr;
-void* g_original_broadcast_register_receiver = nullptr;
 void** g_broadcast_intent_with_feature_slot = nullptr;
 void* g_motion_get_id = nullptr;
 void* g_motion_get_down_time = nullptr;
@@ -201,7 +183,6 @@ uint8_t* g_launcher_base = nullptr;
 const miui_home_profiles::LauncherProfile* g_launcher_profile = nullptr;
 miui_home_runtime_profile::ResolutionStorage g_dynamic_profile_storage{};
 uint32_t g_native_receiver_state = 0;
-NativeResult g_module_receiver_registration{};
 int64_t g_systemui_arbiter_generation = 0;
 uint32_t g_systemui_arbiter_ready = 0;
 __attribute__((used)) volatile uint32_t g_contextual_search_enabled = 0;
@@ -245,14 +226,6 @@ __attribute__((used)) uint32_t
 __attribute__((used)) uint32_t g_arbiter_query_attempts = 0;
 __attribute__((used)) volatile uint32_t g_arbiter_state_marked_count = 0;
 __attribute__((used)) volatile uint32_t g_arbiter_state_passthrough_count = 0;
-__attribute__((used)) volatile uint32_t g_back_callback_query_count = 0;
-__attribute__((used)) volatile uint32_t g_back_callback_query_last_result = 0;
-__attribute__((used)) volatile uint32_t g_back_swipe_start_count = 0;
-__attribute__((used)) volatile uint32_t g_back_cancelled_count = 0;
-__attribute__((used)) volatile uint32_t g_back_invoke_count = 0;
-__attribute__((used)) volatile uint32_t g_back_invoke_last_arg1 = 0;
-__attribute__((used)) volatile uint32_t g_interrupt_open_poll_count = 0;
-__attribute__((used)) volatile uint32_t g_interrupt_open_last_result = 0;
 __attribute__((used)) volatile uint32_t g_accepted_processor_down_count = 0;
 __attribute__((used)) volatile uint32_t g_accepted_processor_publish_count = 0;
 __attribute__((used)) volatile uint32_t g_gesture_processor_suppressed_count = 0;
@@ -276,16 +249,8 @@ __attribute__((used)) volatile uint32_t g_stub_back_edge_last = 0xffffffffu;
 __attribute__((used)) volatile uint32_t
         g_gesture_processor_boundary_return_count = 0;
 __attribute__((used)) volatile uint32_t g_pilfer_hook_count = 0;
-__attribute__((used)) volatile uintptr_t g_pilfer_last_return_pc = 0;
-__attribute__((used)) volatile intptr_t g_pilfer_last_return_offset = 0;
-__attribute__((used)) volatile uint32_t g_pilfer_caller_be8e98_count = 0;
-__attribute__((used)) volatile uint32_t g_pilfer_caller_bf07b4_count = 0;
-__attribute__((used)) volatile uint32_t g_pilfer_caller_c11a7c_count = 0;
-__attribute__((used)) volatile uint32_t g_pilfer_caller_c12e2c_count = 0;
 __attribute__((used)) volatile uint32_t
         g_owned_stream_pilfer_suppressed_count = 0;
-__attribute__((used)) volatile uint32_t g_motion_action_call_count = 0;
-__attribute__((used)) volatile uint32_t g_motion_action_masked_call_count = 0;
 __attribute__((used)) volatile uint32_t g_motion_down_capture_count = 0;
 __attribute__((used)) volatile uint32_t g_contextual_feature_hook_state = 0;
 __attribute__((used)) volatile uint32_t g_contextual_feature_query_count = 0;
@@ -350,30 +315,6 @@ __attribute__((used)) volatile uintptr_t
 __attribute__((used)) volatile uintptr_t
         g_dynamic_contextual_long_press_handler_offset = 0;
 
-// Observation-only ring for identifying the exact 4371 pilfer owner. The
-// sequence is published last, so /proc/<pid>/mem readers can reject a torn
-// slot. No field participates in input ownership or changes native behavior.
-constexpr uint32_t kPilferObservationCount = 16u;
-struct PilferObservation {
-    uint64_t sequence;
-    uintptr_t return_pc;
-    intptr_t return_offset;
-    uintptr_t monitor;
-    uintptr_t motion_event;
-    uint64_t motion_sequence;
-    int64_t down_time;
-    int32_t tid;
-    int32_t action;
-    uint32_t action_masked_method;
-    int32_t event_id;
-    int32_t device_id;
-    int32_t source;
-    uint32_t edge;
-    uint32_t pending_down_valid;
-};
-__attribute__((used)) volatile uint64_t g_pilfer_observation_sequence = 0;
-__attribute__((used)) PilferObservation
-        g_pilfer_observations[kPilferObservationCount]{};
 constexpr uint32_t kLauncherInputSlotCount = 4u;
 struct LauncherInputHookSlot {
     uintptr_t base;
@@ -411,22 +352,7 @@ thread_local PendingDownIdentity g_pending_down{};
 thread_local bool g_systemui_owns_back_stream = false;
 thread_local OwnedBackStreamIdentity g_owned_back_stream{};
 thread_local uintptr_t g_last_motion_event = 0u;
-thread_local uint64_t g_last_motion_sequence = 0u;
-thread_local int32_t g_last_motion_action = -1;
-thread_local bool g_last_motion_used_masked_method = false;
 thread_local float g_last_motion_raw_y = 0.0f;
-constexpr uint32_t kCaptureSlotCount = 64u;
-constexpr uint32_t kCaptureSlotSize = 256u;
-__attribute__((used)) volatile uint32_t g_dlopen_capture_index = 0;
-__attribute__((used)) volatile char
-        g_dlopen_capture[kCaptureSlotCount][kCaptureSlotSize]{};
-__attribute__((used)) volatile uint32_t g_dlsym_capture_index = 0;
-__attribute__((used)) volatile char
-        g_dlsym_capture[kCaptureSlotCount][kCaptureSlotSize]{};
-__attribute__((used)) volatile uint32_t
-        g_android_dlopen_ext_capture_index = 0;
-__attribute__((used)) volatile char
-        g_android_dlopen_ext_capture[kCaptureSlotCount][kCaptureSlotSize]{};
 
 template <typename T>
 T AtomicLoad(const T* value) {
@@ -673,50 +599,6 @@ bool IsExplicitlyEnabled() {
     return true;
 }
 
-bool IsBusinessProbeEnabled() {
-    return true;
-}
-
-bool IsArbiterBridgeEnabled() {
-    return true;
-}
-
-[[maybe_unused]] uint32_t GetNativeReceiverExperimentMode() {
-    return 0u;
-}
-
-[[maybe_unused]] bool AcquireNativeReceiverExperimentLease() {
-    const int fd = open(kNativeReceiverExperimentLeasePath,
-                        O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
-    if (fd >= 0) {
-        close(fd);
-        return true;
-    }
-    __android_log_print(
-            errno == EEXIST ? ANDROID_LOG_WARN : ANDROID_LOG_ERROR,
-            kLogTag,
-            "native receiver experiment lease denied errno=%d", errno);
-    return false;
-}
-
-[[maybe_unused]] constexpr uintptr_t kBackCallbackQueryOffset4371 = 0x85ab4cu;
-[[maybe_unused]] constexpr uintptr_t kBackSwipeStartOffset4371 = 0xc0b440u;
-[[maybe_unused]] constexpr uintptr_t kBackCancelledOffset4371 = 0xc0d840u;
-[[maybe_unused]] constexpr uintptr_t kBackInvokeOffset4371 = 0xc0df2cu;
-[[maybe_unused]] constexpr uintptr_t kInterruptOpenPollOffset4371 = 0xc91d94u;
-// Historical traces saw InputMonitor.pilferPointers at 0xbf07b0 and later at
-// 0xc11a78, but 0.8.20 proved that GestureStubView can remain the physical
-// DOWN owner without either call. Keep these immutable callers as transparent
-// diagnostics and suppress them only if the exact stream was already handed
-// off at the processor's accepted DOWN boundary.
-// Exact 4371 device evidence proves GestureStubViewWindow::handle_back_gesture
-// is the side-only accepted-input boundary. Bottom Home never reaches it.
-// Ownership is enabled only there; shared GestureInputMonitor hooks remain
-// transparent diagnostics.
-[[maybe_unused]] constexpr uintptr_t kRustLogFormatterOffset4371 = 0x688bacu;
-[[maybe_unused]] constexpr uintptr_t kAcceptedLogCallOffset4371 = 0xbf4bb8u;
-[[maybe_unused]] constexpr uintptr_t kAcceptedLogReturnOffset4371 = 0xbf4bc8u;
-
 constexpr char kSystemUiPackage[] = "com.android.systemui";
 constexpr char kArbiterStateAction[] =
         "dev.codex.miuibackgesturehook.action.SYSTEMUI_INPUT_ARBITER_STATE";
@@ -737,46 +619,6 @@ constexpr char kRuntimeStatusQueryExtra[] = "status_query";
 constexpr char kRuntimeStatusNonceExtra[] = "status_nonce";
 constexpr char kAcceptedStateAction[] =
         "dev.codex.miuibackgesturehook.action.MIUI_OVERVIEW_STATE_CHANGE";
-
-[[maybe_unused]] constexpr uint8_t kBackCallbackQueryPrologue4371[] = {
-        0xe8, 0x0f, 0x19, 0xfc, 0xfd, 0x7b, 0x01, 0xa9,
-        0xfc, 0x6f, 0x02, 0xa9, 0xfa, 0x67, 0x03, 0xa9,
-        0xf8, 0x5f, 0x04, 0xa9, 0xf6, 0x57, 0x05, 0xa9,
-        0xf4, 0x4f, 0x06, 0xa9, 0xff, 0xc3, 0x0b, 0xd1,
-};
-[[maybe_unused]] constexpr uint8_t kBackSwipeStartPrologue4371[] = {
-        0xe8, 0x0f, 0x19, 0xfc, 0xfd, 0x7b, 0x01, 0xa9,
-        0xfc, 0x6f, 0x02, 0xa9, 0xfa, 0x67, 0x03, 0xa9,
-        0xf8, 0x5f, 0x04, 0xa9, 0xf6, 0x57, 0x05, 0xa9,
-        0xf4, 0x4f, 0x06, 0xa9, 0xff, 0x83, 0x06, 0xd1,
-};
-[[maybe_unused]] constexpr uint8_t kBackCancelledPrologue4371[] = {
-        0xff, 0x83, 0x04, 0xd1, 0xfd, 0x7b, 0x0e, 0xa9,
-        0xf8, 0x5f, 0x0f, 0xa9, 0xf6, 0x57, 0x10, 0xa9,
-        0xf4, 0x4f, 0x11, 0xa9, 0x14, 0x04, 0x40, 0xf9,
-        0xf3, 0x03, 0x00, 0xaa, 0xd4, 0x1b, 0x00, 0xb4,
-};
-[[maybe_unused]] constexpr uint8_t kBackInvokePrologue4371[] = {
-        0xff, 0x03, 0x06, 0xd1, 0xfd, 0x7b, 0x12, 0xa9,
-        0xfc, 0x6f, 0x13, 0xa9, 0xfa, 0x67, 0x14, 0xa9,
-        0xf8, 0x5f, 0x15, 0xa9, 0xf6, 0x57, 0x16, 0xa9,
-        0xf4, 0x4f, 0x17, 0xa9, 0xf9, 0x03, 0x00, 0xaa,
-};
-[[maybe_unused]] constexpr uint8_t kInterruptOpenPollPrologue4371[] = {
-        0xff, 0xc3, 0x03, 0xd1, 0xfe, 0x5f, 0x0c, 0xa9,
-        0xf6, 0x57, 0x0d, 0xa9, 0xf4, 0x4f, 0x0e, 0xa9,
-        0x08, 0xc4, 0x40, 0x39, 0xf3, 0x03, 0x00, 0xaa,
-        0xf4, 0x03, 0x01, 0xaa, 0x48, 0x02, 0x00, 0x34,
-};
-[[maybe_unused]] constexpr uint8_t kRustLogFormatterPrologue4371[] = {
-        0xff, 0xc3, 0x02, 0xd1, 0xfe, 0x53, 0x00, 0xf9,
-        0x49, 0x28, 0x40, 0xa9, 0x48, 0x10, 0x40, 0xf9,
-};
-[[maybe_unused]] constexpr uint8_t kAcceptedLogCall4371[] = {
-        0x88, 0x37, 0x00, 0xf0, 0x08, 0x81, 0x12, 0x91,
-        0xe8, 0x53, 0x00, 0xf9, 0xfa, 0x4f, 0xea, 0x97,
-        0x00, 0x19, 0x80, 0x52,
-};
 
 bool MatchesCode(const uint8_t* base, uintptr_t offset,
                  const uint8_t* expected, size_t expected_size) {
@@ -1524,8 +1366,7 @@ bool TryQuerySystemUiArbiter(uint32_t maximum_attempts) {
 }
 
 void TryInstallArbiterBridge() {
-    if (!IsExplicitlyEnabled() || !IsBusinessProbeEnabled() ||
-            !IsArbiterBridgeEnabled() || !IsLauncherProcess() ||
+    if (!IsExplicitlyEnabled() || !IsLauncherProcess() ||
             AtomicLoad(&g_business_hook_state) != uint32_t{3}) {
         return;
     }
@@ -1589,91 +1430,6 @@ void TryInstallArbiterBridge() {
         Log(ANDROID_LOG_ERROR,
             "failed to query SystemUI input arbiter with shared identity");
     }
-}
-
-[[maybe_unused]] NativeResult HookBroadcastRegisterReceiver(void* runtime, void* receiver,
-                                           void* callback_vtable, void* filter,
-                                           void* permission, uint32_t flags) {
-    BroadcastRegisterReceiverFn original =
-            reinterpret_cast<BroadcastRegisterReceiverFn>(
-                    AtomicLoad(&g_original_broadcast_register_receiver));
-    if (original == nullptr) return NativeResult{};
-    Log(ANDROID_LOG_INFO, "native register hook entered");
-    NativeResult result = original(runtime, receiver, callback_vtable, filter,
-                                   permission, flags);
-    Log(ANDROID_LOG_INFO, "original native receiver registration returned");
-    uint32_t expected = 0u;
-    if (!IsNativeSuccess(result) || receiver == nullptr ||
-            callback_vtable == nullptr ||
-            !__atomic_compare_exchange_n(
-                    &g_native_receiver_state, &expected, uint32_t{1}, false,
-                    __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-        return result;
-    }
-
-    IntentFilterDefaultFn filter_default =
-            ResolveLauncherSymbol<IntentFilterDefaultFn>(
-                    "intent_fliter_default");
-    IntentFilterAddActionFn add_action =
-            ResolveLauncherSymbol<IntentFilterAddActionFn>(
-                    "intent_fliter_add_action");
-    void* module_filter = filter_default == nullptr ? nullptr : filter_default();
-    Log(ANDROID_LOG_INFO, "separate native receiver filter constructed");
-    RString action{};
-    if (module_filter == nullptr || add_action == nullptr ||
-            !MakeOwnedRString(kArbiterStateAction, &action)) {
-        // A constructed filter cannot be safely recovered without its Rust
-        // drop glue.  This experiment is process-lifetime-only, so retain it
-        // on this failure path instead of guessing at its destructor ABI.
-        AtomicStore(&g_native_receiver_state, uint32_t{4});
-        Log(ANDROID_LOG_ERROR,
-            "separate native receiver construction failed");
-        return result;
-    }
-
-    // IntentFilter is built by a different Rust crate instance than
-    // Intent/Bundle on launcher 4371 and therefore owns a distinct abi_stable
-    // RString vtable.
-    const auto* profile = CurrentLauncherProfile();
-    if (profile == nullptr || profile->filter_rstring_vtable_offset == 0u) {
-        AtomicStore(&g_native_receiver_state, uint32_t{4});
-        return result;
-    }
-    action.vtable = g_launcher_base + profile->filter_rstring_vtable_offset;
-    add_action(module_filter, &action);
-    Log(ANDROID_LOG_INFO, "separate native receiver action added");
-
-    // Launcher 4371 constructs this callback as a ref-counted 56-byte object,
-    // retains one owner in its controller, then moves another owner into
-    // Broadcast_register_receiver.  The original registration above consumed
-    // its argument.  Clone the controller-owned reference exactly as the
-    // launcher does at 0x609da4 before moving it into our second registration.
-    const uint64_t old_count = __atomic_fetch_add(
-            reinterpret_cast<uint64_t*>(receiver), uint64_t{1},
-            __ATOMIC_ACQ_REL);
-    if ((old_count & (uint64_t{1} << 63u)) != 0u) {
-        __atomic_fetch_sub(reinterpret_cast<uint64_t*>(receiver), uint64_t{1},
-                           __ATOMIC_ACQ_REL);
-        AtomicStore(&g_native_receiver_state, uint32_t{4});
-        Log(ANDROID_LOG_ERROR,
-            "separate native receiver rejected invalid callback owner");
-        return result;
-    }
-
-    Log(ANDROID_LOG_INFO, "registering separate native arbiter receiver");
-    NativeResult module_result = original(runtime, receiver, callback_vtable,
-                                          module_filter, permission, flags);
-    if (!IsNativeSuccess(module_result)) {
-        AtomicStore(&g_native_receiver_state, uint32_t{4});
-        Log(ANDROID_LOG_ERROR,
-            "separate native arbiter receiver registration failed");
-        return result;
-    }
-    memcpy(&g_module_receiver_registration, &module_result,
-           sizeof(g_module_receiver_registration));
-    AtomicStore(&g_native_receiver_state, uint32_t{3});
-    Log(ANDROID_LOG_INFO, "separate native arbiter receiver registered");
-    return result;
 }
 
 bool PublishAcceptedDown(uint32_t edge) {
@@ -1786,58 +1542,12 @@ void HandleInputMonitorPilfer(void* monitor, uintptr_t return_pc) {
                 AtomicLoad(&g_original_input_monitor_pilfer));
     }
     __atomic_fetch_add(&g_pilfer_hook_count, uint32_t{1}, __ATOMIC_RELAXED);
-    __atomic_store_n(&g_pilfer_last_return_pc, return_pc, __ATOMIC_RELEASE);
     const uintptr_t offset_base = caller_base != 0u
             ? caller_base : reinterpret_cast<uintptr_t>(g_launcher_base);
     if (caller_profile == nullptr) caller_profile = CurrentLauncherProfile();
     const intptr_t return_offset = offset_base == 0u
             ? intptr_t{-1}
             : static_cast<intptr_t>(return_pc - offset_base);
-    __atomic_store_n(&g_pilfer_last_return_offset, return_offset,
-                     __ATOMIC_RELEASE);
-    switch (return_offset) {
-        case 0xbe8e98:
-            __atomic_fetch_add(&g_pilfer_caller_be8e98_count, uint32_t{1},
-                               __ATOMIC_RELAXED);
-            break;
-        case 0xbf07b4:
-            __atomic_fetch_add(&g_pilfer_caller_bf07b4_count, uint32_t{1},
-                               __ATOMIC_RELAXED);
-            break;
-        case 0xc11a7c:
-            __atomic_fetch_add(&g_pilfer_caller_c11a7c_count, uint32_t{1},
-                               __ATOMIC_RELAXED);
-            break;
-        case 0xc12e2c:
-            __atomic_fetch_add(&g_pilfer_caller_c12e2c_count, uint32_t{1},
-                               __ATOMIC_RELAXED);
-            break;
-        default:
-            break;
-    }
-
-    const uint64_t observation_sequence = __atomic_add_fetch(
-            &g_pilfer_observation_sequence, uint64_t{1}, __ATOMIC_RELAXED);
-    PilferObservation& observation = g_pilfer_observations[
-            (observation_sequence - 1u) % kPilferObservationCount];
-    __atomic_store_n(&observation.sequence, uint64_t{0}, __ATOMIC_RELAXED);
-    observation.return_pc = return_pc;
-    observation.return_offset = return_offset;
-    observation.monitor = reinterpret_cast<uintptr_t>(monitor);
-    observation.motion_event = g_last_motion_event;
-    observation.motion_sequence = g_last_motion_sequence;
-    observation.down_time = g_pending_down.down_time;
-    observation.tid = gettid();
-    observation.action = g_last_motion_action;
-    observation.action_masked_method =
-            g_last_motion_used_masked_method ? 1u : 0u;
-    observation.event_id = g_pending_down.event_id;
-    observation.device_id = g_pending_down.device_id;
-    observation.source = g_pending_down.source;
-    observation.edge = g_pending_down.edge;
-    observation.pending_down_valid = g_pending_down.valid ? 1u : 0u;
-    __atomic_store_n(&observation.sequence, observation_sequence,
-                     __ATOMIC_RELEASE);
 
     const bool exact_primary_return = offset_base != 0u &&
             caller_profile != nullptr &&
@@ -2233,15 +1943,7 @@ int32_t HookMotionGetActionForSlot(void* event, uint32_t slot_index,
             AtomicLoad(&target));
     if (original == nullptr) return -1;
     const int32_t action = original(event);
-    const uint64_t motion_sequence = masked
-            ? __atomic_add_fetch(&g_motion_action_masked_call_count,
-                                 uint32_t{1}, __ATOMIC_RELAXED)
-            : __atomic_add_fetch(&g_motion_action_call_count, uint32_t{1},
-                                 __ATOMIC_RELAXED);
     g_last_motion_event = reinterpret_cast<uintptr_t>(event);
-    g_last_motion_action = action;
-    g_last_motion_sequence = motion_sequence;
-    g_last_motion_used_masked_method = masked;
     g_last_motion_raw_y = ReadMotionY(event);
     PublishContextualMotionSnapshot(event, action);
     if ((action & 0xff) == 0) {
@@ -2275,87 +1977,6 @@ int32_t HookMotionGetActionMasked2(void* event) {
 }
 int32_t HookMotionGetActionMasked3(void* event) {
     return HookMotionGetActionForSlot(event, 3u, true);
-}
-
-[[maybe_unused]] uint8_t HookBackCallbackQuery(void* callback, void* callback_vtable,
-                              const char* name, size_t name_length) {
-    TryInstallArbiterBridge();
-    BackCallbackQueryFn original = reinterpret_cast<BackCallbackQueryFn>(
-            AtomicLoad(&g_original_back_callback_query));
-    if (original == nullptr) return uint8_t{0};
-    const uint8_t result =
-            original(callback, callback_vtable, name, name_length);
-    if (IsExactCallbackName(name, name_length,
-                            "can_use_break_open_anim [default]")) {
-        __atomic_fetch_add(&g_back_callback_query_count, uint32_t{1},
-                           __ATOMIC_RELAXED);
-        __atomic_store_n(&g_back_callback_query_last_result,
-                         static_cast<uint32_t>(result), __ATOMIC_RELEASE);
-        __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                            "back callback can_use_break_open_anim result=%u",
-                            static_cast<unsigned int>(result));
-    } else if (IsExactCallbackName(name, name_length,
-                                   "is_back_gesture_anim_running")) {
-        __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                            "back callback is_back_gesture_anim_running "
-                            "result=%u",
-                            static_cast<unsigned int>(result));
-    }
-    return result;
-}
-
-[[maybe_unused]] void HookBackSwipeStart(void* helper, void* state, uint32_t edge) {
-    // This is Xiaomi's OPEN-interruption callback, not the ordinary gesture
-    // monitor's accepted-input boundary. Keep it observable and fully native.
-    // Only HookInputMonitorPilfer may transfer a physical stream to SystemUI.
-    TryInstallArbiterBridge();
-    __atomic_fetch_add(&g_back_swipe_start_count, uint32_t{1},
-                       __ATOMIC_RELAXED);
-    Log(ANDROID_LOG_INFO, "back boundary swipe_start");
-    BackSwipeStartFn original = reinterpret_cast<BackSwipeStartFn>(
-            AtomicLoad(&g_original_back_swipe_start));
-    if (original != nullptr) original(helper, state, edge);
-}
-
-[[maybe_unused]] void HookBackCancelled(void* helper) {
-    __atomic_fetch_add(&g_back_cancelled_count, uint32_t{1},
-                       __ATOMIC_RELAXED);
-    Log(ANDROID_LOG_INFO, "back boundary cancelled");
-    if (g_systemui_owns_back_stream) {
-        g_systemui_owns_back_stream = false;
-        return;
-    }
-    BackCancelledFn original = reinterpret_cast<BackCancelledFn>(
-            AtomicLoad(&g_original_back_cancelled));
-    if (original != nullptr) original(helper);
-}
-
-[[maybe_unused]] void HookBackInvoke(void* helper, uint32_t raw_arg1) {
-    __atomic_fetch_add(&g_back_invoke_count, uint32_t{1},
-                       __ATOMIC_RELAXED);
-    __atomic_store_n(&g_back_invoke_last_arg1, raw_arg1, __ATOMIC_RELEASE);
-    __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                        "back boundary invoke raw_arg1=%u",
-                        static_cast<unsigned int>(raw_arg1));
-    if (g_systemui_owns_back_stream) {
-        g_systemui_owns_back_stream = false;
-        return;
-    }
-    BackInvokeFn original = reinterpret_cast<BackInvokeFn>(
-            AtomicLoad(&g_original_back_invoke));
-    if (original != nullptr) original(helper, raw_arg1);
-}
-
-[[maybe_unused]] uint8_t HookInterruptOpenPoll(void* future, void* context) {
-    __atomic_fetch_add(&g_interrupt_open_poll_count, uint32_t{1},
-                       __ATOMIC_RELAXED);
-    InterruptOpenPollFn original = reinterpret_cast<InterruptOpenPollFn>(
-            AtomicLoad(&g_original_interrupt_open_poll));
-    if (original == nullptr) return uint8_t{0};
-    const uint8_t result = original(future, context);
-    __atomic_store_n(&g_interrupt_open_last_result,
-                     static_cast<uint32_t>(result), __ATOMIC_RELEASE);
-    return result;
 }
 
 // The captured native Fn owns a small closure whose tail releases the temporary
@@ -2766,12 +2387,12 @@ bool InstallClaimedBusinessHooksForProfile(void* app_entry_point, bool repair) {
                     miui_home_profiles::BusinessHookTopology::kLegacyThreeStage
                     ? "legacy diagnostics + side boundary"
                     : "side boundary only");
-    if (IsArbiterBridgeEnabled()) TryInstallArbiterBridge();
+    TryInstallArbiterBridge();
     return true;
 }
 
 void InstallBusinessHooksForProfile(void* app_entry_point) {
-    if (!IsBusinessProbeEnabled() || g_api.inlineHook == nullptr) return;
+    if (g_api.inlineHook == nullptr) return;
     uint32_t expected_state = 0u;
     if (!__atomic_compare_exchange_n(&g_business_hook_state, &expected_state,
                                      uint32_t{1}, false,
@@ -2782,8 +2403,7 @@ void InstallBusinessHooksForProfile(void* app_entry_point) {
 }
 
 void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
-    if (!IsBusinessProbeEnabled() || g_api.inlineHook == nullptr ||
-            g_api.inlineUnhook == nullptr ||
+    if (g_api.inlineHook == nullptr || g_api.inlineUnhook == nullptr ||
             slot_index >= kLauncherInputSlotCount ||
             AtomicLoad(&g_business_hook_state) != uint32_t{3}) {
         return;
@@ -2922,21 +2542,6 @@ void ObserveLauncherHandle(const char* filename, void* result) {
     }
 }
 
-void CaptureString(const char* value, volatile uint32_t* capture_index,
-                   volatile char capture[kCaptureSlotCount]
-                                        [kCaptureSlotSize]) {
-    if (value == nullptr || !IsExplicitlyEnabled()) return;
-    const uint32_t index = __atomic_fetch_add(
-            capture_index, uint32_t{1}, __ATOMIC_RELAXED);
-    volatile char* destination = capture[index % kCaptureSlotCount];
-    uint32_t offset = 0u;
-    while (offset + 1u < kCaptureSlotSize && value[offset] != '\0') {
-        destination[offset] = value[offset];
-        ++offset;
-    }
-    destination[offset] = '\0';
-}
-
 void ObserveLauncherSymbol(void* handle, const char* symbol, void* result) {
     if (IsExplicitlyEnabled() && result != nullptr &&
             handle == AtomicLoad(&g_launcher_handle) && symbol != nullptr &&
@@ -2953,7 +2558,6 @@ void* HookAppPublicDlsym(void* handle, const char* symbol) {
             AtomicLoad(&g_original_app_public_dlsym));
     if (original == nullptr) return nullptr;
     void* result = original(handle, symbol);
-    CaptureString(symbol, &g_dlsym_capture_index, g_dlsym_capture);
     if (IsExplicitlyEnabled() && IsLauncherProcess() && result != nullptr &&
             symbol != nullptr &&
             strcmp(symbol, kLauncherEntrySymbol) == 0) {
@@ -3007,8 +2611,6 @@ void* HookShellAndroidDlopenExt(const char* filename, int flags,
             AtomicLoad(&g_original_shell_android_dlopen_ext));
     if (original == nullptr) return nullptr;
     void* result = original(filename, flags, info);
-    CaptureString(filename, &g_android_dlopen_ext_capture_index,
-                  g_android_dlopen_ext_capture);
     if (result != nullptr && filename != nullptr &&
             strcmp(filename, kAppPublicName) == 0) {
         InstallAppPublicHooks();
@@ -3023,7 +2625,6 @@ void* HookShellDlsym(void* handle, const char* symbol) {
             AtomicLoad(&g_original_shell_dlsym));
     if (original == nullptr) return nullptr;
     void* result = original(handle, symbol);
-    CaptureString(symbol, &g_dlsym_capture_index, g_dlsym_capture);
     ObserveLauncherSymbol(handle, symbol, result);
     TryInstallArbiterBridge();
     return result;
@@ -3069,7 +2670,6 @@ void* HookDlopen(const char* filename, int flags) {
             AtomicLoad(&g_original_dlopen));
     if (original == nullptr) return nullptr;
     void* result = original(filename, flags);
-    CaptureString(filename, &g_dlopen_capture_index, g_dlopen_capture);
     if (result != nullptr && filename != nullptr &&
             strcmp(filename, kShellName) == 0) {
         InstallShellHooks();
@@ -3083,7 +2683,6 @@ void* HookDlsym(void* handle, const char* symbol) {
             AtomicLoad(&g_original_dlsym));
     if (original == nullptr) return nullptr;
     void* result = original(handle, symbol);
-    CaptureString(symbol, &g_dlsym_capture_index, g_dlsym_capture);
     ObserveLauncherSymbol(handle, symbol, result);
     return result;
 }

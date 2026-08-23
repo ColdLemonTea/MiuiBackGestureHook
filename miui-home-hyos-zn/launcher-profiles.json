@@ -37,7 +37,6 @@
       },
       "abi": {
         "rstring_vtable_offset": "0x133cf20",
-        "filter_rstring_vtable_offset": "0x133bdb0",
         "runtime_pointer_offset": "0x13cd7e8",
         "runtime_state_offset": "0x13cd7f0",
         "runtime_ready_value": 3
@@ -76,7 +75,6 @@
       },
       "abi": {
         "rstring_vtable_offset": "0x12b3608",
-        "filter_rstring_vtable_offset": "0x0",
         "runtime_pointer_offset": "0x132ab78",
         "runtime_state_offset": "0x132ab80",
         "runtime_ready_value": 0
@@ -109,7 +107,6 @@
       },
       "abi": {
         "rstring_vtable_offset": "0x12b8450",
-        "filter_rstring_vtable_offset": "0x0",
         "runtime_pointer_offset": "0x132fa00",
         "runtime_state_offset": "0x132fa08",
         "runtime_ready_value": 0

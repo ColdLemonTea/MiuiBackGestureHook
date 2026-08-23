@@ -123,9 +123,18 @@ if ($Text.Customize.Contains('$MODPATH/system')) {
 if ($Text.Native.Contains('__system_property')) {
     throw 'Native experiment must not read Android properties.'
 }
-if (-not $Text.Native.Contains('bool IsExplicitlyEnabled()') -or
-        -not $Text.Native.Contains('bool IsArbiterBridgeEnabled()')) {
+if (-not $Text.Native.Contains('bool IsExplicitlyEnabled()')) {
     throw 'Native ZN-state gate contract is missing.'
+}
+foreach ($Needle in @(
+        'kNativeReceiverExperimentLeasePath',
+        'HookBroadcastRegisterReceiver',
+        'CaptureString(',
+        'kPilferObservationCount',
+        'g_pilfer_caller_be8e98_count')) {
+    if ($Text.Native.Contains($Needle)) {
+        throw "Retired native research instrumentation returned: $Needle"
+    }
 }
 foreach ($Needle in @(
         'ZYGISK_NEXT_API_VERSION',

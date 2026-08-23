@@ -51,7 +51,6 @@ struct LauncherProfile {
     size_t accepted_pilfer_caller_size;
 
     uintptr_t rstring_vtable_offset;
-    uintptr_t filter_rstring_vtable_offset;
     uintptr_t runtime_pointer_offset;
     uintptr_t runtime_state_offset;
     uint32_t runtime_ready_value;

@@ -210,7 +210,6 @@ def generate(manifest: dict) -> str:
                 f"        {caller_name if has_caller else 'nullptr'},",
                 f"        sizeof({caller_name})," if has_caller else "        0u,",
                 f"        {hex_literal(abi.get('rstring_vtable_offset'))},",
-                f"        {hex_literal(abi.get('filter_rstring_vtable_offset'))},",
                 f"        {hex_literal(abi.get('runtime_pointer_offset'))},",
                 f"        {hex_literal(abi.get('runtime_state_offset'))},",
                 f"        {ready_value}u,",

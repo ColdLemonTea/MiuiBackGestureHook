@@ -31,8 +31,6 @@ $ExpectedVersionCode5402 = '801025402'
 $ExpectedVersionName5402 = 'RELEASE-8.01.02.5402-260807-08181825-R'
 $ExpectedVersionCode5436 = '801025436'
 $ExpectedVersionName5436 = 'RELEASE-8.01.02.5436-260807-08202148-R'
-$ExpectedNativeSha256 =
-    '10388972d3fed052285710d7b3de8b895f3f6bac71f711fee9dab32530599d78'
 $EvidenceRoot = Join-Path $PSScriptRoot 'out\device-tests'
 
 function Invoke-Adb {
@@ -266,30 +264,6 @@ awk -v target="/data/adb/modules/miui-home-hyos-zn/lib/libmiui_home_hyos_zn.so" 
         $address = $base + $offset
         $value = (Invoke-Root -Command "od -A n -t $($parts[2]) -j $address -N $bytes /proc/$launcher/mem" -AllowFailure).Text.Trim()
         $result.Add("$($parts[0])=$value")
-    }
-    $nativeDigest = (Invoke-Root -Command "sha256sum $ModuleSo" -AllowFailure).Text
-    if (($nativeDigest -match '^([0-9a-fA-F]{64})(?:\s|$)') -and
-            ($Matches[1].ToLowerInvariant() -eq $ExpectedNativeSha256)) {
-        # Exact 0.8.24-only extensions. These immutable offsets diagnose which
-        # Xiaomi InputMonitor owner pilfered a stream without changing the active
-        # package or reading Shell/MotionEvent state from the wrong thread.
-        $extraCounters = @(
-            @('pilfer_last_return_offset', '0x13458', 'u8'),
-            @('pilfer_caller_be8e98', '0x13460', 'u4'),
-            @('pilfer_caller_bf07b4', '0x13464', 'u4'),
-            @('pilfer_caller_c11a7c', '0x13468', 'u4'),
-            @('pilfer_caller_c12e2c', '0x1346c', 'u4'),
-            @('pilfer_observation_sequence', '0x13480', 'u8')
-        )
-        foreach ($spec in $extraCounters) {
-            $offset = [Convert]::ToInt64($spec[1].Substring(2), 16)
-            $bytes = if ($spec[2] -eq 'u4') { 4 } else { 8 }
-            $address = $base + $offset
-            $readCommand =
-                "od -A n -t $($spec[2]) -j $address -N $bytes /proc/$launcher/mem"
-            $value = (Invoke-Root -Command $readCommand -AllowFailure).Text.Trim()
-            $result.Add("$($spec[0])=$value")
-        }
     }
     $result
 }
