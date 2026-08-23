@@ -8,7 +8,9 @@ param(
     [switch]$Confirm4371,
     [switch]$Confirm5334,
     [switch]$Confirm5402,
-    [switch]$Confirm5436
+    [switch]$Confirm5436,
+    [ValidatePattern('^\d{4}$')]
+    [string]$ConfirmDynamic54xx
 )
 
 Set-StrictMode -Version Latest
@@ -19,6 +21,8 @@ $ModuleDir = "/data/adb/modules/$ModuleId"
 $ModuleSo = "$ModuleDir/lib/libmiui_home_hyos_zn.so"
 $Hsctl = "$ModuleDir/bin/hsctl"
 $Znctl = '/data/adb/modules/zygisksu/bin/zygiskd'
+$ZnModuleProp = '/data/adb/modules/zygisksu/module.prop'
+$MinimumZnVersionCode = 845
 $ExpectedVersionCode = '801024371'
 $ExpectedVersionName = 'RELEASE-8.01.02.4371-260727-08131546-R'
 $ExpectedVersionCode5334 = '801025334'
@@ -86,16 +90,18 @@ function Get-ConfirmedProfile {
         $Confirm4371.IsPresent,
         $Confirm5334.IsPresent,
         $Confirm5402.IsPresent,
-        $Confirm5436.IsPresent
+        $Confirm5436.IsPresent,
+        -not [string]::IsNullOrWhiteSpace($ConfirmDynamic54xx)
     ).Where({ $_ }).Count
     if ($confirmationCount -ne 1) {
-        throw 'Mutation requires exactly one of -Confirm4371, -Confirm5334, -Confirm5402, or -Confirm5436.'
+        throw 'Mutation requires exactly one static confirmation or -ConfirmDynamic54xx <build>.'
     }
     if ($Confirm4371) {
         return [pscustomobject]@{
             Id = '4371'
             VersionCode = $ExpectedVersionCode
             VersionName = $ExpectedVersionName
+            Dynamic = $false
         }
     }
     if ($Confirm5334) {
@@ -103,6 +109,7 @@ function Get-ConfirmedProfile {
             Id = '5334'
             VersionCode = $ExpectedVersionCode5334
             VersionName = $ExpectedVersionName5334
+            Dynamic = $false
         }
     }
     if ($Confirm5402) {
@@ -110,12 +117,35 @@ function Get-ConfirmedProfile {
             Id = '5402'
             VersionCode = $ExpectedVersionCode5402
             VersionName = $ExpectedVersionName5402
+            Dynamic = $false
+        }
+    }
+    if ($Confirm5436) {
+        return [pscustomobject]@{
+            Id = '5436'
+            VersionCode = $ExpectedVersionCode5436
+            VersionName = $ExpectedVersionName5436
+            Dynamic = $true
         }
     }
     [pscustomobject]@{
-        Id = '5436'
-        VersionCode = $ExpectedVersionCode5436
-        VersionName = $ExpectedVersionName5436
+        Id = $ConfirmDynamic54xx
+        VersionCode = $null
+        VersionName = $null
+        Dynamic = $true
+    }
+}
+
+function Assert-CompatibleZygiskNext {
+    $moduleProp = Invoke-Root -Command "cat $ZnModuleProp" -AllowFailure
+    $versionMatch = [regex]::Match(
+        $moduleProp.Text, '(?m)^versionCode=(\d+)\s*$')
+    if ($moduleProp.ExitCode -ne 0 -or -not $versionMatch.Success) {
+        throw 'Refusing mutation: unable to verify the installed Zygisk Next version.'
+    }
+    $versionCode = [int64]$versionMatch.Groups[1].Value
+    if ($versionCode -lt $MinimumZnVersionCode) {
+        throw "Refusing mutation: Zygisk Next versionCode $versionCode does not expose the required HYOS runtime API."
     }
 }
 
@@ -123,9 +153,32 @@ function Assert-ExactMiuiHome {
     param([pscustomobject]$Profile)
     $package = (Invoke-Adb -Arguments @(
         'shell', 'dumpsys', 'package', 'com.miui.home')).Text
+    $activePackage = [regex]::Split(
+        $package, '(?m)^Hidden system packages:\s*$')[0]
+    $versionCodeMatch = [regex]::Match(
+        $activePackage, '(?m)^\s*versionCode=(\d+)(?:\s|$)')
+    $versionNameMatch = [regex]::Match(
+        $activePackage, '(?m)^\s*versionName=(\S+)\s*$')
+    if (-not $versionCodeMatch.Success -or -not $versionNameMatch.Success) {
+        throw 'Refusing mutation: active MiuiHome identity is unreadable.'
+    }
+    $activeVersionCode = $versionCodeMatch.Groups[1].Value
+    $activeVersionName = $versionNameMatch.Groups[1].Value
+    if ($Profile.Dynamic -and $null -eq $Profile.VersionCode) {
+        $expectedBuild = [int]$Profile.Id
+        $activeBuild = [int]([int64]$activeVersionCode % 10000)
+        $expectedNameMarker = ".${expectedBuild}-"
+        if ($expectedBuild -lt 5400 -or $activeBuild -ne $expectedBuild -or
+                -not $activeVersionName.Contains($expectedNameMarker)) {
+            throw "Refusing mutation: active MiuiHome is not confirmed dynamic build $expectedBuild."
+        }
+        $Profile.VersionCode = $activeVersionCode
+        $Profile.VersionName = $activeVersionName
+        return
+    }
     $namePattern = [regex]::Escape($Profile.VersionName)
-    if ($package -notmatch "versionCode=$($Profile.VersionCode)(?:\s|$)" -or
-            $package -notmatch "versionName=$namePattern(?:\s|$)") {
+    if ($activeVersionCode -ne $Profile.VersionCode -or
+            $activeVersionName -notmatch "^$namePattern$") {
         throw "Refusing mutation: installed MiuiHome is not exact approved $($Profile.Id)."
     }
 }
@@ -441,6 +494,7 @@ switch ($Action) {
         if ([string]::IsNullOrWhiteSpace($PackageZip)) {
             throw 'Deploy requires -PackageZip.'
         }
+        Assert-CompatibleZygiskNext
         Assert-ExactMiuiHome -Profile $profile
         $zip = (Resolve-Path -LiteralPath $PackageZip).Path
         $zipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()

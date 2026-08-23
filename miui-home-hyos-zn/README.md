@@ -33,12 +33,12 @@ desktop exercises the bounded runtime resolver.
 ## Requirements and scope
 
 - Android 17 HyperOS with the exact supported `hyos_spawner` build below.
-- arm64 device with Zygisk Next.
+- arm64 device with Zygisk Next `1.4.5` or newer, exposing main API `4` and
+  HYOS runtime API `1`.
 - MiuiHome `4371`, `5334`, or `5402`, selected automatically from immutable
-  native identity. The ZIP contains these active static profiles. The current
-  `5436` build intentionally falls through to the bounded runtime resolver,
-  which may also recognize a later build in the reviewed
-  `side_boundary_only` family; it does not extend the host deployment allowlist.
+  native identity, or `54xx` and later through the bounded runtime resolver.
+  The host script requires the caller to confirm the exact active four-digit
+  dynamic build before mutation.
 - The companion LSPosed module enabled for its existing Android 17 SystemUI
   and `system` scopes. This ZN module alone does not create an AOSP gesture.
 
@@ -126,6 +126,8 @@ The confirmed native ownership chain is:
 
 ```text
 hyos_spawner
+  register HYOS runtime callback
+    -> post-fork onAppSpecialized(com.miui.home, com.miui.home)
   dlopen("libhyper_os_shell.so")
     -> libhyper_os_shell.so
          android_dlopen_ext("libhyper_os_app_public.so")
@@ -133,6 +135,14 @@ hyos_spawner
                 dlsym(handle, "app_entry_point")
                   -> APK libapp_launcher.so
 ```
+
+Runtime registration is fail-closed. The loader observation hooks are installed
+only after Zygisk Next reports the HYOS runtime, exposes API version 1 or newer,
+and accepts the module callback. The specialization callback retains no runtime
+pointer or string: it records only atomic process-local identity and lifecycle
+ordering diagnostics. Business hooks continue to install from the existing
+launcher loader path; specialization does not perform ELF scanning or hook
+installation.
 
 The module hooks only the relevant owner PLT slots and then installs
 profile-bound hooks in the resolved launcher image. It does not hook the system
@@ -190,12 +200,10 @@ python .\miui-home-hyos-zn\verify-runtime-profile.py `
   --library 5402=<5402-libapp_launcher.so>
 ```
 
-The dynamic snapshot is a fail-closed compatibility mechanism, not deployment
-authorization. To formally support another MiuiHome build, retain its ELF, add
-a manifest profile only after static analysis confirms the resolved entry,
-accepted side boundary, edge field, topology, ABI offsets, and immutable
-fingerprints, then extend the controlled host allowlist. Generate and verify
-the profile, build a Debug ZIP, and use the deployment flow below.
+The dynamic snapshot is the fail-closed compatibility and deployment boundary
+for `54xx` and later. A static manifest profile is still added only after
+offline analysis confirms the resolved entry, accepted side boundary, edge
+field, topology, ABI offsets, and immutable fingerprints.
 
 ## Build
 
@@ -252,8 +260,9 @@ to SystemUI.
 For development, do not overwrite a mapped ELF and do not invoke a package
 installer for each live iteration. Use
 [safe-device-test.ps1](safe-device-test.ps1). It verifies the exact installed
-MiuiHome package, stages the payload under a content-derived name, disables the
-ZN module before replacing files, replaces only the exact root
+MiuiHome package and Zygisk Next versionCode `845` or newer, stages the payload
+under a content-derived name, disables the ZN module before replacing files,
+replaces only the exact root
 `hyos_spawner`, verifies parentage and mappings, checks for a new tombstone, and
 automatically rolls back on failure.
 
@@ -281,6 +290,10 @@ Deploy one exact profile:
 .\miui-home-hyos-zn\safe-device-test.ps1 `
   -Action Deploy -Serial <adb-serial> `
   -PackageZip <debug-zip> -Confirm5402
+
+.\miui-home-hyos-zn\safe-device-test.ps1 `
+  -Action Deploy -Serial <adb-serial> `
+  -PackageZip <debug-zip> -ConfirmDynamic54xx 5450
 ```
 
 Rollback uses the matching confirmation:
@@ -335,6 +348,14 @@ a ready nonzero arbiter generation, an accepted Stub BACK DOWN, a published
 identity token, and suppression only after that token is accepted. Interpret
 counters together with SystemUI logs; a counter alone is not proof that Shell
 owned the gesture.
+
+For the HYOS callback boundary, healthy launcher evidence has
+`hyos_runtime_registration=3`, `hyos_runtime_type=1`,
+`hyos_runtime_api_version>=1`, `hyos_specialize_count=1`,
+`hyos_specialize_rejected=0`, and `hyos_launcher_specialized=1`. Compare the
+three lifecycle sequence fields to determine whether final launcher library and
+entry observation occurred before or after specialization. This diagnostic
+revision deliberately leaves first-gesture business-hook repair enabled.
 
 ## Recovery and safety invariants
 

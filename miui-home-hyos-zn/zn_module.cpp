@@ -210,6 +210,30 @@ uint32_t g_shell_hook_state = 0;
 uint32_t g_app_public_hook_state = 0;
 uint32_t g_business_hook_state = 0;
 uint32_t g_arbiter_bridge_hook_state = 0;
+// HYOS runtime registration states: 0 not attempted, 1 registering,
+// 3 registered, 4 API missing, 5 runtime missing, 6 wrong runtime type,
+// 7 runtime API too old, 8 register callback missing, 9 registration failed.
+__attribute__((used)) volatile uint32_t
+        g_hyos_runtime_registration_state = 0;
+__attribute__((used)) volatile uint32_t g_hyos_runtime_type = 0;
+__attribute__((used)) volatile uint32_t g_hyos_runtime_api_version = 0;
+// Specialization callbacks run post-fork. These values are consequently
+// process-local in the final launcher and provide ordering evidence without
+// retaining any callback-owned string pointer.
+__attribute__((used)) volatile uint32_t g_hyos_specialize_count = 0;
+__attribute__((used)) volatile uint32_t g_hyos_specialize_rejected_count = 0;
+__attribute__((used)) volatile uint32_t g_hyos_launcher_specialized = 0;
+__attribute__((used)) volatile uint64_t g_hyos_lifecycle_sequence = 0;
+__attribute__((used)) volatile uint64_t g_hyos_specialize_sequence = 0;
+__attribute__((used)) volatile uint32_t g_launcher_library_observed_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_launcher_library_after_specialize_count = 0;
+__attribute__((used)) volatile uint64_t
+        g_launcher_library_observed_sequence = 0;
+__attribute__((used)) volatile uint32_t g_launcher_entry_observed_count = 0;
+__attribute__((used)) volatile uint32_t
+        g_launcher_entry_after_specialize_count = 0;
+__attribute__((used)) volatile uint64_t g_launcher_entry_observed_sequence = 0;
 // Readable through /proc/<pid>/mem even when launcher startup evicts logcat.
 // send_state values are documented next to SendNativeBroadcast().
 __attribute__((used)) uint32_t g_native_broadcast_send_count = 0;
@@ -412,6 +436,18 @@ T AtomicLoad(const T* value) {
 template <typename T>
 void AtomicStore(T* target, T value) {
     __atomic_store_n(target, value, __ATOMIC_RELEASE);
+}
+
+uint64_t NextHyosLifecycleSequence() {
+    return __atomic_add_fetch(&g_hyos_lifecycle_sequence, uint64_t{1},
+                              __ATOMIC_ACQ_REL);
+}
+
+void RecordFirstLifecycleSequence(volatile uint64_t* target,
+                                  uint64_t sequence) {
+    uint64_t expected = 0u;
+    __atomic_compare_exchange_n(target, &expected, sequence, false,
+                                __ATOMIC_RELEASE, __ATOMIC_RELAXED);
 }
 
 void Log(int priority, const char* message) {
@@ -2849,6 +2885,30 @@ void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
                        uint32_t{1}, __ATOMIC_RELAXED);
 }
 
+void RecordLauncherLibraryObservation() {
+    const uint64_t sequence = NextHyosLifecycleSequence();
+    __atomic_fetch_add(&g_launcher_library_observed_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    if (__atomic_load_n(&g_hyos_launcher_specialized, __ATOMIC_ACQUIRE) != 0u) {
+        __atomic_fetch_add(&g_launcher_library_after_specialize_count,
+                           uint32_t{1}, __ATOMIC_RELAXED);
+    }
+    RecordFirstLifecycleSequence(&g_launcher_library_observed_sequence,
+                                 sequence);
+}
+
+void RecordLauncherEntryObservation() {
+    const uint64_t sequence = NextHyosLifecycleSequence();
+    __atomic_fetch_add(&g_launcher_entry_observed_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    if (__atomic_load_n(&g_hyos_launcher_specialized, __ATOMIC_ACQUIRE) != 0u) {
+        __atomic_fetch_add(&g_launcher_entry_after_specialize_count,
+                           uint32_t{1}, __ATOMIC_RELAXED);
+    }
+    RecordFirstLifecycleSequence(&g_launcher_entry_observed_sequence,
+                                 sequence);
+}
+
 void ObserveLauncherHandle(const char* filename, void* result) {
     if (!IsExplicitlyEnabled()) {
         AtomicStore(&g_launcher_handle, static_cast<void*>(nullptr));
@@ -2856,6 +2916,7 @@ void ObserveLauncherHandle(const char* filename, void* result) {
     }
     if (result != nullptr && IsLauncherLibraryPath(filename) &&
             IsLauncherProcess()) {
+        RecordLauncherLibraryObservation();
         AtomicStore(&g_launcher_handle, result);
         Log(ANDROID_LOG_INFO, "matched MiuiHome libapp_launcher.so");
     }
@@ -2882,6 +2943,7 @@ void ObserveLauncherSymbol(void* handle, const char* symbol, void* result) {
             strcmp(symbol, kLauncherEntrySymbol) == 0 &&
             __atomic_exchange_n(&g_entry_reported, uint32_t{1},
                                 __ATOMIC_ACQ_REL) == 0u) {
+        RecordLauncherEntryObservation();
         Log(ANDROID_LOG_INFO, "resolved MiuiHome app_entry_point");
     }
 }
@@ -2895,6 +2957,7 @@ void* HookAppPublicDlsym(void* handle, const char* symbol) {
     if (IsExplicitlyEnabled() && IsLauncherProcess() && result != nullptr &&
             symbol != nullptr &&
             strcmp(symbol, kLauncherEntrySymbol) == 0) {
+        RecordLauncherEntryObservation();
         AtomicStore(&g_launcher_handle, handle);
         if (__atomic_exchange_n(&g_entry_reported, uint32_t{1},
                                 __ATOMIC_ACQ_REL) == 0u) {
@@ -3025,11 +3088,40 @@ void* HookDlsym(void* handle, const char* symbol) {
     return result;
 }
 
+void OnHyosAppSpecialized(const ZnHyosAppSpecializeArgs* args) {
+    const uint64_t sequence = NextHyosLifecycleSequence();
+    __atomic_fetch_add(&g_hyos_specialize_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    RecordFirstLifecycleSequence(&g_hyos_specialize_sequence, sequence);
+
+    // The runtime owns this structure and all strings. Retain only the exact
+    // identity result in process-local atomics; no callback-owned pointer may
+    // escape this post-fork callback.
+    if (args == nullptr || args->process_name == nullptr ||
+            args->package_name == nullptr || args->se_info == nullptr ||
+            !StringsEqual(args->process_name, kLauncherProcessName) ||
+            !StringsEqual(args->package_name, kLauncherProcessName)) {
+        __atomic_fetch_add(&g_hyos_specialize_rejected_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        return;
+    }
+    __atomic_store_n(&g_hyos_launcher_specialized, uint32_t{1},
+                     __ATOMIC_RELEASE);
+}
+
+const ZygiskNextHyosModule kHyosModule = {
+        ZYGISK_NEXT_HYOS_API_VERSION,
+        OnHyosAppSpecialized,
+};
+
 void OnModuleLoaded(void*, const ZygiskNextAPI* api) {
     if (api == nullptr || api->pltHook == nullptr ||
             api->newSymbolResolver == nullptr ||
             api->freeSymbolResolver == nullptr ||
-            api->getBaseAddress == nullptr || api->symbolLookup == nullptr) {
+            api->getBaseAddress == nullptr || api->symbolLookup == nullptr ||
+            api->getRuntime == nullptr) {
+        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{4},
+                         __ATOMIC_RELEASE);
         return;
     }
     memcpy(&g_api, api, sizeof(g_api));
@@ -3042,6 +3134,50 @@ void OnModuleLoaded(void*, const ZygiskNextAPI* api) {
         Log(ANDROID_LOG_ERROR, "unsupported hyos_spawner Build ID");
         return;
     }
+
+    __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{1},
+                     __ATOMIC_RELEASE);
+    const ZygiskNextRuntime* runtime = g_api.getRuntime();
+    if (runtime == nullptr) {
+        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{5},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_ERROR, "HYOS runtime API unavailable");
+        return;
+    }
+    __atomic_store_n(&g_hyos_runtime_type,
+                     static_cast<uint32_t>(runtime->type), __ATOMIC_RELAXED);
+    __atomic_store_n(&g_hyos_runtime_api_version,
+                     runtime->api_version > 0
+                             ? static_cast<uint32_t>(runtime->api_version)
+                             : uint32_t{0},
+                     __ATOMIC_RELAXED);
+    if (runtime->type != ZN_RUNTIME_HYOS) {
+        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_ERROR, "unexpected Zygisk Next runtime type");
+        return;
+    }
+    if (runtime->api_version < ZYGISK_NEXT_HYOS_API_VERSION) {
+        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{7},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_ERROR, "HYOS runtime API is too old");
+        return;
+    }
+    if (runtime->registerModule == nullptr) {
+        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{8},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_ERROR, "HYOS runtime registration unavailable");
+        return;
+    }
+    if (runtime->registerModule(&kHyosModule) != ZN_SUCCESS) {
+        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{9},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_ERROR, "HYOS runtime module registration failed");
+        return;
+    }
+    __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    Log(ANDROID_LOG_INFO, "HYOS runtime specialization callback registered");
 
     ZnSymbolResolver* resolver =
             g_api.newSymbolResolver(kSpawnerPath, nullptr);
@@ -3082,6 +3218,6 @@ void MiuiHomeHyosInputMonitorPilferImpl(void* monitor, uintptr_t return_pc) {
 
 extern "C" __attribute__((visibility("default"), unused))
 ZygiskNextModule zn_module = {
-        ZYGISK_NEXT_API_VERSION_1,
+        ZYGISK_NEXT_API_VERSION,
         OnModuleLoaded,
 };

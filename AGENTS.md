@@ -25,8 +25,9 @@ This repository is an LSPosed module for researching Xiaomi/MIUI back gesture be
   `miui-home-hyos-zn/safe-device-test.ps1`. Do not deploy this
   experiment with a direct `ksud module install`, direct `adb push` into the
   active module, a hand-written `zygiskd` sequence, or ad-hoc process signals.
-  The script must verify exact MiuiHome version 4371, one immutable package
-  SHA-256, a distinct staged inode and matching native hash, the exact root
+  The script must verify the exact active static profile or caller-confirmed
+  `54xx`-or-later dynamic build, one immutable package SHA-256, a distinct
+  staged inode and matching native hash, the exact root
   PPID-1 spawner, absence of old mappings before activation, ZN injection, the
   normal Launcher parent/mapping, and no new activation tombstone. Any failed
   invariant must disable only this ZN module and restore a clean spawner/Home.
@@ -739,15 +740,15 @@ dev.codex.miuibackgesturehook.MiuiBackGestureHook
   `hyos_spawner`, and explicitly start Home. Never clear or write RescueParty
   properties, and do not clear launcher application data.
 - Once the crash loop has stopped and `SafeLauncher` is stable, explicitly ask the user
-  to reinstall the exact approved MiuiHome 4371 package once. Do not repeatedly send
+  to reinstall the exact previously active supported MiuiHome package once. Do not repeatedly send
   `exit_safeMode`, repeatedly start `.launcher.Launcher`, or assume those actions can
   clear this build's persisted SafeLauncher selection.
 - Do not reinstall MiuiHome on the user's behalf unless they explicitly request it.
   A missing Launcher immediately after a clean spawner replacement must first be
   recovered with one explicit standard HOME Activity start. Ask the user to
-  reinstall exact approved 4371 once only if rollback plus that start still
+  reinstall that exact package once only if rollback plus that start still
   leaves persistent SafeLauncher/crash-loop state. After completion, verify
-  version 4371, the normal Launcher component, absence of a continuing native
+  the exact package identity, the normal Launcher component, absence of a continuing native
   crash loop, and the disabled ZN gate before any further test.
 
 - Prefer Java for hook/runtime code; keep the existing Kotlin/Compose application UI in Kotlin.

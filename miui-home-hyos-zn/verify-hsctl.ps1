@@ -3,7 +3,7 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+$RepoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 
 $Paths = @{
     Cli = Join-Path $PSScriptRoot 'bin\hsctl'
@@ -22,7 +22,7 @@ $Paths = @{
     StatusMiuiHome = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\miuihome\MiuiHomeHookRuntime.java'
     LiveTranslate = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\googleapp\GoogleAppLiveTranslateRuntime.java'
     Build = Join-Path $PSScriptRoot 'build.ps1'
-    AppBuild = Join-Path $PSScriptRoot '..\..\app\build.gradle.kts'
+    AppBuild = Join-Path $RepoRoot 'app\build.gradle.kts'
     Readme = Join-Path $PSScriptRoot 'README.md'
     Customize = Join-Path $PSScriptRoot 'customize.sh.in'
     Uninstall = Join-Path $PSScriptRoot 'uninstall.sh'
@@ -68,7 +68,13 @@ $RequiredDeploy = @(
     '[switch]$Confirm5334',
     '[switch]$Confirm5402',
     '[switch]$Confirm5436',
-    'exactly one of -Confirm4371, -Confirm5334, -Confirm5402, or -Confirm5436',
+    '[string]$ConfirmDynamic54xx',
+    '-ConfirmDynamic54xx <build>',
+    '$expectedBuild -lt 5400',
+    '$activeBuild -ne $expectedBuild',
+    'Hidden system packages:',
+    '$MinimumZnVersionCode = 845',
+    'Assert-CompatibleZygiskNext',
     'Get-FileHash -Algorithm SHA256',
     '.next-$ShortHash',
     'Get-ModuleMappedPids',
@@ -120,6 +126,19 @@ if ($Text.Native.Contains('__system_property')) {
 if (-not $Text.Native.Contains('bool IsExplicitlyEnabled()') -or
         -not $Text.Native.Contains('bool IsArbiterBridgeEnabled()')) {
     throw 'Native ZN-state gate contract is missing.'
+}
+foreach ($Needle in @(
+        'ZYGISK_NEXT_API_VERSION',
+        'ZYGISK_NEXT_HYOS_API_VERSION',
+        'g_api.getRuntime()',
+        'runtime->type != ZN_RUNTIME_HYOS',
+        'runtime->registerModule(&kHyosModule)',
+        'OnHyosAppSpecialized',
+        '!StringsEqual(args->process_name, kLauncherProcessName)',
+        '!StringsEqual(args->package_name, kLauncherProcessName)')) {
+    if (-not $Text.Native.Contains($Needle)) {
+        throw "Native HYOS runtime API contract is missing: $Needle"
+    }
 }
 $minimalStart = $Text.Native.IndexOf('bool InstallClaimedBusinessHooksForProfile(')
 $minimalEnd = $Text.Native.IndexOf('void ObserveLauncherHandle(', $minimalStart)
@@ -186,7 +205,7 @@ foreach ($Needle in @(
 }
 foreach ($Needle in @(
         'EXTRA_CONTEXTUAL_SEARCH_ENABLED',
-        'isContextualSearchLongPressEnabled()',
+        'isContextualSearchLongPressRuntimeEnabled()',
         'setShareIdentityEnabled(true)')) {
     if (-not $Text.StatusMiuiHome.Contains($Needle)) {
         throw "SystemUI contextual-search state publication is missing: $Needle"

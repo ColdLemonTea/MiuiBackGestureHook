@@ -19,7 +19,7 @@ if ($PSVersionTable.PSEdition -ne 'Core' -or
 }
 
 $SourceRoot = $PSScriptRoot
-$RepoRoot = (Resolve-Path -LiteralPath (Join-Path $SourceRoot '..\..')).Path
+$RepoRoot = (Resolve-Path -LiteralPath (Join-Path $SourceRoot '..')).Path
 $BuildRoot = Join-Path $RepoRoot "out\miui-home-hyos-zn\$Configuration"
 $Toolchain = Join-Path $NdkPath 'build\cmake\android.toolchain.cmake'
 $NinjaPath = Join-Path (Split-Path -Parent $CMakePath) 'ninja.exe'
@@ -144,6 +144,20 @@ New-Item -ItemType Directory -Force -Path $StageLib, $StageBin | Out-Null
 Copy-Item -LiteralPath $Library -Destination (Join-Path $StageLib 'libmiui_home_hyos_zn.so')
 
 $CounterSpecs = [ordered]@{
+    hyos_runtime_registration = @('g_hyos_runtime_registration_state', 'u4')
+    hyos_runtime_type = @('g_hyos_runtime_type', 'u4')
+    hyos_runtime_api_version = @('g_hyos_runtime_api_version', 'u4')
+    hyos_specialize_count = @('g_hyos_specialize_count', 'u4')
+    hyos_specialize_rejected = @('g_hyos_specialize_rejected_count', 'u4')
+    hyos_launcher_specialized = @('g_hyos_launcher_specialized', 'u4')
+    hyos_lifecycle_sequence = @('g_hyos_lifecycle_sequence', 'u8')
+    hyos_specialize_sequence = @('g_hyos_specialize_sequence', 'u8')
+    launcher_library_observed = @('g_launcher_library_observed_count', 'u4')
+    launcher_library_after_specialize = @('g_launcher_library_after_specialize_count', 'u4')
+    launcher_library_sequence = @('g_launcher_library_observed_sequence', 'u8')
+    launcher_entry_observed = @('g_launcher_entry_observed_count', 'u4')
+    launcher_entry_after_specialize = @('g_launcher_entry_after_specialize_count', 'u4')
+    launcher_entry_sequence = @('g_launcher_entry_observed_sequence', 'u8')
     send_count = @('g_native_broadcast_send_count', 'u4')
     send_kind = @('g_native_broadcast_send_kind', 'u4')
     send_state = @('g_native_broadcast_send_state', 'u4')

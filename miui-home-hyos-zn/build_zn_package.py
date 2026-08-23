@@ -210,6 +210,20 @@ def package(library: Path, version: str, version_code: str, nm: Path) -> Path:
 
     symbols = run([str(nm), "-a", "-n", str(library)], capture=True).splitlines()
     counter_specs = [
+        ("hyos_runtime_registration", "g_hyos_runtime_registration_state", "u4"),
+        ("hyos_runtime_type", "g_hyos_runtime_type", "u4"),
+        ("hyos_runtime_api_version", "g_hyos_runtime_api_version", "u4"),
+        ("hyos_specialize_count", "g_hyos_specialize_count", "u4"),
+        ("hyos_specialize_rejected", "g_hyos_specialize_rejected_count", "u4"),
+        ("hyos_launcher_specialized", "g_hyos_launcher_specialized", "u4"),
+        ("hyos_lifecycle_sequence", "g_hyos_lifecycle_sequence", "u8"),
+        ("hyos_specialize_sequence", "g_hyos_specialize_sequence", "u8"),
+        ("launcher_library_observed", "g_launcher_library_observed_count", "u4"),
+        ("launcher_library_after_specialize", "g_launcher_library_after_specialize_count", "u4"),
+        ("launcher_library_sequence", "g_launcher_library_observed_sequence", "u8"),
+        ("launcher_entry_observed", "g_launcher_entry_observed_count", "u4"),
+        ("launcher_entry_after_specialize", "g_launcher_entry_after_specialize_count", "u4"),
+        ("launcher_entry_sequence", "g_launcher_entry_observed_sequence", "u8"),
         ("send_count", "g_native_broadcast_send_count", "u4"),
         ("send_kind", "g_native_broadcast_send_kind", "u4"),
         ("send_state", "g_native_broadcast_send_state", "u4"),
