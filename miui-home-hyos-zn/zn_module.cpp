@@ -269,8 +269,6 @@ __attribute__((used)) volatile uint32_t
         g_contextual_long_press_upward_cancel_count = 0;
 __attribute__((used)) volatile uint32_t
         g_contextual_motion_snapshot_valid = 0;
-__attribute__((used)) volatile uint32_t
-        g_contextual_motion_snapshot_action = 0xffffffffu;
 __attribute__((used)) volatile int64_t
         g_contextual_motion_snapshot_down_time = 0;
 __attribute__((used)) volatile int32_t
@@ -281,8 +279,6 @@ __attribute__((used)) volatile uint32_t
         g_contextual_motion_snapshot_down_y_bits = 0;
 __attribute__((used)) volatile uint32_t
         g_contextual_motion_snapshot_current_y_bits = 0;
-__attribute__((used)) volatile uint64_t
-        g_contextual_motion_snapshot_sequence = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_failure_count = 0;
@@ -352,7 +348,6 @@ thread_local PendingDownIdentity g_pending_down{};
 thread_local bool g_systemui_owns_back_stream = false;
 thread_local OwnedBackStreamIdentity g_owned_back_stream{};
 thread_local uintptr_t g_last_motion_event = 0u;
-thread_local float g_last_motion_raw_y = 0.0f;
 
 template <typename T>
 T AtomicLoad(const T* value) {
@@ -1847,10 +1842,6 @@ void PublishContextualMotionSnapshot(void* event, int32_t action) {
         __atomic_store_n(&g_contextual_motion_snapshot_current_y_bits,
                          FloatBits(raw_y),
                          __ATOMIC_RELAXED);
-        __atomic_store_n(&g_contextual_motion_snapshot_action, masked_action,
-                         __ATOMIC_RELAXED);
-        __atomic_fetch_add(&g_contextual_motion_snapshot_sequence,
-                           uint64_t{1}, __ATOMIC_RELAXED);
         __atomic_store_n(&g_contextual_motion_snapshot_valid, uint32_t{1},
                          __ATOMIC_RELEASE);
         return;
@@ -1868,8 +1859,6 @@ void PublishContextualMotionSnapshot(void* event, int32_t action) {
     __atomic_store_n(&g_contextual_motion_snapshot_current_y_bits,
                      FloatBits(raw_y),
                      __ATOMIC_RELAXED);
-    __atomic_store_n(&g_contextual_motion_snapshot_action, masked_action,
-                     __ATOMIC_RELEASE);
 }
 
 NativeResult HookPackageManagerHasSystemFeatureForSlot(
@@ -1944,7 +1933,6 @@ int32_t HookMotionGetActionForSlot(void* event, uint32_t slot_index,
     if (original == nullptr) return -1;
     const int32_t action = original(event);
     g_last_motion_event = reinterpret_cast<uintptr_t>(event);
-    g_last_motion_raw_y = ReadMotionY(event);
     PublishContextualMotionSnapshot(event, action);
     if ((action & 0xff) == 0) {
         __atomic_fetch_add(&g_motion_down_capture_count, uint32_t{1},

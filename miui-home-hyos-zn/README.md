@@ -222,7 +222,8 @@ Use `Release` only for a distributable package:
 The Gradle task invokes the cross-platform build_zn_package.py builder. It
 uses ANDROID_NDK_HOME and cmake from PATH by default; override them with
 -PznNdkPath=... and -PznCmakePath=... when necessary. build.ps1 remains as a
-Windows compatibility entry point.
+Windows compatibility entry point that delegates to the same Python builder;
+it does not maintain a second packaging or diagnostics implementation.
 
 Output is written under:
 
@@ -233,7 +234,10 @@ out/packages/miui-home-hyos-zn-<timestamp>.zip
 
 The build invokes the Python profile generator, verifies ELF64/AArch64 plus
 BTI/PAC, enforces the single `zn_module` export, checks both assembly tail
-shims, generates `diagnostics.map`, and then packages the module. Its version
+shims, generates `diagnostics.map`, and then packages the module. Release
+builds remove compiler debug sections only after resolving that map, then
+revalidate the ELF contract and every diagnostic address before packaging;
+Debug and RelWithDebInfo retain their debug information. Its version
 name comes from `app/build.gradle.kts`; its version
 code is the current Git commit count, matching the main app BuildConfig source.
 

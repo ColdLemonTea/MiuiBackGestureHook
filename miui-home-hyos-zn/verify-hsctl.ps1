@@ -22,6 +22,7 @@ $Paths = @{
     StatusMiuiHome = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\miuihome\MiuiHomeHookRuntime.java'
     LiveTranslate = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\hooks\googleapp\GoogleAppLiveTranslateRuntime.java'
     Build = Join-Path $PSScriptRoot 'build.ps1'
+    BuildPython = Join-Path $PSScriptRoot 'build_zn_package.py'
     AppBuild = Join-Path $RepoRoot 'app\build.gradle.kts'
     Readme = Join-Path $PSScriptRoot 'README.md'
     Customize = Join-Path $PSScriptRoot 'customize.sh.in'
@@ -242,9 +243,15 @@ $AppVersionMatches = [regex]::Matches(
     $Text.AppBuild, '(?m)^\s*versionName\s*(?:=\s*)?"[^"]+"\s*$')
 if ($AppVersionMatches.Count -ne 1 -or
         -not $Text.Build.Contains('$PSVersionTable.PSEdition') -or
-        -not $Text.Build.Contains("Join-Path `$RepoRoot 'app\build.gradle'") -or
-        -not $Text.Build.Contains('git -C $RepoRoot rev-list --count HEAD') -or
-        -not $Text.Build.Contains("generate-launcher-profiles.py") -or
+        -not $Text.Build.Contains("Join-Path `$PSScriptRoot 'build_zn_package.py'") -or
+        -not $Text.Build.Contains("'--configuration', `$Configuration") -or
+        -not $Text.BuildPython.Contains('parse_version()') -or
+        -not $Text.BuildPython.Contains('"rev-list", "--count", "HEAD"') -or
+        -not $Text.BuildPython.Contains('generate-launcher-profiles.py') -or
+        -not $Text.BuildPython.Contains('"--strip-debug"') -or
+        -not $Text.BuildPython.Contains('Diagnostic address changed after strip') -or
+        $Text.Build.Contains('$CounterSpecs') -or
+        $Text.Build.Contains('Compress-Archive') -or
         $Text.Build.Contains("generate-launcher-profiles.ps1") -or
         $Text.Build -match "(?m)^\s*`$Version\s*=\s*'\d") {
     throw 'App and ZN package versions no longer share the canonical BuildConfig sources.'

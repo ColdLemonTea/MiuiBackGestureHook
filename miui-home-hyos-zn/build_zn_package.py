@@ -184,14 +184,22 @@ def write_text(path: Path, value: str) -> None:
     path.write_text(value, encoding="utf-8", newline="\n")
 
 
-def package(library: Path, version: str, version_code: str, nm: Path) -> Path:
+def package(
+    library: Path,
+    version: str,
+    version_code: str,
+    nm: Path,
+    strip: Path,
+    readelf: Path,
+    objdump: Path,
+    configuration: str,
+) -> tuple[Path, dict[str, object]]:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     stage = ROOT / "out" / "miui-home-hyos-zn" / f"package-{stamp}"
     stage_lib = stage / "lib" / "arm64"
     stage_bin = stage / "bin"
     stage_lib.mkdir(parents=True, exist_ok=True)
     stage_bin.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(library, stage_lib / "libmiui_home_hyos_zn.so")
     for name in ("README.md", "verify.sh", "uninstall.sh", "zn_modules.txt"):
         shutil.copy2(SOURCE_ROOT / name, stage / name)
     shutil.copytree(SOURCE_ROOT / "META-INF", stage / "META-INF")
@@ -294,6 +302,7 @@ def package(library: Path, version: str, version_code: str, nm: Path) -> Path:
         ("generation", "g_systemui_arbiter_generation", "u8"),
     ]
     counter_lines = []
+    counter_addresses = {}
     for key, symbol, kind in counter_specs:
         matches = [
             line for line in symbols
@@ -302,8 +311,30 @@ def package(library: Path, version: str, version_code: str, nm: Path) -> Path:
         if len(matches) != 1:
             fail(f"Unable to resolve unique diagnostic counter: {key}")
         address = re.match(r"^([0-9a-fA-F]+)", matches[0]).group(1)
+        counter_addresses[symbol] = address.lower()
         counter_lines.append(f"{key} 0x{address} {kind}")
     write_text(stage / "diagnostics.map", "\n".join(counter_lines) + "\n")
+
+    # Resolve module-owned diagnostics while the full local symbol table is
+    # available. Release packages do not need compiler debug sections, so
+    # remove only those sections and then revalidate both the runtime ELF
+    # contract and every diagnostic address before copying the active payload.
+    if configuration == "Release":
+        run([str(strip), "--strip-debug", str(library)])
+    validation = validate_library(library, readelf, nm, objdump)
+    post_symbols = run([str(nm), "-a", "-n", str(library)], capture=True).splitlines()
+    for symbol, expected_address in counter_addresses.items():
+        matches = [
+            line for line in post_symbols
+            if re.search(rf"^([0-9a-fA-F]+)\s+\S\s+.*{re.escape(symbol)}", line)
+        ]
+        if len(matches) != 1:
+            fail(f"Diagnostic symbol disappeared after strip: {symbol}")
+        address = re.match(r"^([0-9a-fA-F]+)", matches[0]).group(1).lower()
+        if address != expected_address:
+            fail(f"Diagnostic address changed after strip: {symbol}")
+
+    shutil.copy2(library, stage_lib / "libmiui_home_hyos_zn.so")
 
     for file in list(stage.rglob("*")):
         if file.is_file():
@@ -315,7 +346,7 @@ def package(library: Path, version: str, version_code: str, nm: Path) -> Path:
         for file in sorted(stage.rglob("*")):
             if file.is_file():
                 archive.write(file, file.relative_to(stage).as_posix())
-    return output
+    return output, validation
 
 
 def reset_stale_cmake_cache(build_root: Path) -> None:
@@ -350,6 +381,7 @@ def main() -> int:
     readelf = host_tool(ndk, "llvm-readelf")
     nm = host_tool(ndk, "llvm-nm")
     objdump = host_tool(ndk, "llvm-objdump")
+    strip = host_tool(ndk, "llvm-strip")
     build_root = ROOT / "out" / "miui-home-hyos-zn" / args.configuration
     reset_stale_cmake_cache(build_root)
     generated = build_root / "generated" / "launcher_profiles.generated.h"
@@ -370,13 +402,17 @@ def main() -> int:
     library = build_root / "libmiui_home_hyos_zn.so"
     if not library.is_file():
         fail(f"Expected native library was not produced: {library}")
-    validation = validate_library(library, readelf, nm, objdump)
-    package_path = package(
+    validate_library(library, readelf, nm, objdump)
+    package_path, validation = package(
         library,
         parse_version(),
         run(["git", "-C", str(ROOT), "rev-list", "--count", "HEAD"],
             capture=True).strip(),
         nm,
+        strip,
+        readelf,
+        objdump,
+        args.configuration,
     )
     print(json.dumps({
         "Library": str(library),
