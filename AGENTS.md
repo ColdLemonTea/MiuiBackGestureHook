@@ -11,16 +11,17 @@ This repository is an LSPosed module for researching Xiaomi/MIUI back gesture be
   writes a property, even when it would write the value already present.
 - Do not rely on a native child process reading `/data/adb/modules`: the
   `hyos_spawner`/MiuiHome SELinux domains cannot use module-local marker files
-  as in-process gates. The Zygisk Next module enabled state is the sole runtime
-  enable/disable control; validated 4371 business/bridge hooks are compile-time
-  parts of that module, and the rejected native-receiver experiment stays
-  compile-time disabled. The controller remains inside the module directory
-  and must not install an executable under `/system/bin`.
+  as in-process gates. For the migrated path, LSPosed's module enabled/scope
+  state and framework-owned HYOS injection are the sole runtime control;
+  validated 4371 business/bridge hooks are compile-time parts of the APK's
+  native entry. The rejected native-receiver experiment stays compile-time
+  disabled. Never enable the legacy standalone ZN owner together with the
+  LSPosed native owner, and never install a controller under `/system/bin`.
 - Never overwrite or truncate the active native module file while any process
   maps it. Stage an update at a distinct path/inode, stop or replace the exact
   owning spawner through the approved no-property workflow, and only then make
   the staged file active. An in-place `cp` over a mapped ELF is forbidden.
-- Every live `miui-home-hyos-zn` update, activation, evidence capture, and
+- Every live legacy `miui-home-hyos-zn` update, activation, evidence capture, and
   rollback must use
   `miui-home-hyos-zn/safe-device-test.ps1`. Do not deploy this
   experiment with a direct `ksud module install`, direct `adb push` into the
@@ -31,6 +32,8 @@ This repository is an LSPosed module for researching Xiaomi/MIUI back gesture be
   PPID-1 spawner, absence of old mappings before activation, ZN injection, the
   normal Launcher parent/mapping, and no new activation tombstone. Any failed
   invariant must disable only this ZN module and restore a clean spawner/Home.
+  The migrated APK native entry is delivered only through LSPosed's normal
+  module flow; do not extract or push its `.so` into either active module.
 - A formal native handoff test is one activation followed by exactly one fresh
   side gesture and one evidence capture. If a build cannot obtain arbiter
   readiness until MiuiHome first reaches its processor, label one separate
@@ -141,7 +144,8 @@ Android 17 launcher safety rule:
   Android 17 and newer, the module may be loaded because the scope list is static, but it must
   register no MiuiHome-process LSPosed hooks. Cold package loading and hot-reload backfill must
   both fail closed; hot reload from an older build must unhook every old MiuiHome handle instead
-  of replacing it. Android 17 launcher-side research belongs to the native ZN module.
+  of replacing it. Android 17 launcher-side research belongs to the APK's
+  LSPosed native entry loaded through the framework's HYOS-spawner support.
 - Keep Circle to Search bottom-long-press ownership in MiuiHome's native
   `LongPressDetector`/`LongPressManager`. Do not add a global MotionEvent hook, synthetic input,
   or a second bottom-gesture recognizer. Override a successful false result only for the exact
@@ -165,7 +169,7 @@ Android 17 launcher safety rule:
   accepts it only when the Binder calling UID owns exactly `com.miui.home`; Android 16 continues
   to accept only `com.android.systemui`. Keep the Google provider callback under its separate
   exact Google-package authentication and never broaden either boundary to arbitrary system UIDs.
-- After the Android 17 native module has loaded, Circle to Search preference changes must apply
+- After the Android 17 LSPosed native entry has loaded, Circle to Search preference changes must apply
   without restarting the phone. Listen through API-102 remote preferences in SystemUI and
   republish the current authenticated arbiter generation; the already-installed native terminal
   hook reads the new state on the next long press and Xiaomi's helper rechecks the exact feature
@@ -240,6 +244,9 @@ Hot-reload rules:
   recover the real package ClassLoader from an old hook executable or the normal resolver.
   Keep `system` in the static scope so `onSystemServerStarting(...)` can obtain the real
   system-server ClassLoader after a cold start.
+- Do not unload, rebuild, or replace the APK native entry during API-102 Java hot reload.
+  Its inline/PLT hooks stay bound to the current spawner generation; a new native payload
+  becomes active only through the framework-owned clean spawner replacement.
 
 Keep MiuiHome `GestureStubView` initialization, native side-window flags,
 `showGestureStub()`/`hideGestureStub()`, touch regions, and DOWN-time

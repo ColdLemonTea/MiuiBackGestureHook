@@ -1,11 +1,12 @@
 # MIUI Back Gesture Hook
 
-An LSPosed + Zygisk Next companion module for Xiaomi MIUI/HyperOS back gestures.
+An LSPosed module for researching Xiaomi MIUI/HyperOS back gestures.
 
-The LSPosed component integrates with SystemUI and the system back pipeline. The
-arm64-v8a Zygisk Next component supplies the native MiuiHome hook required by
-Android 17 / HyperOS 4. Together they restore predictive-back behavior while
-keeping Xiaomi's native launcher transitions intact.
+The APK integrates with SystemUI and the system back pipeline. It also carries
+an arm64-v8a LSPosed Native Hook for the MiuiHome process family spawned by
+`hyos_spawner`. Until LSPosed exposes hook-page lifecycle support, the APK
+native entry protects its exact inline and PLT/GOT hook pages from Xiaomi's
+`MADV_DONTNEED` cleanup before enabling Android 17 business hooks.
 
 Optional integrations (off by default):
 
@@ -13,19 +14,18 @@ Optional integrations (off by default):
 - Google App full-screen Live Translate, with the platform screen-capture consent
   flow unchanged.
 
-Android 16 uses the SystemUI gesture path. Android 17 and newer keep launcher-side
-long press, cancellation, animation, and contextual-search ownership in native
-MiuiHome through Zygisk Next.
+Android 16 uses the SystemUI gesture path. Android 17 keeps launcher-side
+ownership in the LSPosed native entry and fails closed if its page guard or
+validated native profile cannot be established.
 
 ## Compatibility
 
 | Platform | Required components | Launcher support |
 | --- | --- | --- |
 | Android 16 | LSPosed | SystemUI gesture path |
-| Android 17 / HyperOS 4+ | LSPosed + Zygisk Next | `4371` static profile; `53xx` and newer builds use the runtime resolver when their native topology validates |
+| Android 17 / HyperOS 4+ | Internal LSPosed with HYOS-spawner support | `4371` static profile; validated newer builds use the runtime resolver |
 
-The native companion is arm64-v8a only. Unsupported or ambiguous native layouts
-fail closed without installing business hooks.
+The native entry is arm64-v8a only. Unsupported or ambiguous layouts fail closed.
 
 ## Build
 
@@ -35,22 +35,16 @@ Build the LSPosed release APK:
 .\gradlew.bat :app:assembleRelease
 ```
 
-Build the arm64-v8a Zygisk Next package:
-
-```powershell
-.\gradlew.bat buildZnPackage -PznConfiguration=Release
-```
-
-The ZN task uses the cross-platform Python builder in
-`miui-home-hyos-zn/`. NDK, CMake, and Python can be overridden with
-`-PznNdkPath`, `-PznCmakePath`, and `-PznPython`.
-
 Outputs:
 
 ```text
 app/build/outputs/apk/release/app-release.apk
-out/packages/miui-home-hyos-zn-*.zip
 ```
+
+The APK contains `lib/arm64-v8a/libmiui_home_hyos_lsp.so` and declares it in
+`META-INF/xposed/native_init.list`. The old standalone Zygisk Next package task
+is retained only as a reversible rollback build; never enable it together with
+an LSPosed native build whose business hooks are enabled.
 
 ## Scope and runtime
 
@@ -64,11 +58,11 @@ system
 ```
 
 The Google App scope is used only when Live Translate is enabled. On Android 17
-and newer, MiuiHome remains listed for compatibility, but launcher work is done
-by the native Zygisk Next companion rather than a duplicate Java input hook.
+and newer, MiuiHome remains listed for compatibility, but it registers no Java
+launcher hooks; launcher work is owned by the LSPosed native entry.
 
 API 102 hot reload is enabled with `autoHotReload=true`. The settings screen can
-refresh the authenticated SystemUI/ZN runtime status and resolved launcher profile.
+refresh the authenticated SystemUI/native runtime status and resolved launcher profile.
 
 ## References
 
@@ -76,8 +70,8 @@ Checked-in AOSP references are under `refs/android16/aosp_back_16/`. Xiaomi
 artifacts and device evidence remain local-only under ignored `refs/android17`
 paths; see [refs/README.md](refs/README.md).
 
-Native ZN sources and deployment tools are under
-`miui-home-hyos-zn/`.
+Shared native sources, the LSPosed APK target, and legacy rollback tooling are
+under `miui-home-hyos-zn/`.
 
 ## License
 

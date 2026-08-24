@@ -14,6 +14,14 @@ val gitVersionCode = gitCommitCount.map { count ->
     count.toInt()
 }
 
+val localLspltAar = rootProject.file(
+    "../LSPlt/build-android-arm64-v8a-16kb/lsplt-standalone-2.1-16kb.aar",
+).also { aar ->
+    require(aar.isFile) {
+        "Missing locally rebuilt 16KB LSPlt AAR: ${aar.absolutePath}"
+    }
+}
+
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 if (keystorePropertiesFile.isFile) {
@@ -48,10 +56,12 @@ val hasEnvSigningConfig = listOf(
 android {
     namespace = "dev.codex.miuibackgesturehook"
     compileSdk = 37
+    ndkVersion = "30.0.14904198"
 
     buildFeatures {
         buildConfig = true
         compose = true
+        prefab = true
     }
 
     defaultConfig {
@@ -59,10 +69,21 @@ android {
         minSdk = 36
         targetSdk = 37
         versionCode = gitVersionCode.get()
-        versionName = "0.10.4"
+        versionName = "0.10.5"
 
         ndk {
             abiFilters += "arm64-v8a"
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DMIUI_HOME_BUILD_LSPOSED_NATIVE=ON",
+                    "-DANDROID_STL=c++_static",
+                    "-DLAUNCHER_PROFILE_INCLUDE_DIR=${rootProject.file("miui-home-hyos-zn/generated").absolutePath}",
+                )
+                targets += "miui_home_hyos_lsp"
+            }
         }
     }
 
@@ -99,6 +120,19 @@ android {
             }
         }
     }
+
+    externalNativeBuild {
+        cmake {
+            path = rootProject.file("miui-home-hyos-zn/CMakeLists.txt")
+            version = "4.1.2"
+        }
+    }
+
+    packaging {
+        jniLibs.useLegacyPackaging = false
+        jniLibs.excludes += "**/libandroidx.graphics.path.so"
+        resources.merges += "META-INF/xposed/*"
+    }
 }
 
 dependencies {
@@ -114,6 +148,7 @@ dependencies {
     implementation(libs.miuix.icons.android)
     implementation(libs.miuix.preference.android)
     implementation(libs.miuix.ui.android)
+    implementation(files(localLspltAar))
 
     testImplementation(kotlin("test-junit"))
 }

@@ -1,4 +1,7 @@
 #include "zygisk_next_api.h"
+#ifdef MIUI_HOME_LSPOSED_NATIVE
+#include "native_api.h"
+#endif
 #include "dart_runtime_resolver.h"
 #include "launcher_profiles.h"
 #include "launcher_profiles.generated.h"
@@ -74,11 +77,15 @@ constexpr char kLogTag[] = "MiuiHomeHyosZn";
 // shim preserves that ABI. Device validation remains bounded by the Zygisk
 // Next module enabled state, the exact process, and immutable library IDs.
 constexpr char kSpawnerPath[] = "/system_ext/bin/hyos_spawner";
+#ifndef MIUI_HOME_LSPOSED_NATIVE
 constexpr char kShellPath[] = "/system_ext/lib64/libhyper_os_shell.so";
 constexpr char kShellName[] = "libhyper_os_shell.so";
 constexpr char kAppPublicPath[] =
         "/system_ext/lib64/libhyper_os_app_public.so";
 constexpr char kAppPublicName[] = "libhyper_os_app_public.so";
+#else
+constexpr char kHyperRuntimeName[] = "libhyper_os_flutter.so";
+#endif
 constexpr char kBroadcastPrivatePath[] =
         "/system_ext/lib64/libhyper_os_broadcast_private.dylib.so";
 constexpr uintptr_t kBroadcastIntentWithFeatureGotOffset = 0x14ed0u;
@@ -187,11 +194,13 @@ using ApplicationInfoGetUidFn = int32_t (*)(void*);
 using ApplicationInfoDropFn = void (*)(void*);
 
 ZygiskNextAPI g_api{};
+#ifndef MIUI_HOME_LSPOSED_NATIVE
 void* g_original_dlopen = nullptr;
 void* g_original_dlsym = nullptr;
 void* g_original_shell_android_dlopen_ext = nullptr;
 void* g_original_shell_dlsym = nullptr;
 void* g_original_app_public_dlsym = nullptr;
+#endif
 void* g_launcher_handle = nullptr;
 void* g_original_motion_get_action = nullptr;
 void* g_original_motion_get_action_masked = nullptr;
@@ -237,8 +246,10 @@ int64_t g_systemui_arbiter_generation = 0;
 uint32_t g_systemui_arbiter_ready = 0;
 __attribute__((used)) volatile uint32_t g_contextual_search_enabled = 0;
 uint32_t g_entry_reported = 0;
+#ifndef MIUI_HOME_LSPOSED_NATIVE
 uint32_t g_shell_hook_state = 0;
 uint32_t g_app_public_hook_state = 0;
+#endif
 uint32_t g_business_hook_state = 0;
 uint32_t g_arbiter_bridge_hook_state = 0;
 // HYOS runtime registration states: 0 not attempted, 1 registering,
@@ -565,6 +576,30 @@ bool IsLauncherProcess() {
             StringsEqual(command_line, kLauncherProcessName);
 }
 
+#ifdef MIUI_HOME_LSPOSED_NATIVE
+bool IsHyosSpawnerProcessFamily() {
+    char executable[128]{};
+    const ssize_t length = readlink("/proc/self/exe", executable,
+                                    sizeof(executable) - 1u);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(executable)) {
+        return false;
+    }
+    executable[length] = '\0';
+    return StringsEqual(executable, kSpawnerPath);
+}
+
+void MarkLsposedLauncherSpecialized() {
+    if (__atomic_exchange_n(&g_hyos_launcher_specialized, uint32_t{1},
+                            __ATOMIC_ACQ_REL) != 0u) {
+        return;
+    }
+    __atomic_fetch_add(&g_hyos_specialize_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    RecordFirstLifecycleSequence(&g_hyos_specialize_sequence,
+                                 NextHyosLifecycleSequence());
+}
+#endif
+
 bool ReadFullyAt(int fd, void* destination, size_t size, off_t offset) {
     auto* cursor = static_cast<uint8_t*>(destination);
     while (size != 0u) {
@@ -667,9 +702,10 @@ bool ValidateSpawnerBuildId() {
 }
 
 bool IsExplicitlyEnabled() {
-    // Reaching OnModuleLoaded already proves Zygisk Next enabled and injected
-    // this module. hyos_spawner's SELinux domain cannot read /data/adb/modules,
-    // so a module-local marker cannot be a valid in-process gate.
+    // Reaching either owner entry proves that the framework enabled and
+    // injected this payload. hyos_spawner's SELinux domain cannot read
+    // /data/adb/modules, so a module-local marker cannot be a valid in-process
+    // gate.
     return true;
 }
 
@@ -3684,6 +3720,7 @@ void ObserveLauncherSymbol(void* handle, const char* symbol, void* result) {
     }
 }
 
+#ifndef MIUI_HOME_LSPOSED_NATIVE
 void* HookAppPublicDlsym(void* handle, const char* symbol) {
     DlsymFn original = reinterpret_cast<DlsymFn>(
             AtomicLoad(&g_original_app_public_dlsym));
@@ -3795,7 +3832,47 @@ void InstallShellHooks() {
     }
     AtomicStore(&g_shell_hook_state, uint32_t{3});
 }
+#endif
 
+#ifdef MIUI_HOME_LSPOSED_NATIVE
+void OnLsposedLibraryLoaded(const char* name, void* handle) {
+    if (!IsExplicitlyEnabled() || name == nullptr || handle == nullptr) return;
+
+    if (EndsWith(name, kHyperRuntimeName)) {
+        EnsureLsposedMadviseGuard();
+    }
+    ObserveLauncherHandle(name, handle);
+    if (IsLauncherLibraryPath(name) && IsLauncherProcess()) {
+        if (!EnsureLsposedMadviseGuard()) {
+            Log(ANDROID_LOG_ERROR,
+                "LSPosed launcher hooks rejected without madvise guard");
+            return;
+        }
+        void* app_entry_point = dlsym(handle, kLauncherEntrySymbol);
+        ObserveLauncherSymbol(handle, kLauncherEntrySymbol, app_entry_point);
+        if (app_entry_point != nullptr) {
+            AtomicStore(&g_launcher_handle, handle);
+            if (InstallLauncherInputHooksForProfile(app_entry_point)) {
+                InstallBusinessHooksForProfile(app_entry_point);
+            } else {
+                Log(ANDROID_LOG_ERROR,
+                    "LSPosed callback rejected launcher input hook setup");
+            }
+        }
+    }
+
+    if (IsDartLibraryPath(name) && IsLauncherProcess()) {
+        const auto* profile = ResolveDartFeatureProfile(handle);
+        if (profile != nullptr) {
+            TryInstallDartDrawerStateHook(handle, profile);
+            TryInstallDartOverviewStateHook(handle, profile);
+        }
+    }
+    TryInstallArbiterBridge();
+}
+#endif
+
+#ifndef MIUI_HOME_LSPOSED_NATIVE
 void* HookDlopen(const char* filename, int flags) {
     DlopenFn original = reinterpret_cast<DlopenFn>(
             AtomicLoad(&g_original_dlopen));
@@ -3817,7 +3894,9 @@ void* HookDlsym(void* handle, const char* symbol) {
     ObserveLauncherSymbol(handle, symbol, result);
     return result;
 }
+#endif
 
+#ifndef MIUI_HOME_LSPOSED_NATIVE
 void OnHyosAppSpecialized(const ZnHyosAppSpecializeArgs* args) {
     const uint64_t sequence = NextHyosLifecycleSequence();
     __atomic_fetch_add(&g_hyos_specialize_count, uint32_t{1},
@@ -3938,6 +4017,7 @@ void OnModuleLoaded(void*, const ZygiskNextAPI* api) {
     }
     Log(ANDROID_LOG_INFO, "hyos_spawner loader observation installed");
 }
+#endif
 
 }  // namespace
 
@@ -3960,7 +4040,39 @@ void MiuiHomeHyosInputMonitorPilferImpl(void* monitor, uintptr_t return_pc) {
 }
 
 extern "C" __attribute__((visibility("default"), unused))
+#ifdef MIUI_HOME_LSPOSED_NATIVE
+NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
+    if (!InitializeLsposedCompatibilityApi(entries, &g_api)) {
+        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{4},
+                         __ATOMIC_RELEASE);
+        return nullptr;
+    }
+    if (!IsHyosSpawnerProcessFamily() || !IsLauncherProcess()) {
+        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_WARN,
+            "LSPosed native entry rejected a non-launcher HYOS process");
+        return nullptr;
+    }
+    if (!ValidateSpawnerBuildId()) {
+        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{7},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_ERROR, "unsupported hyos_spawner Build ID");
+        return nullptr;
+    }
+    MarkLsposedLauncherSpecialized();
+    __atomic_store_n(&g_hyos_runtime_type, uint32_t{2}, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_hyos_runtime_api_version, entries->version,
+                     __ATOMIC_RELAXED);
+    __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    Log(ANDROID_LOG_INFO,
+        "LSPosed native hook initialized in MiuiHome HYOS child");
+    return OnLsposedLibraryLoaded;
+}
+#else
 ZygiskNextModule zn_module = {
         ZYGISK_NEXT_API_VERSION,
         OnModuleLoaded,
 };
+#endif

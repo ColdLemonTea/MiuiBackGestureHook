@@ -1,5 +1,14 @@
 # MiuiHome Android 17 native handoff
 
+> Migration status: the APK contains `libmiui_home_hyos_lsp.so`, declared
+> through `META-INF/xposed/native_init.list`. The internal LSPosed build owns
+> HYOS injection and the APK exports only the normal `native_init` entry. Until
+> LSPosed exposes a hook-page lifecycle API, this entry installs a bounded
+> MiCTS-style `madvise` guard first and excludes its exact inline and PLT/GOT
+> pages from Xiaomi's `MADV_DONTNEED` ranges. Guard failure leaves all business
+> hooks disabled. The standalone Zygisk Next target remains only for rollback
+> and must never run beside the LSPosed native owner.
+
 This directory builds the Zygisk Next half of the Android 17 back-gesture
 handoff. Xiaomi's native MiuiHome runtime remains the physical side-window and
 DOWN owner; this module identifies an accepted launcher stream and publishes
