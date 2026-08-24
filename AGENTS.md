@@ -11,29 +11,24 @@ This repository is an LSPosed module for researching Xiaomi/MIUI back gesture be
   writes a property, even when it would write the value already present.
 - Do not rely on a native child process reading `/data/adb/modules`: the
   `hyos_spawner`/MiuiHome SELinux domains cannot use module-local marker files
-  as in-process gates. For the migrated path, LSPosed's module enabled/scope
-  state and framework-owned HYOS injection are the sole runtime control;
+  as in-process gates. LSPosed's module enabled/scope state and framework-owned
+  HYOS injection are the sole runtime control;
   validated 4371 business/bridge hooks are compile-time parts of the APK's
   native entry. The rejected native-receiver experiment stays compile-time
-  disabled. Never enable the legacy standalone ZN owner together with the
-  LSPosed native owner, and never install a controller under `/system/bin`.
+  disabled. This branch has no standalone native-module package or controller;
+  never install a controller under `/system/bin`.
 - Never overwrite or truncate the active native module file while any process
-  maps it. Stage an update at a distinct path/inode, stop or replace the exact
-  owning spawner through the approved no-property workflow, and only then make
-  the staged file active. An in-place `cp` over a mapped ELF is forbidden.
-- Every live legacy `miui-home-hyos-zn` update, activation, evidence capture, and
-  rollback must use
-  `miui-home-hyos-zn/safe-device-test.ps1`. Do not deploy this
-  experiment with a direct `ksud module install`, direct `adb push` into the
-  active module, a hand-written `zygiskd` sequence, or ad-hoc process signals.
-  The script must verify the exact active static profile or caller-confirmed
-  `54xx`-or-later dynamic build, one immutable package SHA-256, a distinct
-  staged inode and matching native hash, the exact root
-  PPID-1 spawner, absence of old mappings before activation, ZN injection, the
-  normal Launcher parent/mapping, and no new activation tombstone. Any failed
-  invariant must disable only this ZN module and restore a clean spawner/Home.
-  The migrated APK native entry is delivered only through LSPosed's normal
-  module flow; do not extract or push its `.so` into either active module.
+  maps it. The native entry is delivered only as part of a complete APK through
+  PackageManager and LSPosed; never extract, push, overwrite, or activate its
+  `.so` separately. Replace the exact owning spawner through the approved
+  no-property workflow so the new APK inode becomes active.
+- Every iterative LSPosed native APK update must use
+  `miui-home-hyos-zn/safe-lsposed-native-deploy.ps1`. It must install the whole
+  APK through PackageManager, prove the SystemUI API-102 hot reload without a
+  SystemUI restart, and replace only the exact root `hyos_spawner` through the
+  no-property workflow. It must verify the new Launcher parent, current APK
+  mapping/inode, native readiness, and no new tombstone. Never use this script
+  while a retired standalone owner remains mapped.
 - A formal native handoff test is one activation followed by exactly one fresh
   side gesture and one evidence capture. If a build cannot obtain arbiter
   readiness until MiuiHome first reaches its processor, label one separate
@@ -313,6 +308,16 @@ Same-activity and input rules:
 
 Recents ownership rules:
 
+- Mirror Xiaomi voice-assistant visibility from the exact native
+  `type_from`/`isEnter` Bundle call graph. Resolve that call site dynamically
+  from the mapped launcher's ELF imports and instruction/data relationships;
+  never add a launcher-version offset or fixed XiaoAi profile. Missing or
+  ambiguous resolution disables only this optional state bridge. Publish the
+  observed state through the existing authenticated, generation-bound
+  MiuiHome-to-SystemUI channel. While XiaoAi overlays launcher Home, probe
+  Shell once on `ACTION_DOWN`, accept only `TYPE_CALLBACK`, and otherwise
+  leave the stream unpilfered. Do not hook the voice-assistant process, invoke
+  its private APIs, or synthesize BACK.
 - Track the launcher's existing overview state and task-launch exit signals in SystemUI.
 - Mirror state through the explicit SystemUI-targeted identity-sharing broadcast. Validate
   that the sending UID owns `com.miui.home` and the shared caller package is exactly
@@ -743,9 +748,9 @@ dev.codex.miuibackgesturehook.MiuiBackGestureHook
 ## MiuiHome Native Crash Recovery
 
 - If a native MiuiHome experiment crashes into a loop, first fail closed through
-  the approved rollback script: disable the ZN module, restart only the exact
-  `hyos_spawner`, and explicitly start Home. Never clear or write RescueParty
-  properties, and do not clear launcher application data.
+  `safe-lsposed-native-deploy.ps1`'s PackageManager rollback path, replace only
+  the exact `hyos_spawner`, and explicitly start Home. Never clear or write
+  RescueParty properties, and do not clear launcher application data.
 - Once the crash loop has stopped and `SafeLauncher` is stable, explicitly ask the user
   to reinstall the exact previously active supported MiuiHome package once. Do not repeatedly send
   `exit_safeMode`, repeatedly start `.launcher.Launcher`, or assume those actions can
@@ -756,7 +761,7 @@ dev.codex.miuibackgesturehook.MiuiBackGestureHook
   reinstall that exact package once only if rollback plus that start still
   leaves persistent SafeLauncher/crash-loop state. After completion, verify
   the exact package identity, the normal Launcher component, absence of a continuing native
-  crash loop, and the disabled ZN gate before any further test.
+  crash loop, and the current APK native generation before any further test.
 
 - Prefer Java for hook/runtime code; keep the existing Kotlin/Compose application UI in Kotlin.
 - Use the modern LSPosed/libxposed API already declared by the project.

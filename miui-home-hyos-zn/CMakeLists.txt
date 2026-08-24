@@ -2,13 +2,10 @@ cmake_minimum_required(VERSION 3.22)
 
 project(miui_home_hyos_native LANGUAGES CXX ASM)
 
-option(MIUI_HOME_BUILD_LSPOSED_NATIVE
-       "Build the native hook inside the LSPosed module APK" OFF)
-
 if(NOT DEFINED LAUNCHER_PROFILE_INCLUDE_DIR OR
-   NOT EXISTS "${LAUNCHER_PROFILE_INCLUDE_DIR}/launcher_profiles.generated.h")
+    NOT EXISTS "${LAUNCHER_PROFILE_INCLUDE_DIR}/launcher_profiles.generated.h")
     message(FATAL_ERROR
-        "Generate launcher profiles through build.ps1 before configuring CMake")
+        "Generate launcher_profiles.generated.h before configuring CMake")
 endif()
 
 if(NOT ANDROID)
@@ -19,32 +16,19 @@ if(NOT "${ANDROID_ABI}" STREQUAL "arm64-v8a")
     message(FATAL_ERROR "Only arm64-v8a is supported; got '${ANDROID_ABI}'")
 endif()
 
-if(MIUI_HOME_BUILD_LSPOSED_NATIVE)
-    find_package(lsplt REQUIRED CONFIG)
+find_package(lsplt REQUIRED CONFIG)
 
-    set(MIUI_HOME_NATIVE_SOURCES
-        zn_module.cpp
-        lsposed_native_bridge.cpp
-        runtime_profile_resolver.cpp
-        dart_runtime_resolver.cpp
-        broadcast_options_tail_hook.S
-        dart_state_hooks.S
-        input_monitor_pilfer_hook.S
-    )
-    set(MIUI_HOME_NATIVE_TARGET miui_home_hyos_lsp)
-    set(MIUI_HOME_NATIVE_EXPORTS exports-lsposed.map)
-else()
-    set(MIUI_HOME_NATIVE_SOURCES
-        zn_module.cpp
-        runtime_profile_resolver.cpp
-        dart_runtime_resolver.cpp
-        broadcast_options_tail_hook.S
-        dart_state_hooks.S
-        input_monitor_pilfer_hook.S
-    )
-    set(MIUI_HOME_NATIVE_TARGET miui_home_hyos_zn)
-    set(MIUI_HOME_NATIVE_EXPORTS exports.map)
-endif()
+set(MIUI_HOME_NATIVE_SOURCES
+    zn_module.cpp
+    lsposed_native_bridge.cpp
+    runtime_profile_resolver.cpp
+    dart_runtime_resolver.cpp
+    broadcast_options_tail_hook.S
+    dart_state_hooks.S
+    input_monitor_pilfer_hook.S
+)
+set(MIUI_HOME_NATIVE_TARGET miui_home_hyos_lsp)
+set(MIUI_HOME_NATIVE_EXPORTS exports-lsposed.map)
 
 add_library(${MIUI_HOME_NATIVE_TARGET} SHARED ${MIUI_HOME_NATIVE_SOURCES})
 
@@ -76,18 +60,11 @@ target_link_options(${MIUI_HOME_NATIVE_TARGET} PRIVATE
     -Wl,-z,now
 )
 
-if(MIUI_HOME_BUILD_LSPOSED_NATIVE)
-    target_link_options(${MIUI_HOME_NATIVE_TARGET} PRIVATE "-Wl,-rpath,$ORIGIN")
-endif()
+target_link_options(${MIUI_HOME_NATIVE_TARGET} PRIVATE "-Wl,-rpath,$ORIGIN")
 
-target_link_libraries(${MIUI_HOME_NATIVE_TARGET} PRIVATE log)
-if(NOT MIUI_HOME_BUILD_LSPOSED_NATIVE)
-    target_link_libraries(${MIUI_HOME_NATIVE_TARGET} PRIVATE dl)
-else()
-    target_link_libraries(${MIUI_HOME_NATIVE_TARGET} PRIVATE dl lsplt::lsplt)
-    target_compile_definitions(${MIUI_HOME_NATIVE_TARGET} PRIVATE
-        MIUI_HOME_LSPOSED_NATIVE=1)
-endif()
+target_link_libraries(${MIUI_HOME_NATIVE_TARGET} PRIVATE log dl lsplt::lsplt)
+target_compile_definitions(${MIUI_HOME_NATIVE_TARGET} PRIVATE
+    MIUI_HOME_LSPOSED_NATIVE=1)
 
 set_target_properties(${MIUI_HOME_NATIVE_TARGET} PROPERTIES
     CXX_EXTENSIONS OFF

@@ -122,6 +122,9 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
         miuiLauncherOpenActive = false;
         miuiLauncherOpenBreakAvailable = false;
         miuiLauncherOpenBreakGeneration = 0L;
+        // The replacement SystemUI generation must obtain a fresh,
+        // authenticated native publication before XiaoAi can be claimed.
+        miuiLauncherXiaoAiVisible = false;
         acceptedInputToken.set(null);
         miuiHomeAcceptedInputIdentity.set(null);
         Object[] savedContextualSearchNavigationBars =

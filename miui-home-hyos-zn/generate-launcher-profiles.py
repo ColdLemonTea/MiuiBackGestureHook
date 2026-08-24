@@ -235,6 +235,9 @@ def generate(manifest: dict) -> str:
                 f"        {hex_literal(contextual.get('invoke_offset')) if has_contextual else '0u'},",
                 f"        {contextual_invoke_name if has_contextual else 'nullptr'},",
                 f"        sizeof({contextual_invoke_name})," if has_contextual else "        0u,",
+                # XiaoAi visibility is intentionally runtime-resolved from the
+                # imported Bundle call graph. Static manifests never supply it.
+                "        0u,",
                 f"        {hex_literal(pilfer.get('accepted_return_offset'))},",
                 f"        {hex_literal(pilfer.get('home_return_offset'))},",
                 f"        {caller_name if has_caller else 'nullptr'},",

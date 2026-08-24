@@ -41,18 +41,22 @@ struct ResolutionDiagnostics {
     uint32_t contextual_invoke_candidate_count;
     uint32_t contextual_long_press_candidate_count;
     uint32_t contextual_resolved;
+    uint32_t xiaoai_candidate_count;
+    uint32_t xiaoai_resolved;
     uintptr_t side_handler_offset;
     uintptr_t runtime_pointer_offset;
     uintptr_t runtime_state_offset;
     uintptr_t rstring_vtable_offset;
     uintptr_t contextual_search_invoke_offset;
     uintptr_t contextual_long_press_handler_offset;
+    uintptr_t xiaoai_bundle_bool_return_offset;
 };
 
 // Resolves only the Android 17 side-boundary launcher family. Every published
 // address is backed by a mapped ELF segment and the expected imported/internal
-// call graph. The contextual-search extension is optional: ambiguity leaves
-// all of its profile fields empty without weakening the base side profile.
+// call graph. The contextual-search and XiaoAi visibility extensions are
+// optional: ambiguity leaves their profile fields empty without weakening the
+// base side profile.
 bool ResolveSideBoundaryProfile(const uint8_t* base, void* app_entry_point,
                                 ResolutionStorage* storage,
                                 ResolutionDiagnostics* diagnostics);

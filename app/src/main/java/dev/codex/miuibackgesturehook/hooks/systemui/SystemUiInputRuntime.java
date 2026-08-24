@@ -804,6 +804,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         protected boolean launcherOpenBreakCandidate;
         protected long launcherOpenBreakGenerationCandidate;
         protected boolean launcherShadeCandidate;
+        protected boolean launcherXiaoAiCandidate;
         protected boolean launcherDrawerCandidate;
         protected boolean launcherEditingCandidate;
         protected boolean miuiHomeInputAccepted;
@@ -962,6 +963,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     + ", launcherOpenBreakGeneration="
                     + launcherOpenBreakGenerationCandidate
                     + ", launcherShade=" + launcherShadeCandidate
+                    + ", launcherXiaoAi=" + launcherXiaoAiCandidate
                     + ", launcherDrawerOrFolder=" + launcherDrawerCandidate
                     + ", launcherEditing=" + launcherEditingCandidate
                     + ", inputModel=miuihome-accepted-token"
@@ -1000,7 +1002,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 // and never retry this gesture against a later navigation target.
                 if (!driver.handleTouch(event, activeEdge, launcherOpenBreakCandidate,
                         launcherOpenBreakGenerationCandidate, launcherShadeCandidate,
-                        launcherDrawerCandidate,
+                        launcherXiaoAiCandidate, launcherDrawerCandidate,
                         launcherEditingCandidate)) {
                     resetCandidate();
                     return false;
@@ -1010,7 +1012,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             if (!pilfered && driver.isGestureSuppressed()) {
                 driver.handleTouch(event, activeEdge, launcherOpenBreakCandidate,
                         launcherOpenBreakGenerationCandidate, launcherShadeCandidate,
-                        launcherDrawerCandidate,
+                        launcherXiaoAiCandidate, launcherDrawerCandidate,
                         launcherEditingCandidate);
                 return false;
             }
@@ -1029,7 +1031,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             }
             if (!driver.handleTouch(event, activeEdge, launcherOpenBreakCandidate,
                     launcherOpenBreakGenerationCandidate, launcherShadeCandidate,
-                    launcherDrawerCandidate,
+                    launcherXiaoAiCandidate, launcherDrawerCandidate,
                     launcherEditingCandidate)) {
                 resetCandidate();
                 return false;
@@ -1049,6 +1051,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         launcherOpenBreakCandidate,
                         launcherOpenBreakGenerationCandidate,
                         launcherShadeCandidate,
+                        launcherXiaoAiCandidate,
                         launcherDrawerCandidate,
                         launcherEditingCandidate)) {
                     moduleLog(Log.INFO, TAG, "MiuiHome accepted DOWN but SystemUI path declined"
@@ -1129,7 +1132,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 cancel.setAction(MotionEvent.ACTION_CANCEL);
                 driver.handleTouch(cancel, activeEdge, launcherOpenBreakCandidate,
                         launcherOpenBreakGenerationCandidate, launcherShadeCandidate,
-                        launcherDrawerCandidate,
+                        launcherXiaoAiCandidate, launcherDrawerCandidate,
                         launcherEditingCandidate);
                 cancel.recycle();
             } catch (Throwable throwable) {
@@ -1159,19 +1162,19 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 // active, and the monitor must not claim this input stream.
                 driver.handleTouch(event, activeEdge, launcherOpenBreakCandidate,
                         launcherOpenBreakGenerationCandidate, launcherShadeCandidate,
-                        launcherDrawerCandidate,
+                        launcherXiaoAiCandidate, launcherDrawerCandidate,
                         launcherEditingCandidate);
             } else if (allowTrigger && pilfered) {
                 driver.handleTouch(event, activeEdge, launcherOpenBreakCandidate,
                         launcherOpenBreakGenerationCandidate, launcherShadeCandidate,
-                        launcherDrawerCandidate,
+                        launcherXiaoAiCandidate, launcherDrawerCandidate,
                         launcherEditingCandidate);
             } else {
                 MotionEvent cancel = MotionEvent.obtain(event);
                 cancel.setAction(MotionEvent.ACTION_CANCEL);
                 driver.handleTouch(cancel, activeEdge, launcherOpenBreakCandidate,
                         launcherOpenBreakGenerationCandidate, launcherShadeCandidate,
-                        launcherDrawerCandidate,
+                        launcherXiaoAiCandidate, launcherDrawerCandidate,
                         launcherEditingCandidate);
                 cancel.recycle();
             }
@@ -1191,7 +1194,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 cancel.setAction(MotionEvent.ACTION_CANCEL);
                 driver.handleTouch(cancel, activeEdge, launcherOpenBreakCandidate,
                         launcherOpenBreakGenerationCandidate, launcherShadeCandidate,
-                        launcherDrawerCandidate,
+                        launcherXiaoAiCandidate, launcherDrawerCandidate,
                         launcherEditingCandidate);
                 cancel.recycle();
             } catch (Throwable throwable) {
@@ -1330,25 +1333,32 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     && isLauncherHomeComponent(topActivity);
             boolean launcherShade = launcherHome && displayId == 0
                     && isMiuiShadeExpanded();
+            boolean launcherXiaoAi = launcherHome && displayId == 0
+                    && !launcherShade
+                    && miuiLauncherXiaoAiVisible;
             boolean launcherOpenBreak = displayId == 0
                     && !launcherShade
+                    && !launcherXiaoAi
                     && !miuiOverviewVisible
                     && miuiLauncherOpenActive
                     && miuiLauncherOpenBreakGeneration != 0L
                     && launcherOpenBreakCommandsInFlight.get() == 0;
             boolean launcherDrawer = launcherHome
                     && !launcherShade
+                    && !launcherXiaoAi
                     && miuiDrawerVisible
                     && !miuiOverviewVisible
                     && !launcherOpenBreak;
             boolean launcherFolder = launcherHome
                     && !launcherShade
+                    && !launcherXiaoAi
                     && miuiFolderVisible
                     && !miuiOverviewVisible
                     && !launcherOpenBreak
                     && !launcherDrawer;
             boolean launcherEditing = launcherHome
                     && !launcherShade
+                    && !launcherXiaoAi
                     && miuiLauncherEditing
                     && !miuiOverviewVisible
                     && !launcherOpenBreak
@@ -1356,12 +1366,14 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     && !launcherFolder;
             if (launcherHome && !miuiOverviewVisible
                     && !launcherOpenBreak && !launcherShade
+                    && !launcherXiaoAi
                     && !launcherDrawer && !launcherFolder
                     && !launcherEditing) {
                 moduleLog(Log.INFO, TAG, "Ignored native back on launcher Home"
                         + ", topActivity=" + topActivity.flattenToShortString()
                         + ", overviewVisible=false"
                         + ", launcherShade=false"
+                        + ", launcherXiaoAi=false"
                         + ", launcherDrawer=false"
                         + ", launcherFolder=false"
                         + ", launcherEditing=false"
@@ -1384,6 +1396,13 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             if (launcherShade) {
                 moduleLog(Log.INFO, TAG,
                         "Accepted native back for NotificationShade over MiuiHome Home"
+                                + ", requireShellCallback=true"
+                                + ", displayId=" + displayId
+                                + ", edge=" + edge);
+            }
+            if (launcherXiaoAi) {
+                moduleLog(Log.INFO, TAG,
+                        "Accepted native back for XiaoAi over MiuiHome Home"
                                 + ", requireShellCallback=true"
                                 + ", displayId=" + displayId
                                 + ", edge=" + edge);
@@ -1474,6 +1493,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             launcherOpenBreakGenerationCandidate = launcherOpenBreak
                     ? miuiLauncherOpenBreakGeneration : 0L;
             launcherShadeCandidate = launcherShade;
+            launcherXiaoAiCandidate = launcherXiaoAi;
             // Drawer and folder are mutually exclusive launcher surfaces with the same
             // callback-only Shell contract, so they share the established probe path.
             launcherDrawerCandidate = launcherDrawer || launcherFolder;
@@ -1800,6 +1820,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             launcherOpenBreakCandidate = false;
             launcherOpenBreakGenerationCandidate = 0L;
             launcherShadeCandidate = false;
+            launcherXiaoAiCandidate = false;
             launcherDrawerCandidate = false;
             launcherEditingCandidate = false;
             miuiHomeInputAccepted = false;
@@ -1955,6 +1976,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         protected long pendingLauncherOpenBreakAttemptId;
         protected boolean launcherOverviewGesture;
         protected boolean launcherShadeGesture;
+        protected boolean launcherXiaoAiGesture;
         protected boolean launcherDrawerGesture;
         protected boolean launcherEditingGesture;
         protected boolean recentsVisualOnlyGesture;
@@ -2108,6 +2130,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                     boolean launcherOpenBreakCandidate,
                                     long launcherOpenBreakGenerationCandidate,
                                     boolean launcherShadeCandidate,
+                                    boolean launcherXiaoAiCandidate,
                                     boolean launcherDrawerCandidate,
                                     boolean launcherEditingCandidate) {
             try {
@@ -2116,6 +2139,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         return onDown(event, edge, launcherOpenBreakCandidate,
                                 launcherOpenBreakGenerationCandidate,
                                 launcherShadeCandidate,
+                                launcherXiaoAiCandidate,
                                 launcherDrawerCandidate, launcherEditingCandidate);
                     case MotionEvent.ACTION_MOVE:
                         return onMove(event);
@@ -2179,6 +2203,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                boolean launcherOpenBreakCandidate,
                                long launcherOpenBreakGenerationCandidate,
                                boolean launcherShadeCandidate,
+                               boolean launcherXiaoAiCandidate,
                                boolean launcherDrawerCandidate,
                                boolean launcherEditingCandidate) throws Exception {
             clearLegacyBackGuard("newPhysicalGesture");
@@ -2196,6 +2221,10 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     ? launcherOpenBreakAttemptIds.incrementAndGet() : 0L;
             launcherOverviewGesture = miuiOverviewVisible && !launcherShadeCandidate;
             launcherShadeGesture = launcherShadeCandidate;
+            launcherXiaoAiGesture = launcherXiaoAiCandidate;
+            if (launcherXiaoAiGesture) {
+                launcherOverviewGesture = false;
+            }
             launcherDrawerGesture = launcherDrawerCandidate;
             launcherEditingGesture = launcherEditingCandidate;
             recentsVisualOnlyGesture = false;
@@ -2240,9 +2269,12 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return true;
             }
             if (launcherOverviewGesture || launcherShadeGesture
+                    || launcherXiaoAiGesture
                     || launcherDrawerGesture || launcherEditingGesture) {
                 moduleLog(Log.INFO, TAG, (launcherShadeGesture
                         ? "SystemUI-owned NotificationShade back gesture candidate"
+                        : launcherXiaoAiGesture
+                        ? "SystemUI-owned XiaoAi back gesture candidate"
                         : launcherOverviewGesture
                         ? "SystemUI-owned Recents back gesture candidate"
                         : launcherDrawerGesture
@@ -2264,6 +2296,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     gestureSuppressed = false;
                     moduleLog(Log.INFO, TAG, (launcherShadeGesture
                             ? "Ignored NotificationShade gesture without a callback target"
+                            : launcherXiaoAiGesture
+                            ? "Ignored XiaoAi gesture without a callback target"
                             : launcherDrawerGesture
                             ? "Ignored MiuiHome drawer/folder gesture without a callback target"
                             : launcherEditingGesture
@@ -2284,6 +2318,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     + ", shellStartDeferred=" + shellGestureStartDeferred
                     + ", inputModel=miuihome-accepted-token"
                     + ", launcherShade=" + launcherShadeGesture
+                    + ", launcherXiaoAi=" + launcherXiaoAiGesture
                     + ", launcherDrawerOrFolder=" + launcherDrawerGesture
                     + ", launcherEditing=" + launcherEditingGesture
                     + ", edge=" + activeEdge + ", x=" + downX + ", y=" + downY);
@@ -2731,7 +2766,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             // even when system_server can already return a valid predictive-back navigation;
             // otherwise Shell starts a new cross-activity animation and misses reverse().
             boolean launcherCallbackOnly = launcherOverviewGesture
-                    || launcherShadeGesture || launcherDrawerGesture
+                    || launcherShadeGesture || launcherXiaoAiGesture
+                    || launcherDrawerGesture
                     || launcherEditingGesture;
             OpenTransitionSnapshot runningOpen = launcherCallbackOnly
                     ? null : findReversibleRunningOpenTransition();
@@ -3002,6 +3038,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 if (navigationType != TYPE_CALLBACK) {
                     moduleLog(Log.WARN, TAG, (launcherShadeGesture
                             ? "Rejected non-callback NotificationShade Shell target"
+                            : launcherXiaoAiGesture
+                            ? "Rejected non-callback XiaoAi Shell target"
                             : launcherOverviewGesture
                             ? "Rejected stale Recents Shell target"
                             : launcherDrawerGesture
@@ -3017,6 +3055,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 }
                 moduleLog(Log.INFO, TAG, (launcherShadeGesture
                         ? "Resolved NotificationShade Shell callback, type="
+                        : launcherXiaoAiGesture
+                        ? "Resolved XiaoAi Shell callback, type="
                         : launcherOverviewGesture
                         ? "Resolved Launcher Recents Shell callback, type="
                         : launcherDrawerGesture
@@ -3214,6 +3254,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                             + ", releaseAllowed=false"
                             + ", recentsProbe=" + launcherOverviewGesture
                             + ", shadeProbe=" + launcherShadeGesture
+                            + ", xiaoAiProbe=" + launcherXiaoAiGesture
                             + ", drawerOrFolderProbe=" + launcherDrawerGesture
                             + ", editingProbe=" + launcherEditingGesture
                             + ", shellSessionId=" + session.id
@@ -3260,6 +3301,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             launcherOpenBreakAttemptId = 0L;
             launcherOverviewGesture = false;
             launcherShadeGesture = false;
+            launcherXiaoAiGesture = false;
             launcherDrawerGesture = false;
             launcherEditingGesture = false;
             recentsVisualOnlyGesture = false;

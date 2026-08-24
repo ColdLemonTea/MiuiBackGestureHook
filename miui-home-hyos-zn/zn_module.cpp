@@ -1,7 +1,4 @@
-#include "zygisk_next_api.h"
-#ifdef MIUI_HOME_LSPOSED_NATIVE
 #include "native_api.h"
-#endif
 #include "dart_runtime_resolver.h"
 #include "launcher_profiles.h"
 #include "launcher_profiles.generated.h"
@@ -71,21 +68,13 @@ void* miui_home_hyos_dart_overview_exit_original = nullptr;
 
 namespace {
 
-constexpr char kLogTag[] = "MiuiHomeHyosZn";
+constexpr char kLogTag[] = "MiuiHomeHyosLsp";
 // The first 4371 private-broadcast hook confused its 16-byte Rust x8 result
 // with the public wrapper's 48-byte result and aborted in Scudo.  The raw tail
-// shim preserves that ABI. Device validation remains bounded by the Zygisk
-// Next module enabled state, the exact process, and immutable library IDs.
+// shim preserves that ABI. Device validation remains bounded by LSPosed's
+// module/scope state, the exact process, and immutable library IDs.
 constexpr char kSpawnerPath[] = "/system_ext/bin/hyos_spawner";
-#ifndef MIUI_HOME_LSPOSED_NATIVE
-constexpr char kShellPath[] = "/system_ext/lib64/libhyper_os_shell.so";
-constexpr char kShellName[] = "libhyper_os_shell.so";
-constexpr char kAppPublicPath[] =
-        "/system_ext/lib64/libhyper_os_app_public.so";
-constexpr char kAppPublicName[] = "libhyper_os_app_public.so";
-#else
 constexpr char kHyperRuntimeName[] = "libhyper_os_flutter.so";
-#endif
 constexpr char kBroadcastPrivatePath[] =
         "/system_ext/lib64/libhyper_os_broadcast_private.dylib.so";
 constexpr uintptr_t kBroadcastIntentWithFeatureGotOffset = 0x14ed0u;
@@ -194,13 +183,6 @@ using ApplicationInfoGetUidFn = int32_t (*)(void*);
 using ApplicationInfoDropFn = void (*)(void*);
 
 ZygiskNextAPI g_api{};
-#ifndef MIUI_HOME_LSPOSED_NATIVE
-void* g_original_dlopen = nullptr;
-void* g_original_dlsym = nullptr;
-void* g_original_shell_android_dlopen_ext = nullptr;
-void* g_original_shell_dlsym = nullptr;
-void* g_original_app_public_dlsym = nullptr;
-#endif
 void* g_launcher_handle = nullptr;
 void* g_original_motion_get_action = nullptr;
 void* g_original_motion_get_action_masked = nullptr;
@@ -246,10 +228,6 @@ int64_t g_systemui_arbiter_generation = 0;
 uint32_t g_systemui_arbiter_ready = 0;
 __attribute__((used)) volatile uint32_t g_contextual_search_enabled = 0;
 uint32_t g_entry_reported = 0;
-#ifndef MIUI_HOME_LSPOSED_NATIVE
-uint32_t g_shell_hook_state = 0;
-uint32_t g_app_public_hook_state = 0;
-#endif
 uint32_t g_business_hook_state = 0;
 uint32_t g_arbiter_bridge_hook_state = 0;
 // HYOS runtime registration states: 0 not attempted, 1 registering,
@@ -357,12 +335,20 @@ __attribute__((used)) volatile uint32_t g_overview_dart_repair_attempt_count = 0
 __attribute__((used)) volatile uint32_t g_overview_dart_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_overview_dart_repair_failure_count = 0;
 __attribute__((used)) volatile uint32_t g_overview_dart_repair_stage = 0;
+// XiaoAi visibility encoding: 0 unknown, 1 hidden, 2 visible.
+__attribute__((used)) volatile uint32_t g_xiaoai_state_hook_state = 0;
+__attribute__((used)) volatile uint32_t g_xiaoai_state_observed = 0;
+__attribute__((used)) volatile uint32_t g_xiaoai_published_state = 0;
+__attribute__((used)) volatile int64_t g_xiaoai_published_generation = 0;
+__attribute__((used)) volatile uint32_t g_xiaoai_state_observe_count = 0;
+__attribute__((used)) volatile uint32_t g_xiaoai_state_publish_count = 0;
 __attribute__((used)) volatile uint32_t g_dart_drawer_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_dart_drawer_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_dart_drawer_repair_failure_count = 0;
 __attribute__((used)) volatile uint32_t g_dart_drawer_repair_stage = 0;
 uint32_t g_drawer_state_publish_in_flight = 0;
 uint32_t g_overview_state_publish_in_flight = 0;
+uint32_t g_xiaoai_state_publish_in_flight = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_failure_count = 0;
@@ -386,6 +372,9 @@ __attribute__((used)) volatile uint32_t
         g_dynamic_contextual_long_press_candidate_count = 0;
 __attribute__((used)) volatile uint32_t
         g_dynamic_contextual_resolved = 0;
+__attribute__((used)) volatile uint32_t
+        g_dynamic_xiaoai_candidate_count = 0;
+__attribute__((used)) volatile uint32_t g_dynamic_xiaoai_resolved = 0;
 __attribute__((used)) volatile uintptr_t g_dynamic_side_handler_offset = 0;
 __attribute__((used)) volatile uintptr_t g_dynamic_runtime_pointer_offset = 0;
 __attribute__((used)) volatile uintptr_t g_dynamic_runtime_state_offset = 0;
@@ -394,6 +383,8 @@ __attribute__((used)) volatile uintptr_t
         g_dynamic_contextual_search_invoke_offset = 0;
 __attribute__((used)) volatile uintptr_t
         g_dynamic_contextual_long_press_handler_offset = 0;
+__attribute__((used)) volatile uintptr_t
+        g_dynamic_xiaoai_bundle_bool_return_offset = 0;
 
 constexpr uint32_t kLauncherInputSlotCount = 4u;
 struct LauncherInputHookSlot {
@@ -403,9 +394,11 @@ struct LauncherInputHookSlot {
     void* original_action_masked;
     void* original_pilfer;
     void* original_has_system_feature;
+    void* original_bundle_get_boolean;
     void* original_dlopen;
     uint32_t state;
     uint32_t contextual_search_state;
+    uint32_t xiaoai_state;
 };
 __attribute__((used)) volatile uint32_t g_launcher_input_slot_count = 0;
 __attribute__((used)) LauncherInputHookSlot
@@ -576,7 +569,6 @@ bool IsLauncherProcess() {
             StringsEqual(command_line, kLauncherProcessName);
 }
 
-#ifdef MIUI_HOME_LSPOSED_NATIVE
 bool IsHyosSpawnerProcessFamily() {
     char executable[128]{};
     const ssize_t length = readlink("/proc/self/exe", executable,
@@ -598,7 +590,6 @@ void MarkLsposedLauncherSpecialized() {
     RecordFirstLifecycleSequence(&g_hyos_specialize_sequence,
                                  NextHyosLifecycleSequence());
 }
-#endif
 
 bool ReadFullyAt(int fd, void* destination, size_t size, off_t offset) {
     auto* cursor = static_cast<uint8_t*>(destination);
@@ -841,6 +832,10 @@ const miui_home_profiles::LauncherProfile* ResolveLauncherProfile(
                     __ATOMIC_RELAXED);
             __atomic_store_n(&g_dynamic_contextual_resolved,
                     diagnostics.contextual_resolved, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_xiaoai_candidate_count,
+                    diagnostics.xiaoai_candidate_count, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_dynamic_xiaoai_resolved,
+                    diagnostics.xiaoai_resolved, __ATOMIC_RELAXED);
             __atomic_store_n(&g_dynamic_side_handler_offset,
                     diagnostics.side_handler_offset, __ATOMIC_RELAXED);
             __atomic_store_n(&g_dynamic_runtime_pointer_offset,
@@ -855,6 +850,10 @@ const miui_home_profiles::LauncherProfile* ResolveLauncherProfile(
             __atomic_store_n(
                     &g_dynamic_contextual_long_press_handler_offset,
                     diagnostics.contextual_long_press_handler_offset,
+                    __ATOMIC_RELAXED);
+            __atomic_store_n(
+                    &g_dynamic_xiaoai_bundle_bool_return_offset,
+                    diagnostics.xiaoai_bundle_bool_return_offset,
                     __ATOMIC_RELAXED);
             __atomic_store_n(&g_dynamic_profile_state,
                     static_cast<uint32_t>(diagnostics.stage),
@@ -915,6 +914,7 @@ const miui_home_profiles::LauncherProfile* CurrentDartFeatureProfile() {
 bool HandleRuntimeStatusQuery(void* intent);
 void PublishDrawerStateForCurrentGeneration();
 void PublishOverviewStateForCurrentGeneration();
+void PublishXiaoAiStateForCurrentGeneration();
 bool TryInstallDartDrawerStateHook(
         void* dart_handle,
         const miui_home_profiles::LauncherProfile* profile);
@@ -1136,6 +1136,7 @@ void HookBroadcastReceiverOnReceive(void* receiver, void* context, void* intent)
         original(receiver, context, intent);
         PublishDrawerStateForCurrentGeneration();
         PublishOverviewStateForCurrentGeneration();
+        PublishXiaoAiStateForCurrentGeneration();
         return;
     }
     original(receiver, context, intent);
@@ -1556,6 +1557,45 @@ void HandleOverviewStateObserved(bool visible) {
     PublishOverviewStateForCurrentGeneration();
 }
 
+void PublishXiaoAiStateForCurrentGeneration() {
+    const uint32_t observed = AtomicLoad(&g_xiaoai_state_observed);
+    const int64_t generation = AtomicLoad(&g_systemui_arbiter_generation);
+    if ((observed != 1u && observed != 2u) || generation <= 0 ||
+            (AtomicLoad(&g_xiaoai_published_state) == observed &&
+             AtomicLoad(&g_xiaoai_published_generation) == generation)) {
+        return;
+    }
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_xiaoai_state_publish_in_flight, &expected, uint32_t{1},
+                false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return;
+    }
+    BundleDefaultFn bundle_default = ResolveLauncherSymbol<BundleDefaultFn>(
+            "Bundle_default");
+    void* extras = bundle_default == nullptr ? nullptr : bundle_default();
+    const bool sent = extras != nullptr &&
+            AddBundleBool(extras, "xiaoai_visible", observed == 2u) &&
+            AddBundleI64(extras, "input_arbiter_generation", generation) &&
+            SendNativeBroadcast(kAcceptedStateAction, extras);
+    if (sent && AtomicLoad(&g_xiaoai_state_observed) == observed &&
+            AtomicLoad(&g_systemui_arbiter_generation) == generation) {
+        __atomic_store_n(&g_xiaoai_published_state, observed,
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_xiaoai_published_generation, generation,
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_xiaoai_state_publish_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                            "published native XiaoAi visible=%u generation=%lld",
+                            observed == 2u ? 1u : 0u,
+                            static_cast<long long>(generation));
+    } else if (!sent) {
+        Log(ANDROID_LOG_WARN, "native XiaoAi state broadcast failed");
+    }
+    AtomicStore(&g_xiaoai_state_publish_in_flight, uint32_t{0});
+}
+
 bool HandleRuntimeStatusQuery(void* intent) {
     IntentGetSenderPackageFn get_sender =
             ResolveLauncherSymbol<IntentGetSenderPackageFn>(
@@ -1633,6 +1673,9 @@ bool HandleRuntimeStatusQuery(void* intent) {
                            drawer_ready) ||
             !AddBundleBool(response, "status_native_overview_state_ready",
                            overview_ready) ||
+            !AddBundleBool(response, "status_native_xiaoai_state_ready",
+                           AtomicLoad(&g_xiaoai_state_hook_state) ==
+                                   uint32_t{3}) ||
             !AddBundleI64(response, kRuntimeStatusNonceExtra, nonce) ||
             !AddBundleI64(response, "status_native_profile_entry_offset",
                           profile_resolved
@@ -1665,6 +1708,10 @@ bool HandleRuntimeStatusQuery(void* intent) {
                           AtomicLoad(&g_drawer_state_hook_state)) ||
             !AddBundleI32(response, "status_native_overview_state_hook",
                           AtomicLoad(&g_overview_state_hook_state)) ||
+            !AddBundleI32(response, "status_native_xiaoai_state_hook",
+                          AtomicLoad(&g_xiaoai_state_hook_state)) ||
+            !AddBundleI32(response, "status_native_xiaoai_candidates",
+                          AtomicLoad(&g_dynamic_xiaoai_candidate_count)) ||
             !AddBundleI32(response, "status_native_receiver_state",
                           AtomicLoad(&g_native_receiver_state))) {
         __atomic_store_n(&g_runtime_status_last_state, uint32_t{3},
@@ -2259,6 +2306,55 @@ NativeResult HookPackageManagerHasSystemFeature3(
     return HookPackageManagerHasSystemFeatureForSlot(
             package_manager, name, name_length, flags, 3u);
 }
+
+uint64_t HookBundleGetBooleanForSlot(void* bundle, const char* key,
+                                     size_t key_length,
+                                     uint32_t slot_index,
+                                     uintptr_t return_pc) {
+    if (slot_index >= kLauncherInputSlotCount) return uint64_t{1};
+    LauncherInputHookSlot& slot = g_launcher_input_slots[slot_index];
+    BundleGetBoolFn original = reinterpret_cast<BundleGetBoolFn>(
+            AtomicLoad(&slot.original_bundle_get_boolean));
+    if (original == nullptr) return uint64_t{1};
+    const uint64_t result = original(bundle, key, key_length);
+    const uintptr_t base = AtomicLoad(&slot.base);
+    const auto* profile = AtomicLoad(&slot.profile);
+    const bool exact_xiaoai_call =
+            AtomicLoad(&slot.xiaoai_state) == uint32_t{3} &&
+            base != 0u && profile != nullptr &&
+            profile->xiaoai_bundle_bool_return_offset != 0u &&
+            return_pc == base +
+                    profile->xiaoai_bundle_bool_return_offset &&
+            key != nullptr && key_length == 7u &&
+            memcmp(key, "isEnter", 7u) == 0;
+    if (!exact_xiaoai_call || (result & uint64_t{1}) != 0u) return result;
+    // The exact live voice-assistant window and this caller's isEnter result
+    // were observed together: true means the overlay is showing. Publish the
+    // semantic visibility while preserving malformed/error results above.
+    const uint32_t observed = ((result >> 8u) & uint64_t{1}) != 0u
+            ? uint32_t{2} : uint32_t{1};
+    __atomic_fetch_add(&g_xiaoai_state_observe_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    __atomic_store_n(&g_xiaoai_state_observed, observed, __ATOMIC_RELEASE);
+    PublishXiaoAiStateForCurrentGeneration();
+    return result;
+}
+
+#define DEFINE_XIAOAI_BOOLEAN_HOOK(index)                                  \
+    uint64_t HookBundleGetBoolean##index(                                  \
+            void* bundle, const char* key, size_t key_length) {            \
+        const uintptr_t return_pc = reinterpret_cast<uintptr_t>(           \
+                __builtin_extract_return_addr(__builtin_return_address(0))); \
+        return HookBundleGetBooleanForSlot(                                \
+                bundle, key, key_length, index##u, return_pc);             \
+    }
+
+DEFINE_XIAOAI_BOOLEAN_HOOK(0)
+DEFINE_XIAOAI_BOOLEAN_HOOK(1)
+DEFINE_XIAOAI_BOOLEAN_HOOK(2)
+DEFINE_XIAOAI_BOOLEAN_HOOK(3)
+
+#undef DEFINE_XIAOAI_BOOLEAN_HOOK
 
 const miui_home_profiles::LauncherProfile* ResolveDartFeatureProfile(
         void* dart_handle) {
@@ -3326,6 +3422,10 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
             HookPackageManagerHasSystemFeature2,
             HookPackageManagerHasSystemFeature3,
     };
+    constexpr BundleGetBoolFn kXiaoAiBooleanHooks[kLauncherInputSlotCount] = {
+            HookBundleGetBoolean0, HookBundleGetBoolean1,
+            HookBundleGetBoolean2, HookBundleGetBoolean3,
+    };
     constexpr DlopenFn kLauncherDlopenHooks[kLauncherInputSlotCount] = {
             HookLauncherDlopen0, HookLauncherDlopen1,
             HookLauncherDlopen2, HookLauncherDlopen3,
@@ -3400,6 +3500,32 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
         }
         Log(ANDROID_LOG_WARN,
             "native launcher contextual-search feature hook unavailable");
+    }
+    if (profile->xiaoai_bundle_bool_return_offset != 0u) {
+        AtomicStore(&slot.xiaoai_state, uint32_t{1});
+        if (g_api.pltHook(base, "Bundle_get_boolean",
+                          reinterpret_cast<void*>(
+                                  kXiaoAiBooleanHooks[index]),
+                          &slot.original_bundle_get_boolean) == ZN_SUCCESS &&
+                slot.original_bundle_get_boolean != nullptr) {
+            AtomicStore(&slot.xiaoai_state, uint32_t{3});
+            __atomic_store_n(&g_xiaoai_state_hook_state, uint32_t{3},
+                             __ATOMIC_RELEASE);
+            Log(ANDROID_LOG_INFO,
+                "installed dynamically resolved native XiaoAi state observer");
+        } else {
+            AtomicStore(&slot.xiaoai_state, uint32_t{6});
+            __atomic_store_n(&g_xiaoai_state_hook_state, uint32_t{6},
+                             __ATOMIC_RELEASE);
+            Log(ANDROID_LOG_WARN,
+                "dynamic native XiaoAi state observer unavailable");
+        }
+    } else {
+        AtomicStore(&slot.xiaoai_state, uint32_t{2});
+        if (AtomicLoad(&g_xiaoai_state_hook_state) == uint32_t{0}) {
+            __atomic_store_n(&g_xiaoai_state_hook_state, uint32_t{2},
+                             __ATOMIC_RELEASE);
+        }
     }
     AtomicStore(&slot.state, uint32_t{3});
     return true;
@@ -3834,7 +3960,6 @@ void InstallShellHooks() {
 }
 #endif
 
-#ifdef MIUI_HOME_LSPOSED_NATIVE
 void OnLsposedLibraryLoaded(const char* name, void* handle) {
     if (!IsExplicitlyEnabled() || name == nullptr || handle == nullptr) return;
 
@@ -3870,7 +3995,6 @@ void OnLsposedLibraryLoaded(const char* name, void* handle) {
     }
     TryInstallArbiterBridge();
 }
-#endif
 
 #ifndef MIUI_HOME_LSPOSED_NATIVE
 void* HookDlopen(const char* filename, int flags) {
@@ -4040,7 +4164,6 @@ void MiuiHomeHyosInputMonitorPilferImpl(void* monitor, uintptr_t return_pc) {
 }
 
 extern "C" __attribute__((visibility("default"), unused))
-#ifdef MIUI_HOME_LSPOSED_NATIVE
 NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     if (!InitializeLsposedCompatibilityApi(entries, &g_api)) {
         __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{4},
@@ -4070,9 +4193,3 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
         "LSPosed native hook initialized in MiuiHome HYOS child");
     return OnLsposedLibraryLoaded;
 }
-#else
-ZygiskNextModule zn_module = {
-        ZYGISK_NEXT_API_VERSION,
-        OnModuleLoaded,
-};
-#endif

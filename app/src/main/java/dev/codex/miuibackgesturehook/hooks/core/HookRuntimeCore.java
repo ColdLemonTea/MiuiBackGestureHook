@@ -364,6 +364,8 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected static final String EXTRA_LAUNCHER_EDITING = "launcher_editing";
     protected static final String EXTRA_LAUNCHER_FOLDER_VISIBLE =
             "launcher_folder_visible";
+    protected static final String EXTRA_LAUNCHER_XIAOAI_VISIBLE =
+            "xiaoai_visible";
     protected static final String EXTRA_RETURN_HOME_COMMIT_TASK_ID =
             "return_home_commit_task_id";
     protected static final String EXTRA_RETURN_HOME_COMMIT_DEBUG_ID =
@@ -517,6 +519,7 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected volatile boolean miuiDrawerVisible;
     protected volatile boolean miuiFolderVisible;
     protected volatile boolean miuiLauncherEditing;
+    protected volatile boolean miuiLauncherXiaoAiVisible;
     protected volatile boolean miuiHomeEditingStatePublished;
     protected volatile boolean miuiLauncherOpenActive;
     protected volatile boolean miuiLauncherOpenBreakAvailable;

@@ -26,6 +26,8 @@ constexpr char kRuntimeGetBinder[] =
 constexpr char kRuntimeDecStrong[] = "Runtime_dec_strong";
 constexpr char kBundleDefault[] = "Bundle_default";
 constexpr char kBundleDrop[] = "Bundle_drop";
+constexpr char kBundleGetString[] = "Bundle_get_string";
+constexpr char kBundleGetBoolean[] = "Bundle_get_boolean";
 constexpr char kPackageManagerDefault[] = "PackageManager_default";
 constexpr char kPackageManagerHasSystemFeature[] =
         "PackageManager_has_system_feature";
@@ -86,6 +88,8 @@ struct RequiredImports {
     uintptr_t runtime_dec_strong;
     uintptr_t bundle_default;
     uintptr_t bundle_drop;
+    uintptr_t bundle_get_string;
+    uintptr_t bundle_get_boolean;
     uintptr_t package_manager_default;
     uintptr_t package_manager_has_system_feature;
     uintptr_t malloc_address;
@@ -360,6 +364,14 @@ bool ResolveContextualImports(const ElfView& view, RequiredImports* imports) {
                           &imports->package_manager_default) &&
             FindImportGot(view, kPackageManagerHasSystemFeature,
                           &imports->package_manager_has_system_feature);
+}
+
+bool ResolveXiaoAiImports(const ElfView& view, RequiredImports* imports) {
+    return imports != nullptr &&
+            FindImportGot(view, kBundleGetString,
+                          &imports->bundle_get_string) &&
+            FindImportGot(view, kBundleGetBoolean,
+                          &imports->bundle_get_boolean);
 }
 
 bool DecodeAdrp(uint32_t instruction, uintptr_t pc, uint32_t reg,
@@ -705,6 +717,122 @@ bool InstructionEquals(const ElfView& view, uintptr_t offset,
             instruction == expected;
 }
 
+bool ReadOnlyBytesEqual(const ElfView& view, uintptr_t offset,
+                        const char* expected, size_t size) {
+    return expected != nullptr &&
+            Contains(view, offset, size, PF_R, PF_W) &&
+            memcmp(view.base + offset, expected, size) == 0;
+}
+
+bool DecodeConditionalBranchTarget(const ElfView& view, uintptr_t offset,
+                                   uint32_t condition,
+                                   uintptr_t* target) {
+    uint32_t instruction = 0u;
+    if (target == nullptr || condition > 0xfu ||
+            !ReadInstruction(view, offset, &instruction) ||
+            (instruction & 0xff00001fu) !=
+                    (0x54000000u | condition)) {
+        return false;
+    }
+    int64_t immediate = static_cast<int64_t>(
+            (instruction >> 5u) & 0x7ffffu);
+    if ((immediate & (int64_t{1} << 18u)) != 0) {
+        immediate -= int64_t{1} << 19u;
+    }
+    const int64_t destination = static_cast<int64_t>(offset) + immediate * 4;
+    if (destination < 0 ||
+            static_cast<uint64_t>(destination) > UINTPTR_MAX ||
+            !Contains(view, static_cast<uintptr_t>(destination), 4u,
+                      PF_R | PF_X)) {
+        return false;
+    }
+    *target = static_cast<uintptr_t>(destination);
+    return true;
+}
+
+bool IsXiaoAiBooleanCallCandidate(const ElfView& view,
+                                  const RequiredImports& imports,
+                                  uintptr_t call_offset) {
+    if (call_offset < 0x14u ||
+            !InstructionEquals(view, call_offset - 8u, 0xaa1403e0u) ||
+            !InstructionEquals(view, call_offset - 4u, 0x528000e2u) ||
+            !CallTargetsImport(view, call_offset,
+                               imports.bundle_get_boolean)) {
+        return false;
+    }
+    uintptr_t key = 0u;
+    uintptr_t state = 0u;
+    uintptr_t changed = 0u;
+    uint32_t local_store = 0u;
+    return DecodeAddressPair(view, call_offset - 0x10u, 1u, &key) &&
+            ReadOnlyBytesEqual(view, key, "isEnter", 7u) &&
+            InstructionEquals(view, call_offset + 4u, 0x53082008u) &&
+            InstructionEquals(view, call_offset + 8u, 0x7200001fu) &&
+            DecodeAddressPair(view, call_offset + 0x0cu, 9u, &state) &&
+            Contains(view, state, 1u, PF_R | PF_W, PF_X) &&
+            InstructionEquals(view, call_offset + 0x14u, 0x1a8813e8u) &&
+            // Store the decoded value locally, then compare the exact same
+            // w8 value with an acquire byte load from the resolved state.
+            ReadInstruction(view, call_offset + 0x18u, &local_store) &&
+            (local_store & 0xffc003ffu) == 0x390003e8u &&
+            InstructionEquals(view, call_offset + 0x1cu, 0x08dffd2au) &&
+            InstructionEquals(view, call_offset + 0x20u, 0x6b0a011fu) &&
+            DecodeConditionalBranchTarget(view, call_offset + 0x24u, 1u,
+                                          &changed) &&
+            InstructionEquals(view, changed, 0x089ffd28u);
+}
+
+bool ResolveXiaoAiVisibility(const ElfView& view,
+                             const RequiredImports& imports,
+                             uintptr_t* boolean_return_offset,
+                             uint32_t* candidate_count) {
+    uintptr_t matched = 0u;
+    uint32_t matches = 0u;
+    for (size_t segment_index = 0u;
+         segment_index < view.load_count; ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X) ||
+                load.end - load.start < 0x90u) {
+            continue;
+        }
+        const uintptr_t start = (load.start + 0x17u) & ~uintptr_t{3u};
+        for (uintptr_t call = start; call <= load.end - 0x28u;
+             call += 4u) {
+            uintptr_t type_key = 0u;
+            if (!InstructionEquals(view, call - 8u, 0xaa1403e0u) ||
+                    !InstructionEquals(view, call - 4u, 0x52800122u) ||
+                    !CallTargetsImport(view, call,
+                                       imports.bundle_get_string) ||
+                    !DecodeAddressPair(view, call - 0x14u, 1u,
+                                       &type_key) ||
+                    !ReadOnlyBytesEqual(view, type_key, "type_from", 9u)) {
+                continue;
+            }
+            uint32_t local_matches = 0u;
+            uintptr_t local = 0u;
+            const uintptr_t end = call > UINTPTR_MAX - 0x180u
+                    ? load.end : call + 0x180u;
+            for (uintptr_t boolean_call = call + 4u;
+                 boolean_call <= end && boolean_call <= load.end - 0x28u;
+                 boolean_call += 4u) {
+                if (IsXiaoAiBooleanCallCandidate(
+                            view, imports, boolean_call)) {
+                    local = boolean_call + 4u;
+                    ++local_matches;
+                }
+            }
+            if (local_matches == 1u) {
+                matched = local;
+                ++matches;
+            }
+        }
+    }
+    if (candidate_count != nullptr) *candidate_count = matches;
+    if (matches != 1u || boolean_return_offset == nullptr) return false;
+    *boolean_return_offset = matched;
+    return true;
+}
+
 bool IsContextualSupportCandidate(const ElfView& view,
                                   const RequiredImports& imports,
                                   uintptr_t offset) {
@@ -1004,6 +1132,15 @@ bool ResolveSideBoundaryProfile(const uint8_t* base, void* app_entry_point,
             ResolveContextualSearch(
                     view, imports, &contextual_long_press_handler,
                     &contextual_search_invoke, diagnostics);
+    uintptr_t xiaoai_boolean_return = 0u;
+    const bool xiaoai_resolved =
+            ResolveXiaoAiImports(view, &imports) &&
+            ResolveXiaoAiVisibility(
+                    view, imports, &xiaoai_boolean_return,
+                    &diagnostics->xiaoai_candidate_count);
+    diagnostics->xiaoai_resolved = xiaoai_resolved ? 1u : 0u;
+    diagnostics->xiaoai_bundle_bool_return_offset =
+            xiaoai_resolved ? xiaoai_boolean_return : 0u;
 
     memcpy(storage->entry_fingerprint, base + entry_offset,
            kEntryFingerprintSize);
@@ -1053,6 +1190,10 @@ bool ResolveSideBoundaryProfile(const uint8_t* base, void* app_entry_point,
                 storage->contextual_search_invoke_prologue;
         storage->profile.contextual_search_invoke_prologue_size =
                 kContextualPrologueSize;
+    }
+    if (xiaoai_resolved) {
+        storage->profile.xiaoai_bundle_bool_return_offset =
+                xiaoai_boolean_return;
     }
     diagnostics->stage = ResolveStage::kComplete;
     return true;

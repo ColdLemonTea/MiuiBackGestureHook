@@ -51,6 +51,8 @@ IMPORT_NAMES = (
     "Runtime_dec_strong",
     "Bundle_default",
     "Bundle_drop",
+    "Bundle_get_string",
+    "Bundle_get_boolean",
     "PackageManager_default",
     "PackageManager_has_system_feature",
     "malloc",
@@ -76,6 +78,7 @@ class Resolution:
     contextual_support: int
     contextual_invoke: int
     contextual_long_press: int
+    xiaoai_boolean_return: int
 
 
 class LoadedElf:
@@ -405,6 +408,70 @@ def resolve_contextual_long_press(image: LoadedElf) -> int:
     return matches[0]
 
 
+def decode_conditional_branch(
+    image: LoadedElf, offset: int, condition: int
+) -> int | None:
+    instruction = image.u32(offset)
+    if instruction & 0xFF00001F != 0x54000000 | condition:
+        return None
+    immediate = (instruction >> 5) & 0x7FFFF
+    if immediate & (1 << 18):
+        immediate -= 1 << 19
+    target = offset + (immediate << 2)
+    return target if image.contains(target, 4, PF_R | PF_X) else None
+
+
+def resolve_xiaoai_visibility(image: LoadedElf) -> int:
+    matches: list[int] = []
+    for call in image.executable_offsets(0x28):
+        if call < 0x14 or not image.contains(call - 0x14, 0x3C, PF_R | PF_X):
+            continue
+        type_key = decode_address_pair(image, call - 0x14, 1)
+        if (
+            image.u32(call - 8) != 0xAA1403E0
+            or image.u32(call - 4) != 0x52800122
+            or not call_targets(image, call, "Bundle_get_string")
+            or type_key is None
+            or not image.contains(type_key, 9, PF_R, PF_W)
+            or image.image[type_key : type_key + 9] != b"type_from"
+        ):
+            continue
+        local: list[int] = []
+        for boolean_call in range(call + 4, call + 0x184, 4):
+            if not image.contains(boolean_call - 0x10, 0x38, PF_R | PF_X):
+                break
+            key = decode_address_pair(image, boolean_call - 0x10, 1)
+            state = decode_address_pair(image, boolean_call + 0x0C, 9)
+            changed = decode_conditional_branch(image, boolean_call + 0x24, 1)
+            if (
+                image.u32(boolean_call - 8) != 0xAA1403E0
+                or image.u32(boolean_call - 4) != 0x528000E2
+                or not call_targets(image, boolean_call, "Bundle_get_boolean")
+                or key is None
+                or not image.contains(key, 7, PF_R, PF_W)
+                or image.image[key : key + 7] != b"isEnter"
+                or image.u32(boolean_call + 4) != 0x53082008
+                or image.u32(boolean_call + 8) != 0x7200001F
+                or state is None
+                or not image.contains(state, 1, PF_R | PF_W, PF_X)
+                or image.u32(boolean_call + 0x14) != 0x1A8813E8
+                or image.u32(boolean_call + 0x18) & 0xFFC003FF != 0x390003E8
+                or image.u32(boolean_call + 0x1C) != 0x08DFFD2A
+                or image.u32(boolean_call + 0x20) != 0x6B0A011F
+                or changed is None
+                or image.u32(changed) != 0x089FFD28
+            ):
+                continue
+            local.append(boolean_call + 4)
+        if len(local) == 1:
+            matches.append(local[0])
+    if len(matches) != 1:
+        raise ValueError(
+            f"expected one XiaoAi visibility call graph, found {len(matches)}"
+        )
+    return matches[0]
+
+
 def resolve(image: LoadedElf, entry: int) -> Resolution:
     if (
         not image.contains(entry, 48, PF_R | PF_X)
@@ -417,6 +484,7 @@ def resolve(image: LoadedElf, entry: int) -> Resolution:
     support = 0
     invoke = 0
     long_press = 0
+    xiaoai_boolean_return = 0
     try:
         support = resolve_contextual_support(image)
         invoke = resolve_contextual_invoke(image, support)
@@ -427,9 +495,15 @@ def resolve(image: LoadedElf, entry: int) -> Resolution:
         support = 0
         invoke = 0
         long_press = 0
+    try:
+        xiaoai_boolean_return = resolve_xiaoai_visibility(image)
+    except ValueError:
+        # XiaoAi visibility is independently optional. It must never weaken
+        # the base side-boundary profile or any other optional extension.
+        xiaoai_boolean_return = 0
     return Resolution(
         side, edge, pointer, state, confirmations, rstring, support, invoke,
-        long_press,
+        long_press, xiaoai_boolean_return,
     )
 
 
@@ -462,6 +536,7 @@ def verify(profile: dict, path: Path) -> None:
         if contextual else result.contextual_invoke,
         parse_int(contextual["long_press_handler_offset"])
         if contextual else result.contextual_long_press,
+        result.xiaoai_boolean_return,
     )
     if result != expected:
         raise ValueError(f"{profile['id']} resolution mismatch: {result} != {expected}")
@@ -496,12 +571,34 @@ def verify(profile: dict, path: Path) -> None:
         finally:
             image.image[result.contextual_long_press + 0xF4] = original
 
+    if result.xiaoai_boolean_return != 0:
+        original = image.image[result.xiaoai_boolean_return]
+        image.image[result.xiaoai_boolean_return] ^= 1
+        try:
+            without_xiaoai = resolve(image, entry)
+            if (
+                without_xiaoai.side != result.side
+                or without_xiaoai.runtime_pointer != result.runtime_pointer
+                or without_xiaoai.rstring != result.rstring
+                or without_xiaoai.contextual_support != result.contextual_support
+                or without_xiaoai.contextual_invoke != result.contextual_invoke
+                or without_xiaoai.contextual_long_press
+                != result.contextual_long_press
+                or without_xiaoai.xiaoai_boolean_return != 0
+            ):
+                raise ValueError(
+                    f"{profile['id']} optional XiaoAi failure damaged another resolver"
+                )
+        finally:
+            image.image[result.xiaoai_boolean_return] = original
+
     print(
         f"{profile['id']}: PASS side=0x{result.side:x} edge=0x{result.edge:x} "
         f"rstring=0x{result.rstring:x} runtime=0x{result.runtime_pointer:x}/"
         f"0x{result.runtime_state:x} confirmations={result.runtime_confirmations} "
         f"contextual=0x{result.contextual_long_press:x}/"
-        f"0x{result.contextual_invoke:x} support=0x{result.contextual_support:x}"
+        f"0x{result.contextual_invoke:x} support=0x{result.contextual_support:x} "
+        f"xiaoaiReturn=0x{result.xiaoai_boolean_return:x}"
     )
 
 

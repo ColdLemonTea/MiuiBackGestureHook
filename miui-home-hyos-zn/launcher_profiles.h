@@ -68,6 +68,11 @@ struct LauncherProfile {
     const uint8_t* contextual_search_invoke_prologue;
     size_t contextual_search_invoke_prologue_size;
 
+    // Optional runtime-only XiaoAi visibility observer. This is the return
+    // address of the uniquely resolved Bundle_get_boolean("isEnter") call,
+    // not a version/profile offset supplied by the manifest.
+    uintptr_t xiaoai_bundle_bool_return_offset;
+
     uintptr_t accepted_pilfer_return_offset;
     uintptr_t home_pilfer_return_offset;
     const uint8_t* accepted_pilfer_caller;

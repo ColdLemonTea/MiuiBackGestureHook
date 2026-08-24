@@ -6302,6 +6302,29 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                                 + ", package=" + senderPackage);
                     }
                 }
+                if (intent.hasExtra(EXTRA_LAUNCHER_XIAOAI_VISIBLE)) {
+                    long xiaoAiGeneration = intent.getLongExtra(
+                            EXTRA_INPUT_ARBITER_GENERATION, 0L);
+                    if (Build.VERSION.SDK_INT >= ANDROID_17_API_LEVEL
+                            && xiaoAiGeneration
+                            != systemUiInputArbiterGeneration) {
+                        moduleLog(Log.WARN, TAG,
+                                "Ignored stale native MiuiHome XiaoAi state"
+                                        + ", generation=" + xiaoAiGeneration
+                                        + ", currentGeneration="
+                                        + systemUiInputArbiterGeneration);
+                    } else {
+                        miuiLauncherXiaoAiVisible = intent.getBooleanExtra(
+                                EXTRA_LAUNCHER_XIAOAI_VISIBLE, false);
+                        moduleLog(Log.INFO, TAG,
+                                "MiuiHome XiaoAi overlay state changed"
+                                        + ", visible="
+                                        + miuiLauncherXiaoAiVisible
+                                        + ", generation=" + xiaoAiGeneration
+                                        + ", uid=" + senderUid
+                                        + ", package=" + senderPackage);
+                    }
+                }
                 if (intent.hasExtra(EXTRA_LAUNCHER_FOLDER_VISIBLE)) {
                     miuiFolderVisible = intent.getBooleanExtra(
                             EXTRA_LAUNCHER_FOLDER_VISIBLE, false);
@@ -6587,12 +6610,37 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             return;
         }
         try {
+            boolean legacyMode = Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL;
+            boolean legacyReady = nativeReply != null && nativeReply.getBooleanExtra(
+                    EXTRA_STATUS_LEGACY_READY, false);
+            boolean profileResolved = nativeReply != null && nativeReply.getBooleanExtra(
+                    EXTRA_STATUS_NATIVE_PROFILE_RESOLVED, false);
+            boolean nativeReady = nativeReply != null && nativeReply.getBooleanExtra(
+                    EXTRA_STATUS_NATIVE_READY, false);
+            int businessState = nativeReply == null ? 0 : nativeReply.getIntExtra(
+                    EXTRA_STATUS_NATIVE_BUSINESS_STATE, 0);
+            int bridgeState = nativeReply == null ? 0 : nativeReply.getIntExtra(
+                    EXTRA_STATUS_NATIVE_BRIDGE_STATE, 0);
+            int profileStage = nativeReply == null ? 0 : nativeReply.getIntExtra(
+                    EXTRA_STATUS_NATIVE_RUNTIME_PROFILE_STAGE, 0);
+            int dartResolverStage = nativeReply == null ? 0 : nativeReply.getIntExtra(
+                    EXTRA_STATUS_NATIVE_DART_RESOLVER_STAGE, 0);
+            boolean drawerStateReady = nativeReply != null && nativeReply.getBooleanExtra(
+                    EXTRA_STATUS_NATIVE_DRAWER_STATE_READY, false);
+            boolean overviewStateReady = nativeReply != null && nativeReply.getBooleanExtra(
+                    EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY, false);
+            boolean profileRejected = (profileStage >= 101 && profileStage <= 105)
+                    || (dartResolverStage >= 101 && dartResolverStage <= 104);
+            boolean statusReady = nativeResponse && systemUiReady
+                    && (legacyMode ? legacyReady
+                    : !profileRejected && nativeReady && profileResolved
+                    && businessState == 3 && bridgeState == 3
+                    && drawerStateReady && overviewStateReady);
             Intent reply = new Intent(MODULE_RUNTIME_STATUS_REPLY)
                     .setPackage(MODULE_PACKAGE)
                     .putExtra(EXTRA_STATUS_NONCE, nonce)
                     .putExtra(EXTRA_STATUS_NATIVE_RESPONSE, nativeResponse)
-                    .putExtra(EXTRA_STATUS_LEGACY_MODE,
-                            Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL)
+                    .putExtra(EXTRA_STATUS_LEGACY_MODE, legacyMode)
                     .putExtra(EXTRA_STATUS_SYSTEMUI_READY, systemUiReady)
                     .putExtra(EXTRA_STATUS_SYSTEMUI_GENERATION,
                             systemUiInputArbiterGeneration)
@@ -6600,13 +6648,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             systemUiInputArbiterMonitorCount.get())
                     .putExtra(EXTRA_STATUS_REASON, reason);
             if (nativeReply != null) {
-                reply.putExtra(EXTRA_STATUS_LEGACY_READY,
-                        nativeReply.getBooleanExtra(EXTRA_STATUS_LEGACY_READY, false));
-                reply.putExtra(EXTRA_STATUS_NATIVE_PROFILE_RESOLVED,
-                        nativeReply.getBooleanExtra(
-                                EXTRA_STATUS_NATIVE_PROFILE_RESOLVED, false));
-                reply.putExtra(EXTRA_STATUS_NATIVE_READY,
-                        nativeReply.getBooleanExtra(EXTRA_STATUS_NATIVE_READY, false));
+                reply.putExtra(EXTRA_STATUS_LEGACY_READY, legacyReady);
+                reply.putExtra(EXTRA_STATUS_NATIVE_PROFILE_RESOLVED, profileResolved);
+                reply.putExtra(EXTRA_STATUS_NATIVE_READY, nativeReady);
                 reply.putExtra(EXTRA_STATUS_NATIVE_PROFILE_DYNAMIC,
                         nativeReply.getBooleanExtra(
                                 EXTRA_STATUS_NATIVE_PROFILE_DYNAMIC, false));
@@ -6615,12 +6659,9 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                                 EXTRA_STATUS_NATIVE_PROFILE_ENTRY_OFFSET, 0L));
                 reply.putExtra(EXTRA_STATUS_NATIVE_SIDE_OFFSET,
                         nativeReply.getLongExtra(EXTRA_STATUS_NATIVE_SIDE_OFFSET, 0L));
-                reply.putExtra(EXTRA_STATUS_NATIVE_RUNTIME_PROFILE_STAGE,
-                        nativeReply.getIntExtra(
-                                EXTRA_STATUS_NATIVE_RUNTIME_PROFILE_STAGE, 0));
+                reply.putExtra(EXTRA_STATUS_NATIVE_RUNTIME_PROFILE_STAGE, profileStage);
                 reply.putExtra(EXTRA_STATUS_NATIVE_DART_RESOLVER_STAGE,
-                        nativeReply.getIntExtra(
-                                EXTRA_STATUS_NATIVE_DART_RESOLVER_STAGE, 0));
+                        dartResolverStage);
                 reply.putExtra(EXTRA_STATUS_NATIVE_DART_DRAWER_CANDIDATES,
                         nativeReply.getIntExtra(
                                 EXTRA_STATUS_NATIVE_DART_DRAWER_CANDIDATES, 0));
@@ -6634,17 +6675,11 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         nativeReply.getIntExtra(
                                 EXTRA_STATUS_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES, 0));
                 reply.putExtra(EXTRA_STATUS_NATIVE_DRAWER_STATE_READY,
-                        nativeReply.getBooleanExtra(
-                                EXTRA_STATUS_NATIVE_DRAWER_STATE_READY, false));
+                        drawerStateReady);
                 reply.putExtra(EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY,
-                        nativeReply.getBooleanExtra(
-                                EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY, false));
-                reply.putExtra(EXTRA_STATUS_NATIVE_BUSINESS_STATE,
-                        nativeReply.getIntExtra(
-                                EXTRA_STATUS_NATIVE_BUSINESS_STATE, 0));
-                reply.putExtra(EXTRA_STATUS_NATIVE_BRIDGE_STATE,
-                        nativeReply.getIntExtra(
-                                EXTRA_STATUS_NATIVE_BRIDGE_STATE, 0));
+                        overviewStateReady);
+                reply.putExtra(EXTRA_STATUS_NATIVE_BUSINESS_STATE, businessState);
+                reply.putExtra(EXTRA_STATUS_NATIVE_BRIDGE_STATE, bridgeState);
                 reply.putExtra(EXTRA_STATUS_NATIVE_RECEIVER_STATE,
                         nativeReply.getIntExtra(
                                 EXTRA_STATUS_NATIVE_RECEIVER_STATE, 0));
@@ -6655,7 +6690,17 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
             context.getApplicationContext().sendBroadcast(reply, null, options);
             moduleLog(Log.INFO, TAG, "Published module runtime status reply"
                     + ", nonce=" + nonce + ", nativeResponse=" + nativeResponse
-                    + ", systemUiReady=" + systemUiReady + ", reason=" + reason);
+                    + ", systemUiReady=" + systemUiReady
+                    + ", statusReady=" + statusReady
+                    + ", profileResolved=" + profileResolved
+                    + ", nativeReady=" + nativeReady
+                    + ", businessState=" + businessState
+                    + ", bridgeState=" + bridgeState
+                    + ", profileStage=" + profileStage
+                    + ", dartResolverStage=" + dartResolverStage
+                    + ", drawerStateReady=" + drawerStateReady
+                    + ", overviewStateReady=" + overviewStateReady
+                    + ", reason=" + reason);
         } catch (Throwable throwable) {
             moduleLog(Log.WARN, TAG, "Failed to publish module runtime status reply",
                     throwable);

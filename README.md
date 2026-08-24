@@ -41,10 +41,27 @@ Outputs:
 app/build/outputs/apk/release/app-release.apk
 ```
 
+For iterative native development, use the guarded LSPosed deployment script.
+It builds the debug APK by default, installs the complete APK through Package
+Manager, verifies the API-102 SystemUI hot reload, and rolls only the exact
+root `hyos_spawner` so the new native APK inode becomes active without a phone
+reboot:
+
+```powershell
+.\miui-home-hyos-zn\safe-lsposed-native-deploy.ps1 `
+    -Action Deploy -Serial <adb-serial>
+```
+
+Pass `-SkipBuild` to deploy the existing debug APK, or `-Apk <path>` to deploy
+an explicitly selected complete APK. The script refuses to run while a retired
+standalone owner remains mapped. It never extracts or pushes the APK's native
+library separately and never writes Android system properties. The
+upgrade requests PackageManager rollback with retained app data and also keeps
+a verified copy of the previously installed complete APK as a fallback.
+
 The APK contains `lib/arm64-v8a/libmiui_home_hyos_lsp.so` and declares it in
-`META-INF/xposed/native_init.list`. The old standalone Zygisk Next package task
-is retained only as a reversible rollback build; never enable it together with
-an LSPosed native build whose business hooks are enabled.
+`META-INF/xposed/native_init.list`. This branch has no standalone native-module
+package or activation path.
 
 ## Scope and runtime
 
