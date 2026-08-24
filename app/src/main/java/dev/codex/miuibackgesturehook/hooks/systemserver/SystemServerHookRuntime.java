@@ -51,8 +51,10 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
             "com.google.android.googlequicksearchbox";
     private static final String MIUI_SECURITY_CENTER_PACKAGE =
             "com.miui.securitycenter";
-    private static final String MIUI_SECURITY_SIDEBAR_HANDLE_TITLE =
+    private static final String MIUI_SECURITY_GAME_SIDEBAR_HANDLE_TITLE =
             "FloatAssistantView";
+    private static final String MIUI_SECURITY_VIDEO_SIDEBAR_HANDLE_TITLE =
+            "VtbAssistantView";
     private static final int TYPE_DISPLAY_OVERLAY = 2026;
     private static final long SIDEBAR_GESTURE_MAX_AGE_MS = 2000L;
     private final ThreadLocal<Boolean> contextualSearchBridgeInvocation = new ThreadLocal<>();
@@ -763,9 +765,13 @@ public abstract class SystemServerHookRuntime extends GoogleAppLiveTranslateRunt
                 window, "getOwningPackage", new Object[0])))
                 || ((Number) invokeAnyMethod(
                 window, "getWindowType", new Object[0])).intValue()
-                != TYPE_DISPLAY_OVERLAY
-                || !MIUI_SECURITY_SIDEBAR_HANDLE_TITLE.equals(String.valueOf(invokeAnyMethod(
-                window, "getWindowTag", new Object[0])))
+                != TYPE_DISPLAY_OVERLAY) {
+            return false;
+        }
+        String windowTag = String.valueOf(invokeAnyMethod(
+                window, "getWindowTag", new Object[0]));
+        if ((!MIUI_SECURITY_GAME_SIDEBAR_HANDLE_TITLE.equals(windowTag)
+                && !MIUI_SECURITY_VIDEO_SIDEBAR_HANDLE_TITLE.equals(windowTag))
                 || !Boolean.TRUE.equals(invokeAnyMethod(
                 window, "isVisible", new Object[0]))) {
             return false;
