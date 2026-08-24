@@ -173,6 +173,58 @@ def validate_library(library: Path, readelf: Path, nm: Path, objdump: Path) -> d
     ):
         fail("InputMonitor pilfer hook no longer preserves the raw caller frame.")
 
+    dart_drawer = run([
+        str(objdump),
+        "--disassemble-symbols=MiuiHomeHyosDartDrawerTransitionCompleteHook",
+        str(library),
+    ], capture=True)
+    if (
+        "<MiuiHomeHyosDartDrawerTransitionCompleteHook>:" not in
+            dart_drawer
+        or not re.search(r"\bbti\s+c\b", dart_drawer)
+        or not re.search(r"\bstp\s+x2,\s*x15,\s*\[sp,\s*#0x10\]",
+                         dart_drawer)
+        or not re.search(r"\bldr\s+x2,\s*\[sp,\s*#0x10\]",
+                         dart_drawer)
+        or not re.search(r"\badd\s+x12,\s*x11,\s*#0x20\b",
+                         dart_drawer)
+        or not re.search(r"\badd\s+x12,\s*x11,\s*#0x30\b",
+                         dart_drawer)
+        or not re.search(r"\bcmp\s+w2,\s*w12\b", dart_drawer)
+        or not re.search(
+            r"\bbl\s+0x[0-9a-f]+\s+<MiuiHomeHyosDartDrawerStateObserved>",
+            dart_drawer,
+        )
+        or not re.search(r"\bldr\s+x15,\s*\[sp,\s*#0x18\]",
+                         dart_drawer)
+        or not re.search(r"\bret\b", dart_drawer)
+    ):
+        fail("Dart drawer hook no longer preserves the Flutter AOT ABI.")
+
+    for symbol, state_pattern in (
+        ("MiuiHomeHyosDartOverviewEnterHook", r"\bmov\s+w0,\s*#0x1\b"),
+        ("MiuiHomeHyosDartOverviewExitHook", r"\bmov\s+w0,\s*wzr\b"),
+    ):
+        dart_overview = run([
+            str(objdump), f"--disassemble-symbols={symbol}", str(library),
+        ], capture=True)
+        if (
+            f"<{symbol}>:" not in dart_overview
+            or not re.search(r"\bbti\s+c\b", dart_overview)
+            or not re.search(r"\bstp\s+x2,\s*x15,\s*\[sp,\s*#0x10\]",
+                             dart_overview)
+            or not re.search(r"\bblr\s+x16\b", dart_overview)
+            or not re.search(state_pattern, dart_overview)
+            or not re.search(
+                r"\bbl\s+0x[0-9a-f]+\s+<MiuiHomeHyosDartOverviewStateObserved>",
+                dart_overview,
+            )
+            or not re.search(r"\bldr\s+x15,\s*\[sp,\s*#0x18\]",
+                             dart_overview)
+            or not re.search(r"\bret\b", dart_overview)
+        ):
+            fail(f"{symbol} no longer preserves the Flutter AOT ABI.")
+
     dynamic = run([str(readelf), "-d", str(library)], capture=True)
     if re.search(r"NEEDED.*(?:libc\+\+|libstdc\+\+)", dynamic):
         fail("Native output has an unexpected shared C++ runtime dependency.")
@@ -274,6 +326,36 @@ def package(
         ("contextual_search_invokes", "g_contextual_search_invoke_count", "u4"),
         ("contextual_search_last_result", "g_contextual_search_invoke_last_result", "u4"),
         ("contextual_long_press_upward_cancel", "g_contextual_long_press_upward_cancel_count", "u4"),
+        ("drawer_state_hook", "g_drawer_state_hook_state", "u4"),
+        ("dart_loader_hook", "g_dart_loader_hook_state", "u4"),
+        ("dart_profile_resolve_state", "g_dart_profile_resolve_state", "u4"),
+        ("dart_drawer_candidates", "g_dart_drawer_candidate_count", "u4"),
+        ("dart_transition_candidates", "g_dart_transition_candidate_count", "u4"),
+        ("dart_overview_enter_candidates", "g_dart_overview_enter_candidate_count", "u4"),
+        ("dart_overview_exit_candidates", "g_dart_overview_exit_candidate_count", "u4"),
+        ("dart_drawer_resolved_offset", "g_dart_drawer_resolved_offset", "u8"),
+        ("dart_transition_resolved_offset", "g_dart_transition_resolved_offset", "u8"),
+        ("dart_overview_enter_resolved_offset", "g_dart_overview_enter_resolved_offset", "u8"),
+        ("dart_overview_exit_resolved_offset", "g_dart_overview_exit_resolved_offset", "u8"),
+        ("drawer_state_observed", "g_drawer_state_observed", "u4"),
+        ("drawer_state_published", "g_drawer_published_state", "u4"),
+        ("drawer_state_published_generation", "g_drawer_published_generation", "u8"),
+        ("drawer_state_publish_count", "g_drawer_state_publish_count", "u4"),
+        ("overview_state_hook", "g_overview_state_hook_state", "u4"),
+        ("overview_state_observed", "g_overview_state_observed", "u4"),
+        ("overview_state_published", "g_overview_published_state", "u4"),
+        ("overview_state_published_generation", "g_overview_published_generation", "u8"),
+        ("overview_state_publish_count", "g_overview_state_publish_count", "u4"),
+        ("overview_dart_enters", "g_overview_dart_enter_count", "u4"),
+        ("overview_dart_exits", "g_overview_dart_exit_count", "u4"),
+        ("overview_dart_repair_attempts", "g_overview_dart_repair_attempt_count", "u4"),
+        ("overview_dart_repair_successes", "g_overview_dart_repair_success_count", "u4"),
+        ("overview_dart_repair_failures", "g_overview_dart_repair_failure_count", "u4"),
+        ("overview_dart_repair_stage", "g_overview_dart_repair_stage", "u4"),
+        ("dart_drawer_repair_attempts", "g_dart_drawer_repair_attempt_count", "u4"),
+        ("dart_drawer_repair_successes", "g_dart_drawer_repair_success_count", "u4"),
+        ("dart_drawer_repair_failures", "g_dart_drawer_repair_failure_count", "u4"),
+        ("dart_drawer_repair_stage", "g_dart_drawer_repair_stage", "u4"),
         ("business_repair_attempts", "g_business_repair_attempt_count", "u4"),
         ("business_repair_successes", "g_business_repair_success_count", "u4"),
         ("business_repair_failures", "g_business_repair_failure_count", "u4"),

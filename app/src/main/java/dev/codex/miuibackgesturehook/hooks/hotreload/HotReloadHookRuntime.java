@@ -897,6 +897,11 @@ public abstract class HotReloadHookRuntime extends SystemServerHookRuntime {
             case "systemui_a17_transitions_ready_open_capture":
                 // Retired ready-queue hook: its compiled callers bypassed the entry.
                 return XposedInterface.Chain::proceed;
+            case "systemui_a17_launcher_overview_shown":
+            case "systemui_a17_launcher_overview_hidden":
+                // Native MiuiHome owns Android 17 Overview state through the
+                // authenticated generation-bearing broadcast.
+                return XposedInterface.Chain::proceed;
             case "systemui_a17_transition_ready_inner_open_capture":
                 // Retired inner hook: compiled synthetic lambda callers bypassed it.
                 return XposedInterface.Chain::proceed;

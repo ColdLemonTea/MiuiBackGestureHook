@@ -1,4 +1,5 @@
 #include "zygisk_next_api.h"
+#include "dart_runtime_resolver.h"
 #include "launcher_profiles.h"
 #include "launcher_profiles.generated.h"
 #include "runtime_profile_resolver.h"
@@ -37,7 +38,31 @@ __attribute__((visibility("hidden")))
 void MiuiHomeHyosInputMonitorPilferHook();
 
 __attribute__((visibility("hidden")))
+void MiuiHomeHyosDartDrawerTransitionCompleteHook();
+
+__attribute__((visibility("hidden")))
+void MiuiHomeHyosDartDrawerStateObserved(uint32_t visible);
+
+__attribute__((visibility("hidden")))
+void MiuiHomeHyosDartOverviewEnterHook();
+
+__attribute__((visibility("hidden")))
+void MiuiHomeHyosDartOverviewExitHook();
+
+__attribute__((visibility("hidden")))
+void MiuiHomeHyosDartOverviewStateObserved(uint32_t visible);
+
+__attribute__((visibility("hidden")))
 void MiuiHomeHyosInputMonitorPilferImpl(void* monitor, uintptr_t return_pc);
+
+__attribute__((visibility("hidden")))
+void* miui_home_hyos_dart_transition_complete_original = nullptr;
+
+__attribute__((visibility("hidden")))
+void* miui_home_hyos_dart_overview_enter_original = nullptr;
+
+__attribute__((visibility("hidden")))
+void* miui_home_hyos_dart_overview_exit_original = nullptr;
 
 }
 
@@ -72,6 +97,11 @@ constexpr char kDataLauncherLibraryTail[] =
 constexpr char kSystemLauncherLibraryTail[] =
         "/MiuiHome.apk!/lib/arm64-v8a/libapp_launcher.so";
 constexpr char kLauncherEntrySymbol[] = "app_entry_point";
+constexpr char kDartLibraryName[] = "libapp.so";
+constexpr char kDartLibraryTail[] = "/libapp.so";
+constexpr char kDartSnapshotInstructionsSymbol[] =
+        "_kDartIsolateSnapshotInstructions";
+constexpr char kDartSnapshotBuildIdSymbol[] = "_kDartSnapshotBuildId";
 constexpr uint8_t kExpectedSpawnerBuildId[] = {
         0x87, 0xf2, 0x63, 0x2e, 0x7d, 0x68, 0xfd, 0xa0,
         0x22, 0x63, 0x66, 0xfd, 0xa5, 0x34, 0x6c, 0x2d,
@@ -91,6 +121,7 @@ using GestureStubBackHandlerFn = void (*)(void*, void*);
 using ContextualLongPressHandlerFn = void (*)(void*, uint32_t);
 using ContextualSearchInvokeFn = uint8_t (*)(uint32_t);
 using ContextualClosureCleanupFn = void (*)(void*);
+using DrawerStateHandlerFn = void (*)(int64_t, uint8_t*, uint32_t, uint32_t);
 
 struct RString {
     char* data;
@@ -169,6 +200,12 @@ void* g_original_gesture_stub_pointer_handler = nullptr;
 void* g_original_gesture_back_touch_processor = nullptr;
 void* g_original_gesture_stub_back_handler = nullptr;
 void* g_original_contextual_long_press_handler = nullptr;
+void* g_original_drawer_state_handler = nullptr;
+void* g_dart_app_handle = nullptr;
+uint8_t* g_dart_app_base = nullptr;
+uint32_t g_dart_drawer_install_in_flight = 0;
+uint32_t g_dart_overview_install_in_flight = 0;
+__attribute__((used)) volatile uint32_t g_dart_loader_hook_state = 0;
 void* g_contextual_search_invoke = nullptr;
 void* g_original_broadcast_receiver_on_receive = nullptr;
 void** g_broadcast_intent_with_feature_slot = nullptr;
@@ -182,6 +219,19 @@ void* g_motion_get_y = nullptr;
 uint8_t* g_launcher_base = nullptr;
 const miui_home_profiles::LauncherProfile* g_launcher_profile = nullptr;
 miui_home_runtime_profile::ResolutionStorage g_dynamic_profile_storage{};
+miui_home_dart_profile::ResolutionStorage g_dart_profile_storage{};
+__attribute__((used)) miui_home_dart_profile::ResolutionDiagnostics
+        g_dart_profile_diagnostics{};
+const miui_home_profiles::LauncherProfile* g_resolved_dart_profile = nullptr;
+__attribute__((used)) volatile uint32_t g_dart_profile_resolve_state = 0;
+__attribute__((used)) volatile uint32_t g_dart_drawer_candidate_count = 0;
+__attribute__((used)) volatile uint32_t g_dart_transition_candidate_count = 0;
+__attribute__((used)) volatile uint32_t g_dart_overview_enter_candidate_count = 0;
+__attribute__((used)) volatile uint32_t g_dart_overview_exit_candidate_count = 0;
+__attribute__((used)) volatile uintptr_t g_dart_drawer_resolved_offset = 0;
+__attribute__((used)) volatile uintptr_t g_dart_transition_resolved_offset = 0;
+__attribute__((used)) volatile uintptr_t g_dart_overview_enter_resolved_offset = 0;
+__attribute__((used)) volatile uintptr_t g_dart_overview_exit_resolved_offset = 0;
 uint32_t g_native_receiver_state = 0;
 int64_t g_systemui_arbiter_generation = 0;
 uint32_t g_systemui_arbiter_ready = 0;
@@ -279,6 +329,29 @@ __attribute__((used)) volatile uint32_t
         g_contextual_motion_snapshot_down_y_bits = 0;
 __attribute__((used)) volatile uint32_t
         g_contextual_motion_snapshot_current_y_bits = 0;
+// Drawer visibility encoding: 0 unknown, 1 Home/not-all-apps, 2 ALL_APPS.
+__attribute__((used)) volatile uint32_t g_drawer_state_hook_state = 0;
+__attribute__((used)) volatile uint32_t g_drawer_state_observed = 0;
+__attribute__((used)) volatile uint32_t g_drawer_published_state = 0;
+__attribute__((used)) volatile int64_t g_drawer_published_generation = 0;
+__attribute__((used)) volatile uint32_t g_drawer_state_publish_count = 0;
+__attribute__((used)) volatile uint32_t g_overview_state_hook_state = 0;
+__attribute__((used)) volatile uint32_t g_overview_state_observed = 0;
+__attribute__((used)) volatile uint32_t g_overview_published_state = 0;
+__attribute__((used)) volatile int64_t g_overview_published_generation = 0;
+__attribute__((used)) volatile uint32_t g_overview_state_publish_count = 0;
+__attribute__((used)) volatile uint32_t g_overview_dart_enter_count = 0;
+__attribute__((used)) volatile uint32_t g_overview_dart_exit_count = 0;
+__attribute__((used)) volatile uint32_t g_overview_dart_repair_attempt_count = 0;
+__attribute__((used)) volatile uint32_t g_overview_dart_repair_success_count = 0;
+__attribute__((used)) volatile uint32_t g_overview_dart_repair_failure_count = 0;
+__attribute__((used)) volatile uint32_t g_overview_dart_repair_stage = 0;
+__attribute__((used)) volatile uint32_t g_dart_drawer_repair_attempt_count = 0;
+__attribute__((used)) volatile uint32_t g_dart_drawer_repair_success_count = 0;
+__attribute__((used)) volatile uint32_t g_dart_drawer_repair_failure_count = 0;
+__attribute__((used)) volatile uint32_t g_dart_drawer_repair_stage = 0;
+uint32_t g_drawer_state_publish_in_flight = 0;
+uint32_t g_overview_state_publish_in_flight = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_failure_count = 0;
@@ -319,6 +392,7 @@ struct LauncherInputHookSlot {
     void* original_action_masked;
     void* original_pilfer;
     void* original_has_system_feature;
+    void* original_dlopen;
     uint32_t state;
     uint32_t contextual_search_state;
 };
@@ -449,6 +523,11 @@ constexpr bool IsLauncherLibraryPath(const char* path) {
     }
     return StartsWith(path, "/product/priv-app/MiuiHome/") &&
             EndsWith(path, kSystemLauncherLibraryTail);
+}
+
+constexpr bool IsDartLibraryPath(const char* path) {
+    return StringsEqual(path, kDartLibraryName) ||
+            EndsWith(path, kDartLibraryTail);
 }
 
 static_assert(IsLauncherLibraryPath(
@@ -621,6 +700,41 @@ bool MatchesCode(const uint8_t* base, uintptr_t offset,
             memcmp(base + offset, expected, expected_size) == 0;
 }
 
+bool DartMappedRangeHasFlags(const uint8_t* base, uintptr_t offset,
+                             size_t size, uint32_t required_flags) {
+    if (base == nullptr || offset == 0u || size == 0u ||
+            offset > UINTPTR_MAX - size) {
+        return false;
+    }
+    const auto* header = reinterpret_cast<const Elf64_Ehdr*>(base);
+    if (memcmp(header->e_ident, ELFMAG, SELFMAG) != 0 ||
+            header->e_ident[EI_CLASS] != ELFCLASS64 ||
+            header->e_ident[EI_DATA] != ELFDATA2LSB ||
+            header->e_type != ET_DYN || header->e_machine != EM_AARCH64 ||
+            header->e_phentsize != sizeof(Elf64_Phdr) ||
+            header->e_phnum == 0u || header->e_phnum > 128u ||
+            header->e_phoff > 0x10000u) {
+        return false;
+    }
+    const auto* programs = reinterpret_cast<const Elf64_Phdr*>(
+            base + header->e_phoff);
+    const uintptr_t end = offset + size;
+    for (uint16_t index = 0u; index < header->e_phnum; ++index) {
+        const Elf64_Phdr& program = programs[index];
+        if (program.p_type != PT_LOAD ||
+                (program.p_flags & required_flags) != required_flags ||
+                program.p_vaddr > UINTPTR_MAX - program.p_memsz) {
+            continue;
+        }
+        const uintptr_t segment_start =
+                static_cast<uintptr_t>(program.p_vaddr);
+        const uintptr_t segment_end = segment_start +
+                static_cast<uintptr_t>(program.p_memsz);
+        if (offset >= segment_start && end <= segment_end) return true;
+    }
+    return false;
+}
+
 bool MatchesLauncherProfile(
         const uint8_t* base, void* app_entry_point,
         const miui_home_profiles::LauncherProfile& profile) {
@@ -740,7 +854,49 @@ const miui_home_profiles::LauncherProfile* CurrentLauncherProfile() {
     return AtomicLoad(&g_launcher_profile);
 }
 
+bool NeedsDartFeatureResolution(
+        const miui_home_profiles::LauncherProfile* profile) {
+    return profile != nullptr &&
+            profile->business_topology ==
+                    miui_home_profiles::BusinessHookTopology::
+                            kSideBoundaryOnly &&
+            (StringsEqual(profile->id, "runtime-side-v1") ||
+             (
+            profile->drawer_state_handler_offset == 0u &&
+            profile->drawer_state_handler_prologue == nullptr &&
+            profile->drawer_state_handler_prologue_size == 0u));
+}
+
+const miui_home_profiles::LauncherProfile* CurrentDartFeatureProfile() {
+    const auto* resolved = AtomicLoad(&g_resolved_dart_profile);
+    if (resolved != nullptr) return resolved;
+    const auto* launcher = CurrentLauncherProfile();
+    return launcher != nullptr &&
+                    launcher->dart_drawer_progress_end_offset != 0u
+            ? launcher : nullptr;
+}
+
 bool HandleRuntimeStatusQuery(void* intent);
+void PublishDrawerStateForCurrentGeneration();
+void PublishOverviewStateForCurrentGeneration();
+bool TryInstallDartDrawerStateHook(
+        void* dart_handle,
+        const miui_home_profiles::LauncherProfile* profile);
+bool TryInstallDartOverviewStateHook(
+        void* dart_handle,
+        const miui_home_profiles::LauncherProfile* profile);
+bool InstallDrawerStateHook(
+        uint8_t* base,
+        const miui_home_profiles::LauncherProfile* profile);
+void TryInstallLoadedDartDrawerStateHook(
+        const miui_home_profiles::LauncherProfile* profile);
+const miui_home_profiles::LauncherProfile* ResolveDartFeatureProfile(
+        void* dart_handle);
+void TryResolveAndInstallLoadedDartProfile();
+void RepairDartDrawerStateHookIfRemapped(
+        const miui_home_profiles::LauncherProfile* profile);
+void RepairDartOverviewStateHookIfRemapped(
+        const miui_home_profiles::LauncherProfile* profile);
 
 bool IsExactCallbackName(const char* value, size_t length,
                          const char* expected) {
@@ -931,8 +1087,8 @@ void HookBroadcastReceiverOnReceive(void* receiver, void* context, void* intent)
         // A status query deliberately rides the already authenticated
         // SystemUI arbiter-state action so it reaches Xiaomi's existing
         // native receiver without adding a second launcher receiver.
-        HandleRuntimeStatusQuery(intent);
         ObserveArbiterStateIntent(intent);
+        HandleRuntimeStatusQuery(intent);
         // Android 17 reuses Xiaomi's protected fsgesture receiver as the
         // carrier. Its native callback owns launcher-side FSG-region refresh;
         // consuming the marked broadcast here leaves later app gestures
@@ -942,6 +1098,8 @@ void HookBroadcastReceiverOnReceive(void* receiver, void* context, void* intent)
         __atomic_fetch_add(&g_arbiter_state_passthrough_count, uint32_t{1},
                            __ATOMIC_RELAXED);
         original(receiver, context, intent);
+        PublishDrawerStateForCurrentGeneration();
+        PublishOverviewStateForCurrentGeneration();
         return;
     }
     original(receiver, context, intent);
@@ -1249,6 +1407,119 @@ bool SendNativeBroadcast(const char* action, void* extras) {
     return true;
 }
 
+void PublishDrawerStateForCurrentGeneration() {
+    const uint32_t observed = AtomicLoad(&g_drawer_state_observed);
+    const int64_t generation = AtomicLoad(&g_systemui_arbiter_generation);
+    if ((observed != 1u && observed != 2u) || generation <= 0 ||
+            (AtomicLoad(&g_drawer_published_state) == observed &&
+             AtomicLoad(&g_drawer_published_generation) == generation)) {
+        return;
+    }
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_drawer_state_publish_in_flight, &expected, uint32_t{1},
+                false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return;
+    }
+    BundleDefaultFn bundle_default = ResolveLauncherSymbol<BundleDefaultFn>(
+            "Bundle_default");
+    void* extras = bundle_default == nullptr ? nullptr : bundle_default();
+    const bool sent = extras != nullptr &&
+            AddBundleBool(extras, "drawer_visible", observed == 2u) &&
+            AddBundleI64(extras, "input_arbiter_generation", generation) &&
+            SendNativeBroadcast(kAcceptedStateAction, extras);
+    if (sent && AtomicLoad(&g_drawer_state_observed) == observed &&
+            AtomicLoad(&g_systemui_arbiter_generation) == generation) {
+        __atomic_store_n(&g_drawer_published_state, observed,
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_drawer_published_generation, generation,
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_drawer_state_publish_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                            "published native drawer visible=%u generation=%lld",
+                            observed == 2u ? 1u : 0u,
+                            static_cast<long long>(generation));
+    } else if (!sent) {
+        Log(ANDROID_LOG_WARN, "native drawer state broadcast failed");
+    }
+    AtomicStore(&g_drawer_state_publish_in_flight, uint32_t{0});
+}
+
+void HandleDartDrawerStateObserved(uint32_t visible) {
+    const uint32_t observed = visible != 0u ? uint32_t{2} : uint32_t{1};
+    __atomic_store_n(&g_drawer_state_observed, observed, __ATOMIC_RELEASE);
+    PublishDrawerStateForCurrentGeneration();
+}
+
+void HookDrawerStateHandler(int64_t port, uint8_t* data, uint32_t length,
+                            uint32_t capacity) {
+    DrawerStateHandlerFn original = reinterpret_cast<DrawerStateHandlerFn>(
+            AtomicLoad(&g_original_drawer_state_handler));
+    const bool valid = data != nullptr && length == 1u && capacity == 1u &&
+            data[0] <= 1u;
+    const uint32_t observed = valid
+            ? (data[0] == 0u ? uint32_t{1} : uint32_t{2})
+            : uint32_t{0};
+    if (original != nullptr) {
+        original(port, data, length, capacity);
+    }
+    // The FRB wrapper owns and may free data. Capture its one-byte bool before
+    // the original call, but publish only after Xiaomi has queued the state.
+    if (!valid) {
+        Log(ANDROID_LOG_WARN, "ignored malformed native drawer-state bridge call");
+        return;
+    }
+    __atomic_store_n(&g_drawer_state_observed, observed, __ATOMIC_RELEASE);
+    PublishDrawerStateForCurrentGeneration();
+}
+
+void PublishOverviewStateForCurrentGeneration() {
+    const uint32_t observed = AtomicLoad(&g_overview_state_observed);
+    const int64_t generation = AtomicLoad(&g_systemui_arbiter_generation);
+    if ((observed != 1u && observed != 2u) || generation <= 0 ||
+            (AtomicLoad(&g_overview_published_state) == observed &&
+             AtomicLoad(&g_overview_published_generation) == generation)) {
+        return;
+    }
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_overview_state_publish_in_flight, &expected, uint32_t{1},
+                false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return;
+    }
+    BundleDefaultFn bundle_default = ResolveLauncherSymbol<BundleDefaultFn>(
+            "Bundle_default");
+    void* extras = bundle_default == nullptr ? nullptr : bundle_default();
+    const bool sent = extras != nullptr &&
+            AddBundleBool(extras, "overview_visible", observed == 2u) &&
+            AddBundleI64(extras, "input_arbiter_generation", generation) &&
+            SendNativeBroadcast(kAcceptedStateAction, extras);
+    if (sent && AtomicLoad(&g_overview_state_observed) == observed &&
+            AtomicLoad(&g_systemui_arbiter_generation) == generation) {
+        __atomic_store_n(&g_overview_published_state, observed,
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_overview_published_generation, generation,
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_overview_state_publish_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                            "published native Overview visible=%u generation=%lld",
+                            observed == 2u ? 1u : 0u,
+                            static_cast<long long>(generation));
+    } else if (!sent) {
+        Log(ANDROID_LOG_WARN, "native Overview state broadcast failed");
+    }
+    AtomicStore(&g_overview_state_publish_in_flight, uint32_t{0});
+}
+
+void HandleOverviewStateObserved(bool visible) {
+    __atomic_store_n(&g_overview_state_observed,
+                     visible ? uint32_t{2} : uint32_t{1},
+                     __ATOMIC_RELEASE);
+    PublishOverviewStateForCurrentGeneration();
+}
+
 bool HandleRuntimeStatusQuery(void* intent) {
     IntentGetSenderPackageFn get_sender =
             ResolveLauncherSymbol<IntentGetSenderPackageFn>(
@@ -1284,8 +1555,25 @@ bool HandleRuntimeStatusQuery(void* intent) {
             StringsEqual(profile->id, "runtime-side-v1");
     const uint32_t business_state = AtomicLoad(&g_business_hook_state);
     const uint32_t bridge_state = AtomicLoad(&g_arbiter_bridge_hook_state);
+    const auto* feature_profile = CurrentDartFeatureProfile();
+    if (feature_profile == nullptr) feature_profile = profile;
+    const bool dart_features_required =
+            NeedsDartFeatureResolution(profile);
+    const bool drawer_required = profile_resolved &&
+            (dart_features_required ||
+             feature_profile->drawer_state_handler_offset != 0u ||
+             feature_profile->dart_drawer_transition_complete_offset != 0u);
+    const bool overview_required = profile_resolved &&
+            (dart_features_required ||
+             feature_profile->dart_overview_enter_offset != 0u);
+    const bool drawer_ready = profile_resolved &&
+            (!drawer_required ||
+             AtomicLoad(&g_drawer_state_hook_state) == uint32_t{3});
+    const bool overview_ready = profile_resolved &&
+            (!overview_required ||
+             AtomicLoad(&g_overview_state_hook_state) == uint32_t{3});
     const bool native_ready = profile_resolved && business_state == 3u &&
-            bridge_state == 3u;
+            bridge_state == 3u && drawer_ready && overview_ready;
     BundleDefaultFn bundle_default = ResolveLauncherSymbol<BundleDefaultFn>(
             "Bundle_default");
     if (bundle_default == nullptr) {
@@ -1305,6 +1593,10 @@ bool HandleRuntimeStatusQuery(void* intent) {
                                    profile->contextual_long_press_handler_offset !=
                                            0u &&
                                    profile->contextual_search_invoke_offset != 0u) ||
+            !AddBundleBool(response, "status_native_drawer_state_ready",
+                           drawer_ready) ||
+            !AddBundleBool(response, "status_native_overview_state_ready",
+                           overview_ready) ||
             !AddBundleI64(response, kRuntimeStatusNonceExtra, nonce) ||
             !AddBundleI64(response, "status_native_profile_entry_offset",
                           profile_resolved
@@ -1317,9 +1609,26 @@ bool HandleRuntimeStatusQuery(void* intent) {
                                   : 0) ||
             !AddBundleI32(response, "status_native_runtime_profile_stage",
                           AtomicLoad(&g_dynamic_profile_state)) ||
+            !AddBundleI32(response, "status_native_dart_resolver_stage",
+                          AtomicLoad(&g_dart_profile_resolve_state)) ||
+            !AddBundleI32(response, "status_native_dart_drawer_candidates",
+                          AtomicLoad(&g_dart_drawer_candidate_count)) ||
+            !AddBundleI32(response,
+                          "status_native_dart_transition_candidates",
+                          AtomicLoad(&g_dart_transition_candidate_count)) ||
+            !AddBundleI32(response,
+                          "status_native_dart_overview_enter_candidates",
+                          AtomicLoad(&g_dart_overview_enter_candidate_count)) ||
+            !AddBundleI32(response,
+                          "status_native_dart_overview_exit_candidates",
+                          AtomicLoad(&g_dart_overview_exit_candidate_count)) ||
             !AddBundleI32(response, "status_native_business_state",
                           business_state) ||
             !AddBundleI32(response, "status_native_bridge_state", bridge_state) ||
+            !AddBundleI32(response, "status_native_drawer_state_hook",
+                          AtomicLoad(&g_drawer_state_hook_state)) ||
+            !AddBundleI32(response, "status_native_overview_state_hook",
+                          AtomicLoad(&g_overview_state_hook_state)) ||
             !AddBundleI32(response, "status_native_receiver_state",
                           AtomicLoad(&g_native_receiver_state))) {
         __atomic_store_n(&g_runtime_status_last_state, uint32_t{3},
@@ -1915,6 +2224,127 @@ NativeResult HookPackageManagerHasSystemFeature3(
             package_manager, name, name_length, flags, 3u);
 }
 
+const miui_home_profiles::LauncherProfile* ResolveDartFeatureProfile(
+        void* dart_handle) {
+    const auto* current = AtomicLoad(&g_resolved_dart_profile);
+    if (current != nullptr) return current;
+    const auto* launcher = CurrentLauncherProfile();
+    if (dart_handle == nullptr || !NeedsDartFeatureResolution(launcher)) {
+        return nullptr;
+    }
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(&g_dart_profile_resolve_state, &expected,
+                                     uint32_t{1}, false,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return nullptr;
+    }
+    void* instructions = dlsym(dart_handle,
+                               kDartSnapshotInstructionsSymbol);
+    void* build_id = dlsym(dart_handle, kDartSnapshotBuildIdSymbol);
+    Dl_info info{};
+    const bool mapped = instructions != nullptr && build_id != nullptr &&
+            dladdr(instructions, &info) != 0 && info.dli_fbase != nullptr &&
+            IsDartLibraryPath(info.dli_fname);
+    auto* base = mapped ? static_cast<uint8_t*>(info.dli_fbase) : nullptr;
+    const bool resolved = mapped &&
+            miui_home_dart_profile::ResolveDartFeatureProfile(
+                    base, instructions, build_id, *launcher,
+                    &g_dart_profile_storage, &g_dart_profile_diagnostics);
+    __atomic_store_n(&g_dart_drawer_candidate_count,
+            g_dart_profile_diagnostics.drawer_candidate_count,
+            __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_transition_candidate_count,
+            g_dart_profile_diagnostics.transition_candidate_count,
+            __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_overview_enter_candidate_count,
+            g_dart_profile_diagnostics.overview_enter_candidate_count,
+            __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_overview_exit_candidate_count,
+            g_dart_profile_diagnostics.overview_exit_candidate_count,
+            __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_drawer_resolved_offset,
+            g_dart_profile_diagnostics.drawer_progress_end_offset,
+            __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_transition_resolved_offset,
+            g_dart_profile_diagnostics.drawer_transition_complete_offset,
+            __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_overview_enter_resolved_offset,
+            g_dart_profile_diagnostics.overview_enter_offset,
+            __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_overview_exit_resolved_offset,
+            g_dart_profile_diagnostics.overview_exit_offset,
+            __ATOMIC_RELAXED);
+    if (!resolved) {
+        __atomic_store_n(
+                &g_dart_profile_resolve_state,
+                static_cast<uint32_t>(g_dart_profile_diagnostics.stage),
+                __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_WARN,
+            "mapped Dart AOT feature family was absent or ambiguous");
+        return nullptr;
+    }
+    AtomicStore(&g_resolved_dart_profile,
+                static_cast<const miui_home_profiles::LauncherProfile*>(
+                        &g_dart_profile_storage.profile));
+    __atomic_store_n(
+            &g_dart_profile_resolve_state,
+            static_cast<uint32_t>(
+                    miui_home_dart_profile::ResolveStage::kComplete),
+            __ATOMIC_RELEASE);
+    __atomic_store_n(&g_drawer_state_hook_state, uint32_t{1},
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&g_overview_state_hook_state, uint32_t{1},
+                     __ATOMIC_RELEASE);
+    Log(ANDROID_LOG_INFO,
+        "uniquely resolved mapped Dart drawer and Overview callback family");
+    return &g_dart_profile_storage.profile;
+}
+
+void* HookLauncherDlopenForSlot(
+        const char* filename, int flags, uint32_t slot_index) {
+    if (slot_index >= kLauncherInputSlotCount) return nullptr;
+    LauncherInputHookSlot& slot = g_launcher_input_slots[slot_index];
+    DlopenFn original = reinterpret_cast<DlopenFn>(
+            AtomicLoad(&slot.original_dlopen));
+    if (original == nullptr) return nullptr;
+    void* result = original(filename, flags);
+    if (result != nullptr && IsDartLibraryPath(filename)) {
+        const auto* profile = ResolveDartFeatureProfile(result);
+        if (profile != nullptr) {
+            TryInstallDartDrawerStateHook(result, profile);
+            TryInstallDartOverviewStateHook(result, profile);
+        } else {
+            const auto* launcher = CurrentLauncherProfile();
+            const uint32_t dart_stage = AtomicLoad(
+                    &g_dart_profile_resolve_state);
+            if (launcher != nullptr && g_launcher_base != nullptr &&
+                    StringsEqual(launcher->id, "runtime-side-v1") &&
+                    dart_stage >= static_cast<uint32_t>(
+                            miui_home_dart_profile::ResolveStage::
+                                    kRejectedElf)) {
+                if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{1}) {
+                    __atomic_store_n(&g_overview_state_hook_state,
+                                     uint32_t{2}, __ATOMIC_RELEASE);
+                }
+            }
+        }
+    }
+    return result;
+}
+
+void* HookLauncherDlopen0(const char* filename, int flags) {
+    return HookLauncherDlopenForSlot(filename, flags, 0u);
+}
+void* HookLauncherDlopen1(const char* filename, int flags) {
+    return HookLauncherDlopenForSlot(filename, flags, 1u);
+}
+void* HookLauncherDlopen2(const char* filename, int flags) {
+    return HookLauncherDlopenForSlot(filename, flags, 2u);
+}
+void* HookLauncherDlopen3(const char* filename, int flags) {
+    return HookLauncherDlopenForSlot(filename, flags, 3u);
+}
+
 int32_t HookMotionGetActionForSlot(void* event, uint32_t slot_index,
                                    bool masked) {
     if (slot_index >= kLauncherInputSlotCount) return -1;
@@ -1932,6 +2362,19 @@ int32_t HookMotionGetActionForSlot(void* event, uint32_t slot_index,
             AtomicLoad(&target));
     if (original == nullptr) return -1;
     const int32_t action = original(event);
+    const auto* profile = CurrentDartFeatureProfile();
+    if (profile == nullptr &&
+            NeedsDartFeatureResolution(CurrentLauncherProfile()) &&
+            AtomicLoad(&g_dart_profile_resolve_state) == uint32_t{0}) {
+        // libflutter may own the actual AOT load rather than calling through
+        // libapp_launcher's PLT. The first ordinary launcher input callback
+        // may therefore acquire the already-loaded image, but never loads it.
+        TryResolveAndInstallLoadedDartProfile();
+        profile = CurrentDartFeatureProfile();
+    }
+    RepairDartDrawerStateHookIfRemapped(profile);
+    RepairDartOverviewStateHookIfRemapped(profile);
+    TryInstallLoadedDartDrawerStateHook(profile);
     g_last_motion_event = reinterpret_cast<uintptr_t>(event);
     PublishContextualMotionSnapshot(event, action);
     if ((action & 0xff) == 0) {
@@ -2175,6 +2618,647 @@ bool InstallContextualSearchLongPressHook(
     return true;
 }
 
+bool TryInstallDartDrawerStateHook(
+        void* dart_handle,
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (dart_handle == nullptr || profile == nullptr) return false;
+    if (AtomicLoad(&g_drawer_state_hook_state) == uint32_t{3}) {
+        if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{1}) {
+            TryInstallDartOverviewStateHook(dart_handle, profile);
+        }
+        return true;
+    }
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_dart_drawer_install_in_flight, &expected, uint32_t{1},
+                false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return AtomicLoad(&g_drawer_state_hook_state) == uint32_t{3};
+    }
+    __atomic_store_n(&g_drawer_state_hook_state, uint32_t{1},
+                     __ATOMIC_RELEASE);
+
+    void* instructions = dlsym(dart_handle,
+                               kDartSnapshotInstructionsSymbol);
+    void* build_id = dlsym(dart_handle, kDartSnapshotBuildIdSymbol);
+    Dl_info info{};
+    const bool resolved = instructions != nullptr && build_id != nullptr &&
+            dladdr(instructions, &info) != 0 && info.dli_fbase != nullptr &&
+            IsDartLibraryPath(info.dli_fname);
+    auto* dart_base = resolved
+            ? static_cast<uint8_t*>(info.dli_fbase) : nullptr;
+    const bool valid = resolved &&
+            instructions == dart_base +
+                    profile->dart_snapshot_instructions_offset &&
+            build_id == dart_base + profile->dart_snapshot_build_id_offset &&
+            profile->dart_snapshot_build_id != nullptr &&
+            profile->dart_snapshot_build_id_size != 0u &&
+            memcmp(build_id, profile->dart_snapshot_build_id,
+                   profile->dart_snapshot_build_id_size) == 0 &&
+            profile->dart_drawer_progress_end_offset != 0u &&
+            profile->dart_drawer_progress_end_prologue != nullptr &&
+            profile->dart_drawer_progress_end_prologue_size != 0u &&
+            profile->dart_drawer_transition_complete_offset != 0u &&
+            profile->dart_drawer_transition_complete_prologue != nullptr &&
+            profile->dart_drawer_transition_complete_prologue_size != 0u &&
+            profile->dart_all_apps_state_slot_offset != 0u &&
+            profile->dart_home_state_slot_offset != 0u &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_snapshot_instructions_offset,
+                    sizeof(uint32_t), PF_R | PF_X) &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_snapshot_build_id_offset,
+                    profile->dart_snapshot_build_id_size, PF_R) &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_drawer_progress_end_offset,
+                    profile->dart_drawer_progress_end_prologue_size,
+                    PF_R | PF_X) &&
+            DartMappedRangeHasFlags(
+                    dart_base,
+                    profile->dart_drawer_transition_complete_offset,
+                    profile->dart_drawer_transition_complete_prologue_size,
+                    PF_R | PF_X) &&
+            MatchesCode(dart_base,
+                        profile->dart_drawer_progress_end_offset,
+                        profile->dart_drawer_progress_end_prologue,
+                        profile->dart_drawer_progress_end_prologue_size) &&
+            MatchesCode(
+                    dart_base,
+                    profile->dart_drawer_transition_complete_offset,
+                    profile->dart_drawer_transition_complete_prologue,
+                    profile->dart_drawer_transition_complete_prologue_size);
+    if (!valid) {
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{5},
+                         __ATOMIC_RELEASE);
+        AtomicStore(&g_dart_drawer_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR,
+            "Dart ALL_APPS route rejected snapshot identity or fingerprint");
+        return false;
+    }
+
+    if (g_api.inlineHook(
+                dart_base + profile->dart_drawer_transition_complete_offset,
+                reinterpret_cast<void*>(
+                        MiuiHomeHyosDartDrawerTransitionCompleteHook),
+                &miui_home_hyos_dart_transition_complete_original) !=
+                    ZN_SUCCESS ||
+            AtomicLoad(&miui_home_hyos_dart_transition_complete_original) ==
+                    nullptr) {
+        AtomicStore(&miui_home_hyos_dart_transition_complete_original,
+                    static_cast<void*>(nullptr));
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        AtomicStore(&g_dart_drawer_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR,
+            "Dart ALL_APPS visibility-callback hook failed");
+        return false;
+    }
+    AtomicStore(&g_dart_app_handle, dart_handle);
+    AtomicStore(&g_dart_app_base, dart_base);
+    __atomic_store_n(&g_drawer_state_hook_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    AtomicStore(&g_dart_drawer_install_in_flight, uint32_t{0});
+    Log(ANDROID_LOG_INFO,
+        "installed exact Dart ALL_APPS visibility-callback state bridge");
+    if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{1}) {
+        TryInstallDartOverviewStateHook(dart_handle, profile);
+    }
+    return true;
+}
+
+bool TryInstallDartOverviewStateHook(
+        void* dart_handle,
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (dart_handle == nullptr || profile == nullptr) return false;
+    if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{3}) return true;
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_dart_overview_install_in_flight, &expected, uint32_t{1},
+                false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return AtomicLoad(&g_overview_state_hook_state) == uint32_t{3};
+    }
+    __atomic_store_n(&g_overview_state_hook_state, uint32_t{1},
+                     __ATOMIC_RELEASE);
+
+    void* instructions = dlsym(dart_handle, kDartSnapshotInstructionsSymbol);
+    void* build_id = dlsym(dart_handle, kDartSnapshotBuildIdSymbol);
+    Dl_info info{};
+    const bool resolved = instructions != nullptr && build_id != nullptr &&
+            dladdr(instructions, &info) != 0 && info.dli_fbase != nullptr &&
+            IsDartLibraryPath(info.dli_fname);
+    auto* dart_base = resolved
+            ? static_cast<uint8_t*>(info.dli_fbase) : nullptr;
+    const bool valid = resolved &&
+            instructions == dart_base +
+                    profile->dart_snapshot_instructions_offset &&
+            build_id == dart_base + profile->dart_snapshot_build_id_offset &&
+            profile->dart_snapshot_build_id != nullptr &&
+            profile->dart_snapshot_build_id_size != 0u &&
+            memcmp(build_id, profile->dart_snapshot_build_id,
+                   profile->dart_snapshot_build_id_size) == 0 &&
+            profile->dart_overview_enter_offset != 0u &&
+            profile->dart_overview_enter_prologue != nullptr &&
+            profile->dart_overview_enter_prologue_size != 0u &&
+            profile->dart_overview_exit_offset != 0u &&
+            profile->dart_overview_exit_prologue != nullptr &&
+            profile->dart_overview_exit_prologue_size != 0u &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_snapshot_instructions_offset,
+                    sizeof(uint32_t), PF_R | PF_X) &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_snapshot_build_id_offset,
+                    profile->dart_snapshot_build_id_size, PF_R) &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_overview_enter_offset,
+                    profile->dart_overview_enter_prologue_size,
+                    PF_R | PF_X) &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_overview_exit_offset,
+                    profile->dart_overview_exit_prologue_size,
+                    PF_R | PF_X) &&
+            MatchesCode(dart_base, profile->dart_overview_enter_offset,
+                        profile->dart_overview_enter_prologue,
+                        profile->dart_overview_enter_prologue_size) &&
+            MatchesCode(dart_base, profile->dart_overview_exit_offset,
+                        profile->dart_overview_exit_prologue,
+                        profile->dart_overview_exit_prologue_size);
+    if (!valid) {
+        __atomic_store_n(&g_overview_state_hook_state, uint32_t{5},
+                         __ATOMIC_RELEASE);
+        AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR,
+            "Dart Overview route rejected snapshot identity or fingerprint");
+        return false;
+    }
+    if (g_api.inlineHook(
+                dart_base + profile->dart_overview_enter_offset,
+                reinterpret_cast<void*>(MiuiHomeHyosDartOverviewEnterHook),
+                &miui_home_hyos_dart_overview_enter_original) != ZN_SUCCESS ||
+            AtomicLoad(&miui_home_hyos_dart_overview_enter_original) == nullptr) {
+        AtomicStore(&miui_home_hyos_dart_overview_enter_original,
+                    static_cast<void*>(nullptr));
+        __atomic_store_n(&g_overview_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR, "Dart Overview enter hook failed");
+        return false;
+    }
+    if (g_api.inlineHook(
+                dart_base + profile->dart_overview_exit_offset,
+                reinterpret_cast<void*>(MiuiHomeHyosDartOverviewExitHook),
+                &miui_home_hyos_dart_overview_exit_original) != ZN_SUCCESS ||
+            AtomicLoad(&miui_home_hyos_dart_overview_exit_original) == nullptr) {
+        g_api.inlineUnhook(dart_base + profile->dart_overview_enter_offset);
+        AtomicStore(&miui_home_hyos_dart_overview_enter_original,
+                    static_cast<void*>(nullptr));
+        AtomicStore(&miui_home_hyos_dart_overview_exit_original,
+                    static_cast<void*>(nullptr));
+        __atomic_store_n(&g_overview_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR, "Dart Overview exit hook failed");
+        return false;
+    }
+    AtomicStore(&g_dart_app_handle, dart_handle);
+    AtomicStore(&g_dart_app_base, dart_base);
+    __atomic_store_n(&g_overview_state_hook_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+    Log(ANDROID_LOG_INFO,
+        "installed exact Dart Overview enter/exit state bridge");
+    return true;
+}
+
+void RepairDartDrawerStateHookIfRemapped(
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (profile == nullptr || g_api.inlineHook == nullptr ||
+            g_api.inlineUnhook == nullptr ||
+            AtomicLoad(&g_drawer_state_hook_state) != uint32_t{3}) {
+        return;
+    }
+    auto* dart_base = static_cast<uint8_t*>(AtomicLoad(&g_dart_app_base));
+    void* dart_handle = AtomicLoad(&g_dart_app_handle);
+    if (dart_base == nullptr || dart_handle == nullptr ||
+            profile != CurrentDartFeatureProfile()) {
+        return;
+    }
+    const uintptr_t active_offset =
+            profile->dart_drawer_transition_complete_offset;
+    const uint8_t* active_prologue =
+            profile->dart_drawer_transition_complete_prologue;
+    const size_t active_prologue_size =
+            profile->dart_drawer_transition_complete_prologue_size;
+    if (active_offset == 0u ||
+            active_prologue == nullptr || active_prologue_size == 0u ||
+            !MatchesCode(dart_base, active_offset, active_prologue,
+                         active_prologue_size)) {
+        return;
+    }
+    __atomic_fetch_add(&g_dart_drawer_repair_attempt_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_drawer_repair_stage, uint32_t{1},
+                     __ATOMIC_RELEASE);
+    uint32_t install_expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_dart_drawer_install_in_flight, &install_expected,
+                uint32_t{1}, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return;
+    }
+    uint32_t expected = 3u;
+    if (!__atomic_compare_exchange_n(&g_drawer_state_hook_state, &expected,
+                                     uint32_t{1}, false,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        AtomicStore(&g_dart_drawer_install_in_flight, uint32_t{0});
+        return;
+    }
+    __atomic_store_n(&g_dart_drawer_repair_stage, uint32_t{2},
+                     __ATOMIC_RELEASE);
+    auto* target = dart_base + profile->dart_drawer_transition_complete_offset;
+    if (g_api.inlineUnhook(target) != ZN_SUCCESS) {
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_dart_drawer_repair_stage, uint32_t{5},
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_dart_drawer_repair_failure_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        AtomicStore(&g_dart_drawer_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR,
+            "failed to unregister stale Dart ALL_APPS visibility hook");
+        return;
+    }
+    if (!MatchesCode(
+                dart_base, profile->dart_drawer_transition_complete_offset,
+                profile->dart_drawer_transition_complete_prologue,
+                profile->dart_drawer_transition_complete_prologue_size)) {
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_dart_drawer_repair_stage, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_dart_drawer_repair_failure_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        AtomicStore(&g_dart_drawer_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR,
+            "Dart ALL_APPS remap repair failed post-unhook fingerprint");
+        return;
+    }
+    AtomicStore(&miui_home_hyos_dart_transition_complete_original,
+                static_cast<void*>(nullptr));
+    if (g_api.inlineHook(
+                target,
+                reinterpret_cast<void*>(
+                        MiuiHomeHyosDartDrawerTransitionCompleteHook),
+                &miui_home_hyos_dart_transition_complete_original) !=
+                    ZN_SUCCESS ||
+            AtomicLoad(&miui_home_hyos_dart_transition_complete_original) ==
+                    nullptr) {
+        AtomicStore(&miui_home_hyos_dart_transition_complete_original,
+                    static_cast<void*>(nullptr));
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_dart_drawer_repair_stage, uint32_t{7},
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_dart_drawer_repair_failure_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        AtomicStore(&g_dart_drawer_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR,
+            "failed to repair remapped Dart ALL_APPS visibility hook");
+        return;
+    }
+    __atomic_store_n(&g_dart_drawer_repair_stage, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    __atomic_fetch_add(&g_dart_drawer_repair_success_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    __atomic_store_n(&g_drawer_state_hook_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    AtomicStore(&g_dart_drawer_install_in_flight, uint32_t{0});
+    Log(ANDROID_LOG_INFO,
+        "repaired remapped Dart ALL_APPS visibility hook");
+}
+
+void RepairDartOverviewStateHookIfRemapped(
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (profile == nullptr || g_api.inlineHook == nullptr ||
+            g_api.inlineUnhook == nullptr ||
+            AtomicLoad(&g_overview_state_hook_state) != uint32_t{3} ||
+            profile->dart_overview_enter_offset == 0u) {
+        return;
+    }
+    auto* dart_base = static_cast<uint8_t*>(AtomicLoad(&g_dart_app_base));
+    if (dart_base == nullptr || profile != CurrentDartFeatureProfile()) return;
+    const bool enter_original = MatchesCode(
+            dart_base, profile->dart_overview_enter_offset,
+            profile->dart_overview_enter_prologue,
+            profile->dart_overview_enter_prologue_size);
+    const bool exit_original = MatchesCode(
+            dart_base, profile->dart_overview_exit_offset,
+            profile->dart_overview_exit_prologue,
+            profile->dart_overview_exit_prologue_size);
+    if (!enter_original && !exit_original) return;
+    __atomic_fetch_add(&g_overview_dart_repair_attempt_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    __atomic_store_n(&g_overview_dart_repair_stage, uint32_t{1},
+                     __ATOMIC_RELEASE);
+    uint32_t install_expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_dart_overview_install_in_flight, &install_expected,
+                uint32_t{1}, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return;
+    }
+    uint32_t expected = 3u;
+    if (!__atomic_compare_exchange_n(&g_overview_state_hook_state, &expected,
+                                     uint32_t{1}, false,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+        return;
+    }
+    auto* enter_target = dart_base + profile->dart_overview_enter_offset;
+    auto* exit_target = dart_base + profile->dart_overview_exit_offset;
+    const int enter_unhook = g_api.inlineUnhook(enter_target);
+    const int exit_unhook = g_api.inlineUnhook(exit_target);
+    if (enter_unhook != ZN_SUCCESS || exit_unhook != ZN_SUCCESS) {
+        __atomic_store_n(&g_overview_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_overview_dart_repair_stage, uint32_t{4},
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_overview_dart_repair_failure_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR,
+            "failed to unregister stale Dart Overview hooks");
+        return;
+    }
+    __atomic_store_n(&g_overview_dart_repair_stage, uint32_t{2},
+                     __ATOMIC_RELEASE);
+    if (!MatchesCode(dart_base, profile->dart_overview_enter_offset,
+                     profile->dart_overview_enter_prologue,
+                     profile->dart_overview_enter_prologue_size) ||
+            !MatchesCode(dart_base, profile->dart_overview_exit_offset,
+                         profile->dart_overview_exit_prologue,
+                         profile->dart_overview_exit_prologue_size)) {
+        __atomic_store_n(&g_overview_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_overview_dart_repair_stage, uint32_t{5},
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_overview_dart_repair_failure_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR,
+            "Dart Overview remap repair failed post-unhook fingerprint");
+        return;
+    }
+    AtomicStore(&miui_home_hyos_dart_overview_enter_original,
+                static_cast<void*>(nullptr));
+    AtomicStore(&miui_home_hyos_dart_overview_exit_original,
+                static_cast<void*>(nullptr));
+    if (g_api.inlineHook(
+                enter_target,
+                reinterpret_cast<void*>(MiuiHomeHyosDartOverviewEnterHook),
+                &miui_home_hyos_dart_overview_enter_original) != ZN_SUCCESS ||
+            AtomicLoad(&miui_home_hyos_dart_overview_enter_original) == nullptr) {
+        __atomic_store_n(&g_overview_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_overview_dart_repair_stage, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_overview_dart_repair_failure_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR, "failed to repair Dart Overview enter hook");
+        return;
+    }
+    if (g_api.inlineHook(
+                exit_target,
+                reinterpret_cast<void*>(MiuiHomeHyosDartOverviewExitHook),
+                &miui_home_hyos_dart_overview_exit_original) != ZN_SUCCESS ||
+            AtomicLoad(&miui_home_hyos_dart_overview_exit_original) == nullptr) {
+        g_api.inlineUnhook(enter_target);
+        AtomicStore(&miui_home_hyos_dart_overview_enter_original,
+                    static_cast<void*>(nullptr));
+        AtomicStore(&miui_home_hyos_dart_overview_exit_original,
+                    static_cast<void*>(nullptr));
+        __atomic_store_n(&g_overview_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_overview_dart_repair_stage, uint32_t{7},
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_overview_dart_repair_failure_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR, "failed to repair Dart Overview exit hook");
+        return;
+    }
+    __atomic_store_n(&g_overview_state_hook_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&g_overview_dart_repair_stage, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    __atomic_fetch_add(&g_overview_dart_repair_success_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    AtomicStore(&g_dart_overview_install_in_flight, uint32_t{0});
+    Log(ANDROID_LOG_INFO, "repaired remapped Dart Overview hooks");
+}
+
+void TryInstallLoadedDartDrawerStateHook(
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (profile == nullptr) return;
+    const bool drawer_pending =
+            profile->dart_drawer_progress_end_offset != 0u &&
+            AtomicLoad(&g_drawer_state_hook_state) == uint32_t{1};
+    const bool overview_pending =
+            profile->dart_overview_enter_offset != 0u &&
+            AtomicLoad(&g_overview_state_hook_state) == uint32_t{1};
+    if (!drawer_pending && !overview_pending) return;
+    // Flutter's engine can load the AOT image below libapp_launcher's own
+    // dlopen boundary. RTLD_NOLOAD only acquires the already-loaded image; it
+    // must never manufacture a second AOT owner during input readiness.
+    void* dart_handle = dlopen(kDartLibraryName, RTLD_NOW | RTLD_NOLOAD);
+    if (dart_handle == nullptr) return;
+    bool retained = false;
+    if (drawer_pending) {
+        retained = TryInstallDartDrawerStateHook(dart_handle, profile);
+    }
+    if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{1}) {
+        retained = TryInstallDartOverviewStateHook(dart_handle, profile) ||
+                retained;
+    }
+    if (!retained) {
+        dlclose(dart_handle);
+    }
+}
+
+void TryResolveAndInstallLoadedDartProfile() {
+    // Acquire only an existing AOT mapping. Resolution is performed after the
+    // loader has published both Dart snapshot symbols and never loads a second
+    // copy merely to search it.
+    void* dart_handle = dlopen(kDartLibraryName, RTLD_NOW | RTLD_NOLOAD);
+    if (dart_handle == nullptr) return;
+    const auto* profile = ResolveDartFeatureProfile(dart_handle);
+    bool retained = false;
+    if (profile != nullptr) {
+        retained = TryInstallDartDrawerStateHook(dart_handle, profile);
+        retained = TryInstallDartOverviewStateHook(dart_handle, profile) ||
+                retained;
+    }
+    if (profile == nullptr) {
+        const auto* launcher = CurrentLauncherProfile();
+        const uint32_t dart_stage = AtomicLoad(&g_dart_profile_resolve_state);
+        if (launcher != nullptr && g_launcher_base != nullptr &&
+                StringsEqual(launcher->id, "runtime-side-v1") &&
+                dart_stage >= static_cast<uint32_t>(
+                        miui_home_dart_profile::ResolveStage::kRejectedElf)) {
+            if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{1}) {
+                __atomic_store_n(&g_overview_state_hook_state,
+                                 uint32_t{2}, __ATOMIC_RELEASE);
+            }
+        }
+    }
+    if (!retained) dlclose(dart_handle);
+}
+
+bool InstallDrawerStateHook(
+        uint8_t* base,
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (base == nullptr || profile == nullptr) return false;
+    const bool has_dart_route =
+            profile->dart_snapshot_instructions_offset != 0u ||
+            profile->dart_snapshot_build_id_offset != 0u ||
+            profile->dart_snapshot_build_id != nullptr ||
+            profile->dart_snapshot_build_id_size != 0u ||
+            profile->dart_drawer_progress_end_offset != 0u ||
+            profile->dart_drawer_progress_end_prologue != nullptr ||
+            profile->dart_drawer_progress_end_prologue_size != 0u ||
+            profile->dart_drawer_transition_complete_offset != 0u ||
+            profile->dart_drawer_transition_complete_prologue != nullptr ||
+            profile->dart_drawer_transition_complete_prologue_size != 0u ||
+            profile->dart_all_apps_state_slot_offset != 0u ||
+            profile->dart_home_state_slot_offset != 0u;
+    if (has_dart_route) {
+        const bool complete =
+                profile->dart_snapshot_instructions_offset != 0u &&
+                profile->dart_snapshot_build_id_offset != 0u &&
+                profile->dart_snapshot_build_id != nullptr &&
+                profile->dart_snapshot_build_id_size != 0u &&
+                profile->dart_drawer_progress_end_offset != 0u &&
+                profile->dart_drawer_progress_end_prologue != nullptr &&
+                profile->dart_drawer_progress_end_prologue_size != 0u &&
+                profile->dart_drawer_transition_complete_offset != 0u &&
+                profile->dart_drawer_transition_complete_prologue != nullptr &&
+                profile->dart_drawer_transition_complete_prologue_size != 0u &&
+                profile->dart_all_apps_state_slot_offset != 0u &&
+                profile->dart_home_state_slot_offset != 0u;
+        if (!complete) {
+            __atomic_store_n(&g_drawer_state_hook_state, uint32_t{5},
+                             __ATOMIC_RELEASE);
+            Log(ANDROID_LOG_ERROR,
+                "Dart ALL_APPS route rejected incomplete mixed profile");
+            return false;
+        }
+        if (AtomicLoad(&g_dart_loader_hook_state) != uint32_t{3}) {
+            __atomic_store_n(&g_drawer_state_hook_state, uint32_t{6},
+                             __ATOMIC_RELEASE);
+            Log(ANDROID_LOG_ERROR,
+                "Dart ALL_APPS route missing launcher-local loader hook");
+            return false;
+        }
+        // Launcher text and Flutter AOT can receive their final APK-backed
+        // remap together. Preserve an already-installed AOT lifecycle here;
+        // HookMotionGetActionForSlot performs the exact remap check immediately
+        // after the Launcher business repair and adopts the fallback boundary.
+        if (AtomicLoad(&g_drawer_state_hook_state) == uint32_t{3}) {
+            return true;
+        }
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{1},
+                         __ATOMIC_RELEASE);
+        void* dart_handle = AtomicLoad(&g_dart_app_handle);
+        return dart_handle == nullptr ||
+                TryInstallDartDrawerStateHook(dart_handle, profile);
+    }
+    const bool absent = profile->drawer_state_handler_offset == 0u &&
+            profile->drawer_state_handler_prologue == nullptr &&
+            profile->drawer_state_handler_prologue_size == 0u;
+    if (absent) {
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{2},
+                         __ATOMIC_RELEASE);
+        return true;
+    }
+    if (profile->drawer_state_handler_offset == 0u ||
+            profile->drawer_state_handler_prologue == nullptr ||
+            profile->drawer_state_handler_prologue_size == 0u ||
+            !MatchesCode(base, profile->drawer_state_handler_offset,
+                         profile->drawer_state_handler_prologue,
+                         profile->drawer_state_handler_prologue_size)) {
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{5},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_ERROR,
+            "native drawer-state route rejected profile fingerprint");
+        return false;
+    }
+    __atomic_store_n(&g_drawer_state_hook_state, uint32_t{1},
+                     __ATOMIC_RELEASE);
+    if (g_api.inlineHook(
+                base + profile->drawer_state_handler_offset,
+                reinterpret_cast<void*>(HookDrawerStateHandler),
+                &g_original_drawer_state_handler) != ZN_SUCCESS ||
+            AtomicLoad(&g_original_drawer_state_handler) == nullptr) {
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        Log(ANDROID_LOG_ERROR, "native drawer-state hook failed");
+        return false;
+    }
+    __atomic_store_n(&g_drawer_state_hook_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    Log(ANDROID_LOG_INFO, "installed exact native ALL_APPS state bridge");
+    return true;
+}
+
+bool InstallOverviewStateHook(
+        uint8_t* base,
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (base == nullptr || profile == nullptr) return false;
+    const bool has_dart_route =
+            profile->dart_overview_enter_offset != 0u ||
+            profile->dart_overview_enter_prologue != nullptr ||
+            profile->dart_overview_enter_prologue_size != 0u ||
+            profile->dart_overview_exit_offset != 0u ||
+            profile->dart_overview_exit_prologue != nullptr ||
+            profile->dart_overview_exit_prologue_size != 0u;
+    if (has_dart_route) {
+        const bool complete =
+                profile->dart_snapshot_instructions_offset != 0u &&
+                profile->dart_snapshot_build_id_offset != 0u &&
+                profile->dart_snapshot_build_id != nullptr &&
+                profile->dart_snapshot_build_id_size != 0u &&
+                profile->dart_overview_enter_offset != 0u &&
+                profile->dart_overview_enter_prologue != nullptr &&
+                profile->dart_overview_enter_prologue_size != 0u &&
+                profile->dart_overview_exit_offset != 0u &&
+                profile->dart_overview_exit_prologue != nullptr &&
+                profile->dart_overview_exit_prologue_size != 0u;
+        if (!complete || AtomicLoad(&g_dart_loader_hook_state) != uint32_t{3}) {
+            __atomic_store_n(&g_overview_state_hook_state, uint32_t{5},
+                             __ATOMIC_RELEASE);
+            Log(ANDROID_LOG_ERROR,
+                "Dart Overview route rejected incomplete mixed profile");
+            return false;
+        }
+        if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{3}) {
+            return true;
+        }
+        __atomic_store_n(&g_overview_state_hook_state, uint32_t{1},
+                         __ATOMIC_RELEASE);
+        void* dart_handle = AtomicLoad(&g_dart_app_handle);
+        return dart_handle == nullptr ||
+                TryInstallDartOverviewStateHook(dart_handle, profile);
+    }
+    if (NeedsDartFeatureResolution(profile) &&
+            AtomicLoad(&g_dart_profile_resolve_state) <
+                    static_cast<uint32_t>(
+                            miui_home_dart_profile::ResolveStage::kComplete)) {
+        __atomic_store_n(&g_overview_state_hook_state, uint32_t{1},
+                         __ATOMIC_RELEASE);
+        return true;
+    }
+    __atomic_store_n(&g_overview_state_hook_state, uint32_t{2},
+                     __ATOMIC_RELEASE);
+    return true;
+}
+
 bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
     uint8_t* base = nullptr;
     const auto* profile = ResolveLauncherProfile(app_entry_point, &base);
@@ -2206,6 +3290,10 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
             HookPackageManagerHasSystemFeature2,
             HookPackageManagerHasSystemFeature3,
     };
+    constexpr DlopenFn kLauncherDlopenHooks[kLauncherInputSlotCount] = {
+            HookLauncherDlopen0, HookLauncherDlopen1,
+            HookLauncherDlopen2, HookLauncherDlopen3,
+    };
     LauncherInputHookSlot& slot = g_launcher_input_slots[index];
     AtomicStore(&slot.base, reinterpret_cast<uintptr_t>(base));
     AtomicStore(&slot.profile, profile);
@@ -2236,6 +3324,27 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
     if (AtomicLoad(&g_original_input_monitor_pilfer) == nullptr) {
         AtomicStore(&g_original_input_monitor_pilfer,
                     slot.original_pilfer);
+    }
+    if (NeedsDartFeatureResolution(profile) ||
+            profile->dart_drawer_progress_end_offset != 0u) {
+        __atomic_store_n(&g_dart_loader_hook_state, uint32_t{1},
+                         __ATOMIC_RELEASE);
+        if (g_api.pltHook(base, "dlopen",
+                           reinterpret_cast<void*>(
+                                   kLauncherDlopenHooks[index]),
+                           &slot.original_dlopen) != ZN_SUCCESS ||
+                slot.original_dlopen == nullptr) {
+            __atomic_store_n(&g_dart_loader_hook_state, uint32_t{6},
+                             __ATOMIC_RELEASE);
+            __atomic_store_n(&g_drawer_state_hook_state, uint32_t{6},
+                             __ATOMIC_RELEASE);
+            Log(ANDROID_LOG_ERROR,
+                "native launcher Dart-library observation hook failed");
+        } else {
+            __atomic_store_n(&g_dart_loader_hook_state, uint32_t{3},
+                             __ATOMIC_RELEASE);
+            TryResolveAndInstallLoadedDartProfile();
+        }
     }
     AtomicStore(&slot.contextual_search_state, uint32_t{1});
     if (g_api.pltHook(base, "PackageManager_has_system_feature",
@@ -2367,6 +3476,23 @@ bool InstallClaimedBusinessHooksForProfile(void* app_entry_point, bool repair) {
         Log(ANDROID_LOG_WARN,
             "continuing without native contextual-search terminal route");
     }
+    const auto* dart_profile = CurrentDartFeatureProfile();
+    if (!InstallDrawerStateHook(
+                       base, dart_profile != nullptr ? dart_profile : profile)) {
+        // Drawer state is independent of accepted-DOWN ownership. If its
+        // exact bridge is absent or ambiguous, idle launcher Home remains
+        // unclaimed and the side gesture path stays otherwise unchanged.
+        Log(ANDROID_LOG_WARN,
+            "continuing without native ALL_APPS state bridge");
+    }
+    if (!InstallOverviewStateHook(
+                       base, dart_profile != nullptr ? dart_profile : profile)) {
+        // Overview is callback-only ownership. A missing exact state bridge
+        // must leave launcher Home unclaimed; it must not weaken the already
+        // validated in-app side-gesture handoff.
+        Log(ANDROID_LOG_WARN,
+            "continuing without native Overview state bridge");
+    }
     AtomicStore(&g_business_hook_state, uint32_t{3});
     __android_log_print(ANDROID_LOG_INFO, kLogTag,
             "%s profile %s with %s business hook",
@@ -2422,11 +3548,19 @@ void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
                     base, profile->contextual_long_press_handler_offset,
                     profile->contextual_long_press_handler_prologue,
                     profile->contextual_long_press_handler_prologue_size);
+    const bool drawer_hook_expected =
+            AtomicLoad(&g_drawer_state_hook_state) == uint32_t{3} &&
+            AtomicLoad(&g_original_drawer_state_handler) != nullptr &&
+            profile->drawer_state_handler_offset != 0u;
+    const bool drawer_handler_original = drawer_hook_expected &&
+            MatchesCode(base, profile->drawer_state_handler_offset,
+                        profile->drawer_state_handler_prologue,
+                        profile->drawer_state_handler_prologue_size);
     const bool legacy = profile->business_topology ==
             miui_home_profiles::BusinessHookTopology::kLegacyThreeStage;
     if (!stub_back_handler_original &&
             (!legacy || (!outer_original && !inner_original)) &&
-            !contextual_handler_original) {
+            !contextual_handler_original && !drawer_handler_original) {
         return;
     }
     if (legacy && (outer_original != inner_original ||
@@ -2458,8 +3592,12 @@ void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
             ? g_api.inlineUnhook(
                     base + profile->contextual_long_press_handler_offset)
             : ZN_SUCCESS;
+    const int drawer_unhook = drawer_hook_expected
+            ? g_api.inlineUnhook(base + profile->drawer_state_handler_offset)
+            : ZN_SUCCESS;
     if (stub_back_handler_unhook != ZN_SUCCESS || inner_unhook != ZN_SUCCESS ||
-            outer_unhook != ZN_SUCCESS || contextual_unhook != ZN_SUCCESS) {
+            outer_unhook != ZN_SUCCESS || contextual_unhook != ZN_SUCCESS ||
+            drawer_unhook != ZN_SUCCESS) {
         __atomic_store_n(&g_business_repair_stage, uint32_t{4},
                          __ATOMIC_RELEASE);
         AtomicStore(&g_business_hook_state, uint32_t{7});
@@ -2479,8 +3617,13 @@ void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
     AtomicStore(&g_original_contextual_long_press_handler,
                 static_cast<void*>(nullptr));
     AtomicStore(&g_contextual_search_invoke, static_cast<void*>(nullptr));
+    AtomicStore(&g_original_drawer_state_handler, static_cast<void*>(nullptr));
     if (profile->contextual_long_press_handler_offset != 0u) {
         __atomic_store_n(&g_contextual_long_press_hook_state, uint32_t{0},
+                         __ATOMIC_RELEASE);
+    }
+    if (profile->drawer_state_handler_offset != 0u) {
+        __atomic_store_n(&g_drawer_state_hook_state, uint32_t{0},
                          __ATOMIC_RELEASE);
     }
     const bool repaired = InstallClaimedBusinessHooksForProfile(
@@ -2797,6 +3940,19 @@ void OnModuleLoaded(void*, const ZygiskNextAPI* api) {
 }
 
 }  // namespace
+
+extern "C" __attribute__((visibility("hidden")))
+void MiuiHomeHyosDartDrawerStateObserved(uint32_t visible) {
+    HandleDartDrawerStateObserved(visible);
+}
+
+extern "C" __attribute__((visibility("hidden")))
+void MiuiHomeHyosDartOverviewStateObserved(uint32_t visible) {
+    __atomic_fetch_add(visible != 0u ? &g_overview_dart_enter_count
+                                    : &g_overview_dart_exit_count,
+                       uint32_t{1}, __ATOMIC_RELAXED);
+    HandleOverviewStateObserved(visible != 0u);
+}
 
 extern "C" __attribute__((visibility("hidden")))
 void MiuiHomeHyosInputMonitorPilferImpl(void* monitor, uintptr_t return_pc) {

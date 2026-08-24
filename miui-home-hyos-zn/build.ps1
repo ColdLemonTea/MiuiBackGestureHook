@@ -19,8 +19,8 @@ if (-not (Test-Path -LiteralPath $Builder -PathType Leaf)) {
     throw "Canonical ZN builder does not exist: $Builder"
 }
 & (Join-Path $PSScriptRoot 'verify-hsctl.ps1') | Out-Host
-if ($LASTEXITCODE -ne 0) {
-    throw "ZN controller verification failed: $LASTEXITCODE"
+if (-not $?) {
+    throw 'ZN controller verification failed.'
 }
 $Python = (Get-Command python -ErrorAction Stop).Source
 $Arguments = @(

@@ -38,6 +38,29 @@ struct LauncherProfile {
     size_t touch_processor_prologue_size;
     uintptr_t gesture_type_field_offset;
 
+    uintptr_t drawer_state_handler_offset;
+    const uint8_t* drawer_state_handler_prologue;
+    size_t drawer_state_handler_prologue_size;
+
+    uintptr_t dart_snapshot_instructions_offset;
+    uintptr_t dart_snapshot_build_id_offset;
+    const uint8_t* dart_snapshot_build_id;
+    size_t dart_snapshot_build_id_size;
+    uintptr_t dart_drawer_progress_end_offset;
+    const uint8_t* dart_drawer_progress_end_prologue;
+    size_t dart_drawer_progress_end_prologue_size;
+    uintptr_t dart_drawer_transition_complete_offset;
+    const uint8_t* dart_drawer_transition_complete_prologue;
+    size_t dart_drawer_transition_complete_prologue_size;
+    uintptr_t dart_all_apps_state_slot_offset;
+    uintptr_t dart_home_state_slot_offset;
+    uintptr_t dart_overview_enter_offset;
+    const uint8_t* dart_overview_enter_prologue;
+    size_t dart_overview_enter_prologue_size;
+    uintptr_t dart_overview_exit_offset;
+    const uint8_t* dart_overview_exit_prologue;
+    size_t dart_overview_exit_prologue_size;
+
     uintptr_t contextual_long_press_handler_offset;
     const uint8_t* contextual_long_press_handler_prologue;
     size_t contextual_long_press_handler_prologue_size;

@@ -414,12 +414,22 @@ def resolve(image: LoadedElf, entry: int) -> Resolution:
     side, edge, _ = resolve_side(image)
     pointer, state, confirmations = resolve_runtime(image)
     rstring, _ = resolve_rstring(image)
-    support = resolve_contextual_support(image)
-    invoke = resolve_contextual_invoke(image, support)
-    long_press = resolve_contextual_long_press(image)
+    support = 0
+    invoke = 0
+    long_press = 0
+    try:
+        support = resolve_contextual_support(image)
+        invoke = resolve_contextual_invoke(image, support)
+        long_press = resolve_contextual_long_press(image)
+    except ValueError:
+        # Contextual Search is an optional extension. A missing or ambiguous
+        # member clears the whole triple without rejecting the base profile.
+        support = 0
+        invoke = 0
+        long_press = 0
     return Resolution(
-        side, edge, pointer, state, confirmations, rstring,
-        support, invoke, long_press,
+        side, edge, pointer, state, confirmations, rstring, support, invoke,
+        long_press,
     )
 
 
@@ -436,14 +446,18 @@ def verify(profile: dict, path: Path) -> None:
     entry = parse_int(profile["entry_offset"])
     result = resolve(image, entry)
     contextual = profile.get("contextual_search")
+    abi = profile.get("abi", {})
     expected = Resolution(
         parse_int(profile["side_handler"]["offset"]),
         parse_int(profile["side_handler"]["edge_field_offset"]),
-        parse_int(profile["abi"]["runtime_pointer_offset"]),
-        parse_int(profile["abi"]["runtime_state_offset"]),
+        parse_int(abi["runtime_pointer_offset"])
+        if "runtime_pointer_offset" in abi else result.runtime_pointer,
+        parse_int(abi["runtime_state_offset"])
+        if "runtime_state_offset" in abi else result.runtime_state,
         result.runtime_confirmations,
-        parse_int(profile["abi"]["rstring_vtable_offset"]),
-        result.contextual_support,
+        parse_int(abi["rstring_vtable_offset"])
+        if "rstring_vtable_offset" in abi else result.rstring,
+        result.contextual_support if contextual else 0,
         parse_int(contextual["invoke_offset"])
         if contextual else result.contextual_invoke,
         parse_int(contextual["long_press_handler_offset"])
@@ -463,18 +477,24 @@ def verify(profile: dict, path: Path) -> None:
     finally:
         image.image[result.side] = original
 
-    original = image.image[result.contextual_long_press + 0xF4]
-    image.image[result.contextual_long_press + 0xF4] ^= 1
-    try:
-        resolve_contextual_long_press(image)
-    except ValueError:
-        pass
-    else:
-        raise ValueError(
-            f"{profile['id']} corrupted contextual long-press Fn did not fail closed"
-        )
-    finally:
-        image.image[result.contextual_long_press + 0xF4] = original
+    if result.contextual_long_press != 0:
+        original = image.image[result.contextual_long_press + 0xF4]
+        image.image[result.contextual_long_press + 0xF4] ^= 1
+        try:
+            without_contextual = resolve(image, entry)
+            if (
+                without_contextual.side != result.side
+                or without_contextual.runtime_pointer != result.runtime_pointer
+                or without_contextual.rstring != result.rstring
+                or without_contextual.contextual_support != 0
+                or without_contextual.contextual_invoke != 0
+                or without_contextual.contextual_long_press != 0
+            ):
+                raise ValueError(
+                    f"{profile['id']} optional contextual failure damaged base profile"
+                )
+        finally:
+            image.image[result.contextual_long_press + 0xF4] = original
 
     print(
         f"{profile['id']}: PASS side=0x{result.side:x} edge=0x{result.edge:x} "
@@ -495,7 +515,12 @@ def main() -> None:
     parser.add_argument("--library", action="append", required=True, metavar="ID=PATH")
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    profiles = {profile["id"]: profile for profile in manifest["profiles"]}
+    profiles = {
+        profile["id"]: profile
+        for profile in (
+            manifest["profiles"] + manifest.get("runtime_reference_profiles", [])
+        )
+    }
     for binding in args.library:
         profile_id, separator, raw_path = binding.partition("=")
         if not separator or profile_id not in profiles:

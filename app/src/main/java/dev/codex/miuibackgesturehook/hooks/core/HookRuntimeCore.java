@@ -314,6 +314,20 @@ public abstract class HookRuntimeCore extends XposedModule {
             ZnStatusProtocol.EXTRA_NATIVE_SIDE_OFFSET;
     protected static final String EXTRA_STATUS_NATIVE_RUNTIME_PROFILE_STAGE =
             ZnStatusProtocol.EXTRA_NATIVE_RUNTIME_PROFILE_STAGE;
+    protected static final String EXTRA_STATUS_NATIVE_DART_RESOLVER_STAGE =
+            ZnStatusProtocol.EXTRA_NATIVE_DART_RESOLVER_STAGE;
+    protected static final String EXTRA_STATUS_NATIVE_DART_DRAWER_CANDIDATES =
+            ZnStatusProtocol.EXTRA_NATIVE_DART_DRAWER_CANDIDATES;
+    protected static final String EXTRA_STATUS_NATIVE_DART_TRANSITION_CANDIDATES =
+            ZnStatusProtocol.EXTRA_NATIVE_DART_TRANSITION_CANDIDATES;
+    protected static final String EXTRA_STATUS_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES =
+            ZnStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES;
+    protected static final String EXTRA_STATUS_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES =
+            ZnStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES;
+    protected static final String EXTRA_STATUS_NATIVE_DRAWER_STATE_READY =
+            ZnStatusProtocol.EXTRA_NATIVE_DRAWER_STATE_READY;
+    protected static final String EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY =
+            ZnStatusProtocol.EXTRA_NATIVE_OVERVIEW_STATE_READY;
     protected static final String EXTRA_STATUS_NATIVE_BUSINESS_STATE =
             ZnStatusProtocol.EXTRA_NATIVE_BUSINESS_STATE;
     protected static final String EXTRA_STATUS_NATIVE_BRIDGE_STATE =

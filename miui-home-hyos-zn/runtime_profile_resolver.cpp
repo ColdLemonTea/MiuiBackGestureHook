@@ -1012,40 +1012,28 @@ bool ResolveSideBoundaryProfile(const uint8_t* base, void* app_entry_point,
     storage->identity_fingerprint = {
             entry_offset, storage->entry_fingerprint,
             sizeof(storage->entry_fingerprint)};
-    storage->profile = {
-            kDynamicProfileId,
-            kDynamicVersionName,
-            view.image_span,
-            entry_offset,
-            &storage->identity_fingerprint,
-            1u,
-            miui_home_profiles::BusinessHookTopology::kSideBoundaryOnly,
-            side_offset,
-            storage->side_prologue,
-            sizeof(storage->side_prologue),
-            edge_offset,
-            0u,
-            nullptr,
-            0u,
-            0u,
-            nullptr,
-            0u,
-            0u,
-            0u,
-            nullptr,
-            0u,
-            0u,
-            nullptr,
-            0u,
-            0u,
-            0u,
-            nullptr,
-            0u,
-            rstring_vtable,
-            runtime_pointer,
-            runtime_state,
-            0u,
-    };
+    storage->profile = {};
+    storage->profile.id = kDynamicProfileId;
+    storage->profile.version_name = kDynamicVersionName;
+    storage->profile.image_span = view.image_span;
+    storage->profile.entry_offset = entry_offset;
+    storage->profile.identity_fingerprints = &storage->identity_fingerprint;
+    storage->profile.identity_fingerprint_count = 1u;
+    storage->profile.business_topology =
+            miui_home_profiles::BusinessHookTopology::kSideBoundaryOnly;
+    storage->profile.side_handler_offset = side_offset;
+    storage->profile.side_handler_prologue = storage->side_prologue;
+    storage->profile.side_handler_prologue_size =
+            sizeof(storage->side_prologue);
+    storage->profile.side_edge_field_offset = edge_offset;
+    storage->profile.rstring_vtable_offset = rstring_vtable;
+    storage->profile.runtime_pointer_offset = runtime_pointer;
+    storage->profile.runtime_state_offset = runtime_state;
+    // Keep the FRB wrapper as an independent resolver diagnostic only. 5450
+    // resolves this legacy-shaped wrapper uniquely, but live ALL_APPS evidence
+    // proves that its Flutter drawer route never calls it. Publishing it as a
+    // profile hook would suppress the mapped-Dart visibility callback that
+    // actually owns drawer state.
     if (contextual_search_resolved) {
         memcpy(storage->contextual_long_press_prologue,
                base + contextual_long_press_handler,

@@ -6,6 +6,21 @@ DOWN owner; this module identifies an accepted launcher stream and publishes
 its immutable input identity to the companion SystemUI hook. SystemUI then owns
 the indicator, pilfering, Shell navigation, and predictive-back animation.
 
+Android 17's Flutter/Rust launcher also publishes its existing ALL_APPS state
+through the same authenticated launcher-to-SystemUI channel. The native hook
+resolves the mapped Flutter AOT callback family at runtime. It requires one
+unique accepted drawer transition, its matching completion callback, and the
+paired Overview enter/exit callbacks with shared immutable relationships.
+A raw AArch64 shim preserves Flutter's x15 Dart stack and fixed runtime
+registers before entering C++. Overview uses only the same authenticated,
+generation-bearing native MiuiHome-to-SystemUI state channel; no second
+SystemUI callback owns that state, and neither path installs a MiuiHome-process
+LSPosed hook.
+If Flutter replaces only one page containing the paired Overview callbacks,
+the native bridge unregisters both stale inline-hook records, requires both
+exact callback fingerprints after unhook, and reinstalls the pair as one
+fail-closed repair before publishing any state.
+
 It also enables HyperOS 4's existing native Circle to Search path when the companion app
 preference is on. MiuiHome remains the sole owner of the bottom long press through its
 `LongPressDetector`/`LongPressManager`, including native animation and cancellation. The
@@ -24,11 +39,10 @@ state with the current arbiter generation, so an already loaded HyperOS 4 native
 applies the switch on the next long press without restarting the phone. Xiaomi's helper
 rechecks feature support; no native gesture owner is rebuilt.
 
-This is no longer an observation-only probe. It contains device-proven profiles
-for MiuiHome `4371` and `5334`, plus a statically reviewed and device-tested
-`5402` profile. The exact `5436` bytes remain offline reference evidence, but
-that profile is deliberately absent from the active manifest so the current
-desktop exercises the bounded runtime resolver.
+This is no longer an observation-only probe. It contains device-proven static
+profiles for MiuiHome `4371`, `5334`, and `5402`. Builds `5436` and `5450`
+remain offline reference evidence for the bounded runtime resolver and are
+deliberately absent from the active native registry.
 
 ## Requirements and scope
 
@@ -79,9 +93,10 @@ Launcher profiles:
 
 | Profile | Package identity | Native identity | Hook topology |
 | --- | --- | --- | --- |
-| `4371` | `801024371` / `RELEASE-8.01.02.4371-260727-08131546-R` | SHA-256 `a84365f864f88f85165b086bc03ba563efd09386c72f0c21926788fd90a028f9`; entry `0x885d00`; side boundary `0xc6e954`; edge `+0xec` | `legacy_three_stage` |
-| `5334` | `801025334` / `RELEASE-8.01.02.5334-260807-08151151-R` | SHA-256 `a67fe9e3ef3880f920cce92eb1c006c7fe12a83c0632f2397b118e6915043091`; entry `0xc8ffd8`; side boundary `0x80c3bc`; edge `+0xf4`; long-press `Fn` `0x71af90`; native invoke `0xadc22c` | `side_boundary_only` |
+| `4371` | `801024371` / `RELEASE-8.01.02.4371-260727-08131546-R` | SHA-256 `a84365f864f88f85165b086bc03ba563efd09386c72f0c21926788fd90a028f9`; entry `0x885d00`; side boundary `0xc6e954`; edge `+0xec`; ALL_APPS `0xa756e8` | `legacy_three_stage` |
+| `5334` | `801025334` / `RELEASE-8.01.02.5334-260807-08151151-R` | SHA-256 `a67fe9e3ef3880f920cce92eb1c006c7fe12a83c0632f2397b118e6915043091`; entry `0xc8ffd8`; side boundary `0x80c3bc`; edge `+0xf4`; ALL_APPS `0x9eb9d4`; long-press `Fn` `0x71af90`; native invoke `0xadc22c` | `side_boundary_only` |
 | `5402` | `801025402` / `RELEASE-8.01.02.5402-260807-08181825-R` | SHA-256 `053b3b6ad84815fb319b2f87e766f67cbf1a22fcfe7f7ed2cd03502e569e0f98`; entry `0xc94b14`; side boundary `0x810010`; edge `+0xf4` | `side_boundary_only` |
+| `5450` (runtime reference) | `801025450` / `RELEASE-8.01.02.5450-260807-08211429-R` | launcher SHA-256 `c0e6123e303923441e7b1f93ceed70b780e7c293c70d600807a6f7ad0403b9be`; the recorded RVAs are offline assertions only; native and Dart addresses are resolved from their mapped ELFs | `runtime-side-v1` (not active) |
 | `5436` (offline reference) | `801025436` / `RELEASE-8.01.02.5436-260807-08202148-R` | SHA-256 `638dd126d9e6acf6185bcda1e7d798e86f9e172927689348f2b6a99de57004a4`; entry `0xc940c8`; side boundary `0x810374`; edge `+0xf4`; long-press `Fn` `0x71d75c`; native invoke `0xadff10` | `side_boundary_only` (not active) |
 
 Package version is enforced by the host deployment script. At runtime the
@@ -90,7 +105,7 @@ fingerprints of the active static profiles. Hook sites validate their own
 prologues again.
 
 If no static profile matches, the v1 runtime resolver is limited to the Android
-17 `side_boundary_only` family represented by `5334`, `5402`, and `5436`. The side
+17 `side_boundary_only` family represented by `5334`, `5402`, `5436`, and `5450`. The side
 prologue is only a candidate seed. A candidate is accepted only when its edge
 field load and the ordered `getActionMasked`, `getActionIndex`, `getRawX`, and
 `getRawY` calls resolve through the corresponding ELF PLT relocations. The
@@ -102,6 +117,21 @@ state, and two identical RString-vtable constructions anchored by
 in-process profile snapshot published. Zero matches, multiple matches, a
 broken relationship, or a partial result installs no business hook.
 
+After `libapp.so` is loaded, the launcher process resolves the Dart
+feature family directly from its mapped ELF. The drawer check must be unique,
+must expose two adjacent ALL_APPS/HOME isolate-group slots, and both state
+loads must share one slow-path call. The completion callback must call that
+same target. Overview enter and exit must each be unique and must share their
+state slot, pool object, preparation call, and publication call. The exported
+snapshot-instructions and GNU build-ID symbols must belong to compatible
+`PT_LOAD` segments. Any missing or ambiguous relation installs no Dart hook.
+The unique `_onDrawerVisibilityChanged` callback owns ALL_APPS publication; the
+drawer-check function and its adjacent ALL_APPS/HOME slots remain independent
+resolution anchors. Both the callback and Overview pair are hooked from the
+mapped runtime snapshot.
+Profiles with an existing verified native drawer or Overview route never enter
+this resolver, so the working Rust path keeps ownership.
+
 Circle to Search is an independent optional extension of that snapshot. It requires one support
 function with the two ordered `PackageManager_has_system_feature` calls, one Xiaomi invoke
 function that directly calls that support function, and one normal long-press `Fn` with the exact
@@ -112,8 +142,10 @@ preserving the already-proven dynamic side profile.
 This is not a generic AOB scanner, and it never copies offsets from the nearest
 version. `4371` remains strict-static because its legacy three-stage topology
 is outside the dynamic family. Library SHA-256 remains an offline
-profile-verification input; the runtime resolver uses only the already loaded
-ELF image and does not open the APK or parse a writable configuration file.
+profile-verification input. The native runtime resolver uses only the already
+loaded ELF image and never opens the APK or parses JSON/XML. Dart resolution
+also uses only the already-loaded `libapp.so`; SystemUI sends no address,
+fingerprint, path, or profile data.
 
 `4371` keeps two transparent legacy diagnostic hooks around the side boundary.
 `5334`, `5402`, and `5436` use only the reviewed side boundary because Xiaomi inlined
@@ -159,22 +191,25 @@ After a standard ZIP install and reboot, the module starts enabled if the root
 manager and Zygisk Next report it enabled. There is no additional marker or
 feature switch.
 
-SystemUI readiness can arrive after the launcher bridge is installed. On a
-fresh process, treat the first side gesture as a **readiness warmup**: it may
-stay entirely on Xiaomi's native path and publish no ownership token. Once the
-matching SystemUI arbiter generation is ready, following accepted gestures use
-the SystemUI/AOSP path. If the receiver, generation, identity, or native
-readiness check is missing, the bridge fails closed instead of sending an
-unauthenticated handoff.
-
-For controlled validation, perform the readiness warmup first, then perform exactly one formal side gesture and capture evidence immediately.
+SystemUI readiness can arrive after the launcher bridge is installed. A formal
+test normally starts directly with exactly one side gesture and one immediate
+capture. Do not add a routine warmup. Only when pre-gesture evidence proves
+that a build cannot become ready until MiuiHome reaches its processor, label
+one separate gesture as a **readiness warmup**, capture it independently, and
+then run the one-gesture formal test. If the receiver, generation, identity, or
+native readiness check is missing, the bridge fails closed instead of sending
+an unauthenticated handoff.
 
 ## Profiles
 
-[`launcher-profiles.json`](launcher-profiles.json) is the only editable profile
+[`launcher-profiles.json`](launcher-profiles.json) is the canonical reviewed
 source. [`generate-launcher-profiles.py`](generate-launcher-profiles.py)
-validates it and emits the C++ registry into the build directory. The device
-does not parse a writable JSON or XML profile at runtime.
+validates it and emits the C++ core registry into the build directory. Dart
+RVAs and fingerprints in `dart_runtime_reference_profiles` are offline
+regression evidence only; active launcher profiles contain no Dart addresses,
+and the generated native registry emits zero/null Dart fields. The
+running launcher fills a separate immutable profile only after the mapped-AOT
+resolver proves one complete unique callback family.
 
 When locally retained launcher ELFs are available, verify profiles without
 adding those proprietary binaries or decompiler projects to Git:
@@ -188,7 +223,8 @@ python .\miui-home-hyos-zn\verify-launcher-profiles.py `
 
 The verifier checks the recorded digest, translates every RVA through the ELF
 LOAD table, and compares all identity and hook bytes inside executable
-segments.
+segments. Add `--dart-library 5450=<5450-libapp.so>` to reproduce the reviewed
+Dart offsets and structural-resolver result from a locally retained AOT image.
 
 The structural resolver has a separate dual-sample regression. It verifies
 that the production constraints reproduce every recorded `5334`/`5402` ABI
@@ -201,9 +237,8 @@ python .\miui-home-hyos-zn\verify-runtime-profile.py `
 ```
 
 The dynamic snapshot is the fail-closed compatibility and deployment boundary
-for `54xx` and later. A static manifest profile is still added only after
-offline analysis confirms the resolved entry, accepted side boundary, edge
-field, topology, ABI offsets, and immutable fingerprints.
+for `54xx` and later. Recorded 54xx offsets remain verifier inputs and are not
+emitted into the active native registry.
 
 ## Build
 
@@ -310,10 +345,12 @@ Rollback uses the matching confirmation:
 After `Deploy`:
 
 1. Wait for Home to be stable.
-2. Perform one readiness warmup side gesture if this is a fresh launcher or
-   SystemUI generation.
-3. Perform exactly one formal side gesture.
-4. Stop and run `Capture` before another test.
+2. Perform exactly one formal side gesture.
+3. Stop and run `Capture` before another test.
+
+Do not add a routine warmup for a fresh launcher or generation. Only if the
+pre-gesture capture proves readiness cannot otherwise be reached, capture one
+separately labelled warmup and then perform the one formal gesture.
 
 Evidence is stored under `out/device-tests/` and includes native counters,
 filtered logcat, LSPosed logs, crash logs, process events, and tombstone state.

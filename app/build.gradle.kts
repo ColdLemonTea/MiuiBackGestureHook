@@ -59,7 +59,7 @@ android {
         minSdk = 36
         targetSdk = 37
         versionCode = gitVersionCode.get()
-        versionName = "0.10.3"
+        versionName = "0.10.4"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -114,4 +114,6 @@ dependencies {
     implementation(libs.miuix.icons.android)
     implementation(libs.miuix.preference.android)
     implementation(libs.miuix.ui.android)
+
+    testImplementation(kotlin("test-junit"))
 }

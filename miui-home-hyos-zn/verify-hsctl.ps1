@@ -9,11 +9,13 @@ $Paths = @{
     Cli = Join-Path $PSScriptRoot 'bin\hsctl'
     Deploy = Join-Path $PSScriptRoot 'safe-device-test.ps1'
     Native = Join-Path $PSScriptRoot 'zn_module.cpp'
+    DartStateShims = Join-Path $PSScriptRoot 'dart_state_hooks.S'
     Profiles = Join-Path $PSScriptRoot 'launcher-profiles.json'
     ProfileGenerator = Join-Path $PSScriptRoot 'generate-launcher-profiles.py'
     ProfileHeader = Join-Path $PSScriptRoot 'launcher_profiles.h'
     ProfileVerifier = Join-Path $PSScriptRoot 'verify-launcher-profiles.py'
     RuntimeResolver = Join-Path $PSScriptRoot 'runtime_profile_resolver.cpp'
+    DartRuntimeResolver = Join-Path $PSScriptRoot 'dart_runtime_resolver.cpp'
     RuntimeVerifier = Join-Path $PSScriptRoot 'verify-runtime-profile.py'
     StatusProtocol = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\ZnStatusProtocol.java'
     StatusState = Join-Path $RepoRoot 'app\src\main\java\dev\codex\miuibackgesturehook\ZnStatusUiState.kt'
@@ -37,6 +39,38 @@ foreach ($Path in $Paths.Values) {
 $Text = @{}
 foreach ($Entry in $Paths.GetEnumerator()) {
     $Text[$Entry.Key] = Get-Content -LiteralPath $Entry.Value -Raw
+}
+
+$Python = (Get-Command python -ErrorAction Stop).Source
+$GeneratedHeader = New-TemporaryFile
+try {
+    & $Python $Paths.ProfileGenerator --manifest $Paths.Profiles `
+        --output $GeneratedHeader.FullName
+    if ($LASTEXITCODE -ne 0) {
+        throw "Launcher profile generator failed: $LASTEXITCODE"
+    }
+} finally {
+    Remove-Item -LiteralPath $GeneratedHeader.FullName -Force -ErrorAction SilentlyContinue
+}
+
+$Native5450 = Join-Path $PSScriptRoot `
+    'out\device-5450\extracted\lib\arm64-v8a\libapp_launcher.so'
+$Dart5450 = Join-Path $PSScriptRoot `
+    'out\device-5450\extracted\lib\arm64-v8a\libapp.so'
+if ((Test-Path -LiteralPath $Native5450 -PathType Leaf) -and
+        (Test-Path -LiteralPath $Dart5450 -PathType Leaf)) {
+    & $Python $Paths.RuntimeVerifier --manifest $Paths.Profiles `
+        --library "5450=$Native5450"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Runtime native resolver verification failed: $LASTEXITCODE"
+    }
+    & $Python $Paths.ProfileVerifier --manifest $Paths.Profiles `
+        --dart-library "5450=$Dart5450"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Runtime Dart resolver verification failed: $LASTEXITCODE"
+    }
+} else {
+    Write-Verbose '5450 offline libraries are absent; reference-binary checks skipped.'
 }
 
 $RequiredCli = @(
@@ -65,10 +99,8 @@ $RequiredDeploy = @(
     "ExpectedVersionCode = '801024371'",
     "ExpectedVersionCode5334 = '801025334'",
     "ExpectedVersionCode5402 = '801025402'",
-    "ExpectedVersionCode5436 = '801025436'",
     '[switch]$Confirm5334',
     '[switch]$Confirm5402',
-    '[switch]$Confirm5436',
     '[string]$ConfirmDynamic54xx',
     '-ConfirmDynamic54xx <build>',
     '$expectedBuild -lt 5400',
@@ -126,6 +158,10 @@ if ($Text.Native.Contains('__system_property')) {
 }
 if (-not $Text.Native.Contains('bool IsExplicitlyEnabled()')) {
     throw 'Native ZN-state gate contract is missing.'
+}
+if ($Text.Deploy.Contains('$Confirm5450') -or
+        $Text.Deploy.Contains('$Confirm5436')) {
+    throw 'Runtime-reference builds must use -ConfirmDynamic54xx, never a static switch.'
 }
 foreach ($Needle in @(
         'kNativeReceiverExperimentLeasePath',
@@ -192,6 +228,56 @@ foreach ($Needle in @(
         'preventing only GestureInputBackHelper::on_touch_event')) {
     if (-not $Text.Native.Contains($Needle)) {
         throw "GestureStubView Back-only handoff contract is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'void RepairDartOverviewStateHookIfRemapped(',
+        'failed to unregister stale Dart Overview hooks',
+        'Dart Overview remap repair failed post-unhook fingerprint',
+        'g_dart_overview_install_in_flight',
+        'g_overview_dart_repair_stage',
+        'g_overview_dart_repair_success_count')) {
+    if (-not $Text.Native.Contains($Needle)) {
+        throw "Dart Overview remap repair contract is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'ResolveDartFeatureProfile(',
+        'g_dart_profile_storage',
+        'g_dart_profile_resolve_state',
+        'NeedsDartFeatureResolution(',
+        'TryResolveAndInstallLoadedDartProfile()',
+        'RTLD_NOW | RTLD_NOLOAD',
+        'DartMappedRangeHasFlags(')) {
+    if (-not $Text.Native.Contains($Needle)) {
+        throw "Mapped Dart resolver integration is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'MatchDrawer(',
+        'MatchTransition(',
+        'MatchOverviewEnter(',
+        'MatchOverviewExit(',
+        'drawer_candidate_count != 1u',
+        'overview_enter_candidate_count != 1u',
+        'enter.shared_pool_object != exit.shared_pool_object',
+        'snapshot_instructions',
+        'snapshot_build_id')) {
+    if (-not $Text.DartRuntimeResolver.Contains($Needle)) {
+        throw "Dart AOT structural resolver is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'ObserveDynamicDartFeatureProfile',
+        'zn_dart_schema',
+        'dart_feature_transport',
+        'ZN_DART_FEATURE_PROFILES_BASE64',
+        'KEY_ZN_DART_FEATURE_PROFILES')) {
+    if ($Text.Native.Contains($Needle) -or
+            $Text.ProfileGenerator.Contains($Needle) -or
+            $Text.AppBuild.Contains($Needle) -or
+            $Text.StatusSystemUi.Contains($Needle)) {
+        throw "Retired Dart configuration transport returned: $Needle"
     }
 }
 foreach ($Needle in @(
@@ -291,6 +377,8 @@ foreach ($Needle in @(
         'ACTION_QUERY',
         'ACTION_REPLY',
         'EXTRA_NATIVE_READY',
+        'EXTRA_NATIVE_DRAWER_STATE_READY',
+        'EXTRA_NATIVE_OVERVIEW_STATE_READY',
         'EXTRA_LEGACY_MODE',
         'EXTRA_LEGACY_READY',
         'EXTRA_NONCE')) {
@@ -302,6 +390,8 @@ foreach ($Needle in @(
         'HandleRuntimeStatusQuery',
         'kRuntimeStatusResponseAction',
         'status_native_profile_resolved',
+        'status_native_drawer_state_ready',
+        'status_native_overview_state_ready',
         'status_native_business_state',
         'status_native_bridge_state')) {
     if (-not $Text.Native.Contains($Needle)) {
@@ -347,6 +437,9 @@ foreach ($Needle in @(
 foreach ($Needle in @(
         'legacyMode',
         'EXTRA_LEGACY_READY',
+        'drawerStateReady',
+        'overviewStateReady',
+        'classifyZnStatus(',
         'LegacyNotReady')) {
     if (-not $Text.StatusState.Contains($Needle)) {
         throw "Android 16 runtime status model is missing: $Needle"
@@ -358,7 +451,7 @@ foreach ($Needle in @(
         'resolve_side(image)',
         'resolve_contextual_long_press(image)',
         'corrupted side boundary did not fail closed',
-        'corrupted contextual long-press Fn did not fail closed')) {
+        'optional contextual failure damaged base profile')) {
     if (-not $Text.RuntimeVerifier.Contains($Needle)) {
         throw "Runtime launcher profile regression is missing: $Needle"
     }
@@ -371,11 +464,21 @@ if ($Manifest.schema_version -ne 1) {
 $Profiles = @($Manifest.profiles)
 $ProfileIds = (@($Profiles | ForEach-Object { $_.id } | Sort-Object) -join ',')
 if ($Profiles.Count -ne 3 -or $ProfileIds -ne '4371,5334,5402') {
-    throw 'The active launcher profile manifest must contain exactly 4371, 5334, and 5402.'
+    throw 'The active launcher profile manifest must contain only 4371, 5334, and 5402; 5450 must resolve at runtime.'
+}
+$RuntimeReferences = @($Manifest.runtime_reference_profiles)
+$RuntimeReferenceIds = (@($RuntimeReferences | ForEach-Object { $_.id } |
+        Sort-Object) -join ',')
+if ($RuntimeReferences.Count -ne 2 -or
+        $RuntimeReferenceIds -ne '5436,5450') {
+    throw 'Runtime references must contain exactly the offline 5436 and 5450 samples.'
 }
 $Profile4371 = @($Profiles | Where-Object { $_.id -eq '4371' })[0]
 $Profile5334 = @($Profiles | Where-Object { $_.id -eq '5334' })[0]
 $Profile5402 = @($Profiles | Where-Object { $_.id -eq '5402' })[0]
+$Profile5450 = @($RuntimeReferences | Where-Object { $_.id -eq '5450' })[0]
+$DartReference5450 = @($Manifest.dart_runtime_reference_profiles |
+        Where-Object { $_.id -eq '5450' })[0]
 if ($Profile4371.hook_topology -ne 'legacy_three_stage' -or
         $Profile4371.entry_offset -ne '0x885d00' -or
         $Profile4371.side_handler.offset -ne '0xc6e954' -or
@@ -407,9 +510,70 @@ if ($Profile5402.version_code -ne 801025402 -or
         $Profile5402.abi.runtime_ready_value -ne 0) {
     throw '5402 launcher profile no longer matches the reviewed static boundary.'
 }
+if ($Profile5450.version_code -ne 801025450 -or
+        $Profile5450.version_name -ne 'RELEASE-8.01.02.5450-260807-08211429-R' -or
+        $Profile5450.library_sha256 -ne
+            'c0e6123e303923441e7b1f93ceed70b780e7c293c70d600807a6f7ad0403b9be' -or
+        $Profile5450.hook_topology -ne 'side_boundary_only' -or
+        $Profile5450.entry_offset -ne '0xc943cc' -or
+        $Profile5450.side_handler.offset -ne '0x8104c0' -or
+        $Profile5450.side_handler.edge_field_offset -ne '0xf4' -or
+        $null -eq $DartReference5450 -or
+        $DartReference5450.library_sha256 -ne
+            'b6b88508a396fec99db76bda231219fb4d21d1d31c160ea35b6b23d511c06c7e' -or
+        $DartReference5450.progress_end_offset -ne '0xb76974' -or
+        $DartReference5450.transition_complete_offset -ne '0x131207c' -or
+        $DartReference5450.all_apps_state_slot_offset -ne '0x3410' -or
+        $DartReference5450.home_state_slot_offset -ne '0x3400' -or
+        $Profile5450.abi.runtime_state_offset -ne '0x132f180' -or
+        $Profile5450.abi.runtime_ready_value -ne 0) {
+    throw '5450 runtime reference no longer matches the reviewed dynamic native/Dart boundary.'
+}
+foreach ($Needle in @(
+        'stp x2, x15',
+        'add x12, x11, #0x20',
+        'add x12, x11, #0x30',
+        'bl MiuiHomeHyosDartDrawerStateObserved')) {
+    if (-not $Text.DartStateShims.Contains($Needle)) {
+        throw "Dart ALL_APPS stack-preserving shim is missing: $Needle"
+    }
+}
+foreach ($Needle in @(
+        'void RepairDartDrawerStateHookIfRemapped(',
+        'MiuiHomeHyosDartDrawerTransitionCompleteHook',
+        'g_dart_drawer_repair_success_count',
+        'g_dart_drawer_install_in_flight',
+        'g_api.inlineUnhook(target)',
+        'remap repair failed post-unhook fingerprint',
+        'if (AtomicLoad(&g_drawer_state_hook_state) == uint32_t{3})',
+        'miui_home_hyos_dart_transition_complete_original')) {
+    if (-not $Text.Native.Contains($Needle)) {
+        throw "Dart ALL_APPS remap repair contract is missing: $Needle"
+    }
+}
+foreach ($Rejected in @(
+        'MiuiHomeHyosDartDrawerTransitionCheckHook',
+        'g_dart_drawer_hook_variant',
+        'g_dynamic_drawer_state_candidate_count',
+        'g_original_overview_refresh_handler',
+        'overview_refresh_handler_offset')) {
+    if ($Text.Native.Contains($Rejected)) {
+        throw "Retired native path remains in the module: $Rejected"
+    }
+}
+foreach ($Rejected in @(
+        'systemui_a17_launcher_overview_shown',
+        'systemui_a17_launcher_overview_hidden',
+        'LauncherProxyService')) {
+    if ($Text.StatusSystemUi.Contains($Rejected)) {
+        throw "Competing SystemUI Overview owner remains: $Rejected"
+    }
+}
 foreach ($Needle in @(
         'launcher-profiles.json',
         'Generated from launcher-profiles.json',
+        '"        0u,"',
+        'profile.get("drawer_state")',
         'has no identity fingerprint',
         'is missing a diagnostic hook fingerprint')) {
     if (-not $Text.ProfileGenerator.Contains($Needle)) {

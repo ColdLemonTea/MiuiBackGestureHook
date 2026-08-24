@@ -139,6 +139,15 @@ def generate(manifest: dict) -> str:
                 )
 
         contextual = profile.get("contextual_search")
+        drawer = profile.get("drawer_state")
+        drawer_name = f"kDrawerStateHandlerPrologue{suffix}"
+        has_drawer = isinstance(drawer, dict)
+        if has_drawer and not add_byte_array(
+            lines, drawer_name, drawer.get("bytes", "")
+        ):
+            raise ValueError(
+                f"profile {profile_id} has no drawer-state fingerprint"
+            )
         contextual_handler_name = f"kContextualLongPressHandlerPrologue{suffix}"
         contextual_invoke_name = f"kContextualSearchInvokePrologue{suffix}"
         has_contextual = isinstance(contextual, dict)
@@ -199,6 +208,27 @@ def generate(manifest: dict) -> str:
                 if legacy
                 else "        0u,",
                 f"        {hex_literal(touch.get('gesture_type_field_offset')) if legacy else '0u'},",
+                f"        {hex_literal(drawer.get('offset')) if has_drawer else '0u'},",
+                f"        {drawer_name if has_drawer else 'nullptr'},",
+                f"        sizeof({drawer_name})," if has_drawer else "        0u,",
+                "        0u,",
+                "        0u,",
+                "        nullptr,",
+                "        0u,",
+                "        0u,",
+                "        nullptr,",
+                "        0u,",
+                "        0u,",
+                "        nullptr,",
+                "        0u,",
+                "        0u,",
+                "        0u,",
+                "        0u,",
+                "        nullptr,",
+                "        0u,",
+                "        0u,",
+                "        nullptr,",
+                "        0u,",
                 f"        {hex_literal(contextual.get('long_press_handler_offset')) if has_contextual else '0u'},",
                 f"        {contextual_handler_name if has_contextual else 'nullptr'},",
                 f"        sizeof({contextual_handler_name})," if has_contextual else "        0u,",

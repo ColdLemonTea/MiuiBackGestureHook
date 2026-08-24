@@ -1,0 +1,486 @@
+#include "dart_runtime_resolver.h"
+
+#include <elf.h>
+#include <string.h>
+
+namespace miui_home_dart_profile {
+namespace {
+
+constexpr size_t kMaxLoadSegments = 16u;
+constexpr uintptr_t kMaxImageSpan = 0x4000000u;
+
+struct LoadSegment {
+    uintptr_t start;
+    uintptr_t end;
+    uint32_t flags;
+};
+
+struct ElfView {
+    const uint8_t* base;
+    LoadSegment loads[kMaxLoadSegments];
+    size_t load_count;
+    uintptr_t image_span;
+};
+
+struct DrawerCandidate {
+    uintptr_t offset;
+    uintptr_t all_apps_slot;
+    uintptr_t home_slot;
+    uintptr_t unbox_target;
+};
+
+struct OverviewCandidate {
+    uintptr_t offset;
+    uintptr_t state_slot;
+    uintptr_t shared_pool_object;
+    uintptr_t prepare_target;
+    uintptr_t publish_target;
+};
+
+bool AddOverflows(uintptr_t left, uintptr_t right) {
+    return right > UINTPTR_MAX - left;
+}
+
+bool Contains(const ElfView& view, uintptr_t offset, size_t size,
+              uint32_t required_flags, uint32_t forbidden_flags = 0u) {
+    if (size == 0u || AddOverflows(offset, size)) return false;
+    const uintptr_t end = offset + size;
+    for (size_t index = 0u; index < view.load_count; ++index) {
+        const LoadSegment& load = view.loads[index];
+        if (offset >= load.start && end <= load.end &&
+                (load.flags & required_flags) == required_flags &&
+                (load.flags & forbidden_flags) == 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ParseElf(const uint8_t* base, ElfView* output) {
+    if (base == nullptr || output == nullptr) return false;
+    Elf64_Ehdr header{};
+    memcpy(&header, base, sizeof(header));
+    if (memcmp(header.e_ident, ELFMAG, SELFMAG) != 0 ||
+            header.e_ident[EI_CLASS] != ELFCLASS64 ||
+            header.e_ident[EI_DATA] != ELFDATA2LSB ||
+            header.e_type != ET_DYN || header.e_machine != EM_AARCH64 ||
+            header.e_phentsize != sizeof(Elf64_Phdr) ||
+            header.e_phnum == 0u || header.e_phnum > 64u ||
+            header.e_phoff > 0x1000u ||
+            AddOverflows(header.e_phoff,
+                         static_cast<uintptr_t>(header.e_phnum) *
+                                 sizeof(Elf64_Phdr)) ||
+            header.e_phoff +
+                    static_cast<uintptr_t>(header.e_phnum) *
+                            sizeof(Elf64_Phdr) > 0x1000u) {
+        return false;
+    }
+    ElfView view{};
+    view.base = base;
+    bool headers_covered = false;
+    const uintptr_t headers_end = header.e_phoff +
+            static_cast<uintptr_t>(header.e_phnum) * sizeof(Elf64_Phdr);
+    for (size_t index = 0u; index < header.e_phnum; ++index) {
+        Elf64_Phdr program_header{};
+        memcpy(&program_header,
+               base + header.e_phoff + index * sizeof(Elf64_Phdr),
+               sizeof(program_header));
+        if (program_header.p_type != PT_LOAD) continue;
+        if (view.load_count >= kMaxLoadSegments ||
+                program_header.p_memsz == 0u ||
+                AddOverflows(program_header.p_vaddr,
+                             program_header.p_memsz)) {
+            return false;
+        }
+        const uintptr_t start = program_header.p_vaddr;
+        const uintptr_t end = start + program_header.p_memsz;
+        if (end > kMaxImageSpan) return false;
+        view.loads[view.load_count++] = {
+                start, end, program_header.p_flags};
+        if (start == 0u && headers_end <= program_header.p_filesz) {
+            headers_covered = true;
+        }
+        if (end > view.image_span) view.image_span = end;
+    }
+    if (!headers_covered || view.load_count == 0u || view.image_span == 0u) {
+        return false;
+    }
+    *output = view;
+    return true;
+}
+
+bool ReadInstruction(const ElfView& view, uintptr_t offset, uint32_t* value) {
+    if (value == nullptr ||
+            !Contains(view, offset, sizeof(*value), PF_R | PF_X)) {
+        return false;
+    }
+    memcpy(value, view.base + offset, sizeof(*value));
+    return true;
+}
+
+bool ReadInstructions(const ElfView& view, uintptr_t offset, uint32_t* values,
+                      size_t count) {
+    return values != nullptr && count != 0u &&
+            Contains(view, offset, count * sizeof(*values), PF_R | PF_X) &&
+            (memcpy(values, view.base + offset,
+                    count * sizeof(*values)) != nullptr);
+}
+
+bool IsLoadX0FromX0(uint32_t instruction, uintptr_t* byte_offset) {
+    if ((instruction & 0xffc003ffu) != 0xf9400000u) return false;
+    if (byte_offset != nullptr) {
+        *byte_offset = ((instruction >> 10u) & 0xfffu) * 8u;
+    }
+    return true;
+}
+
+bool IsBl(uint32_t instruction) {
+    return (instruction & 0xfc000000u) == 0x94000000u;
+}
+
+bool DecodeBlTarget(uintptr_t instruction_offset, uint32_t instruction,
+                    uintptr_t* target) {
+    if (target == nullptr || !IsBl(instruction)) return false;
+    int64_t immediate = static_cast<int64_t>(instruction & 0x03ffffffu);
+    if ((immediate & (int64_t{1} << 25u)) != 0) {
+        immediate -= int64_t{1} << 26u;
+    }
+    const int64_t signed_target = static_cast<int64_t>(instruction_offset) +
+            immediate * 4;
+    if (signed_target < 0) return false;
+    *target = static_cast<uintptr_t>(signed_target);
+    return true;
+}
+
+bool DecodeTestBranchTarget(uintptr_t instruction_offset,
+                            uint32_t instruction, uintptr_t* target) {
+    if (target == nullptr ||
+            (instruction & 0xfff8001fu) != 0x36200002u) {
+        return false;
+    }
+    int64_t immediate = static_cast<int64_t>((instruction >> 5u) & 0x3fffu);
+    if ((immediate & (int64_t{1} << 13u)) != 0) {
+        immediate -= int64_t{1} << 14u;
+    }
+    const int64_t signed_target = static_cast<int64_t>(instruction_offset) +
+            immediate * 4;
+    if (signed_target < 0) return false;
+    *target = static_cast<uintptr_t>(signed_target);
+    return true;
+}
+
+bool DecodePoolObject(uint32_t add, uint32_t load, uint32_t register_index,
+                      uintptr_t* object_offset) {
+    const uint32_t registers = (27u << 5u) | register_index;
+    if (object_offset == nullptr ||
+            (add & 0xff8003ffu) != (0x91000000u | registers) ||
+            (load & 0xffc003ffu) !=
+                    (0xf9400000u | (register_index << 5u) |
+                     register_index)) {
+        return false;
+    }
+    uintptr_t add_value = (add >> 10u) & 0xfffu;
+    if ((add & 0x00400000u) != 0u) add_value <<= 12u;
+    *object_offset = add_value +
+            static_cast<uintptr_t>((load >> 10u) & 0xfffu) * 8u;
+    return *object_offset < 0x1000000u;
+}
+
+bool MatchDrawer(const ElfView& view, uintptr_t offset,
+                 DrawerCandidate* candidate) {
+    uint32_t code[35]{};
+    if (candidate == nullptr || !ReadInstructions(view, offset, code, 35u) ||
+            code[0] != 0xa9bf79fdu || code[1] != 0xaa0f03fdu ||
+            code[2] != 0xd10021efu || code[3] != 0xf81f83a2u ||
+            code[4] != 0xf9403f40u || code[6] != 0xf9402370u ||
+            code[7] != 0x6b10001fu || code[8] != 0x54000081u ||
+            code[12] != 0xaa0003e1u || code[13] != 0xf85f83a0u ||
+            code[14] != 0x6b01001fu || code[15] != 0x54000200u ||
+            code[16] != 0xf9403f40u || code[18] != 0xf9402370u ||
+            code[19] != 0x6b10001fu || code[20] != 0x54000081u ||
+            code[24] != 0xf85f83a1u || code[25] != 0x6b00003fu ||
+            code[26] != 0x910082d0u || code[27] != 0x9100c2d1u ||
+            code[28] != 0x9a911202u || code[29] != 0xaa0203e0u ||
+            code[30] != 0x14000002u || code[31] != 0x9100c2c0u ||
+            code[32] != 0xaa1d03efu || code[33] != 0xa8c179fdu ||
+            code[34] != 0xd65f03c0u) {
+        return false;
+    }
+    uintptr_t all_apps = 0u;
+    uintptr_t home = 0u;
+    uintptr_t first_call = 0u;
+    uintptr_t second_call = 0u;
+    if (!IsLoadX0FromX0(code[5], &all_apps) ||
+            !IsLoadX0FromX0(code[17], &home) ||
+            all_apps != home + 0x10u || home == 0u ||
+            !DecodeBlTarget(offset + 11u * 4u, code[11], &first_call) ||
+            !DecodeBlTarget(offset + 23u * 4u, code[23], &second_call) ||
+            first_call != second_call ||
+            !Contains(view, first_call, sizeof(uint32_t), PF_R | PF_X)) {
+        return false;
+    }
+    *candidate = {offset, all_apps, home, first_call};
+    return true;
+}
+
+bool MatchTransition(const ElfView& view, uintptr_t offset,
+                     uintptr_t unbox_target) {
+    uint32_t code[12]{};
+    uintptr_t branch_target = 0u;
+    uintptr_t call_target = 0u;
+    uintptr_t ignored_slot = 0u;
+    return ReadInstructions(view, offset, code, 12u) &&
+            code[0] == 0xa9bf79fdu && code[1] == 0xaa0f03fdu &&
+            code[2] == 0xd10041efu && code[3] == 0xf81f83a1u &&
+            DecodeTestBranchTarget(offset + 4u * 4u, code[4],
+                                   &branch_target) &&
+            branch_target >= offset + 0x100u &&
+            branch_target <= offset + 0x300u && code[5] == 0xf9403f40u &&
+            IsLoadX0FromX0(code[6], &ignored_slot) &&
+            code[7] == 0xf9402370u && code[8] == 0x6b10001fu &&
+            code[9] == 0x54000061u && code[10] == 0xf9403362u &&
+            DecodeBlTarget(offset + 11u * 4u, code[11], &call_target) &&
+            call_target == unbox_target;
+}
+
+bool MatchOverviewEnter(const ElfView& view, uintptr_t offset,
+                        uintptr_t unbox_target,
+                        OverviewCandidate* candidate) {
+    uint32_t code[29]{};
+    uintptr_t state_slot = 0u;
+    uintptr_t unbox = 0u;
+    uintptr_t argument = 0u;
+    uintptr_t shared = 0u;
+    uintptr_t prepare = 0u;
+    uintptr_t publish = 0u;
+    if (candidate == nullptr || !ReadInstructions(view, offset, code, 29u) ||
+            code[0] != 0xa9bf79fdu || code[1] != 0xaa0f03fdu ||
+            code[2] != 0xd10041efu || code[3] != 0xaa0103e2u ||
+            code[4] != 0xf81f83a1u || code[5] != 0xf9403f40u ||
+            !IsLoadX0FromX0(code[6], &state_slot) ||
+            code[7] != 0xf9402370u || code[8] != 0x6b10001fu ||
+            code[9] != 0x54000061u ||
+            !DecodeBlTarget(offset + 11u * 4u, code[11], &unbox) ||
+            unbox != unbox_target || code[14] != 0xf90001f0u ||
+            code[15] != 0xf9402b64u ||
+            !DecodeBlTarget(offset + 16u * 4u, code[16], &prepare) ||
+            code[17] != 0xaa0003e1u || code[18] != 0xf85f83a2u ||
+            !DecodePoolObject(code[19], code[20], 3u, &argument) ||
+            !DecodePoolObject(code[21], code[22], 5u, &shared) ||
+            argument + 8u != shared || code[23] != 0xf9438364u ||
+            !DecodeBlTarget(offset + 24u * 4u, code[24], &publish) ||
+            code[25] != 0xaa1603e0u || code[26] != 0xaa1d03efu ||
+            code[27] != 0xa8c179fdu || code[28] != 0xd65f03c0u) {
+        return false;
+    }
+    *candidate = {offset, state_slot, shared, prepare, publish};
+    return true;
+}
+
+bool MatchOverviewExit(const ElfView& view, uintptr_t offset,
+                       uintptr_t unbox_target,
+                       OverviewCandidate* candidate) {
+    uint32_t code[44]{};
+    uintptr_t state_slot = 0u;
+    uintptr_t unbox = 0u;
+    uintptr_t shared = 0u;
+    uintptr_t prepare = 0u;
+    uintptr_t publish = 0u;
+    if (candidate == nullptr || !ReadInstructions(view, offset, code, 44u) ||
+            code[0] != 0xa9bf79fdu || code[1] != 0xaa0f03fdu ||
+            code[2] != 0xd10041efu || code[3] != 0xb8413080u ||
+            code[4] != 0xb841f081u || code[5] != 0x8b1c8021u ||
+            code[20] != 0xf9403f40u ||
+            !IsLoadX0FromX0(code[21], &state_slot) ||
+            code[22] != 0xf9402370u || code[23] != 0x6b10001fu ||
+            code[24] != 0x54000061u ||
+            !DecodeBlTarget(offset + 26u * 4u, code[26], &unbox) ||
+            unbox != unbox_target || code[29] != 0xf90001f0u ||
+            code[30] != 0xf9402b64u ||
+            !DecodeBlTarget(offset + 31u * 4u, code[31], &prepare) ||
+            code[32] != 0xaa0003e1u || code[33] != 0xf85f83a5u ||
+            !DecodePoolObject(code[34], code[35], 2u, &shared) ||
+            code[38] != 0xf9438364u ||
+            !DecodeBlTarget(offset + 39u * 4u, code[39], &publish) ||
+            code[40] != 0xaa1603e0u || code[41] != 0xaa1d03efu ||
+            code[42] != 0xa8c179fdu || code[43] != 0xd65f03c0u) {
+        return false;
+    }
+    *candidate = {offset, state_slot, shared, prepare, publish};
+    return true;
+}
+
+void Increment(uint32_t* value) {
+    if (value != nullptr && *value != UINT32_MAX) ++*value;
+}
+
+}  // namespace
+
+bool ResolveDartFeatureProfile(
+        const uint8_t* base, const void* snapshot_instructions,
+        const void* snapshot_build_id,
+        const miui_home_profiles::LauncherProfile& launcher_profile,
+        ResolutionStorage* storage, ResolutionDiagnostics* diagnostics) {
+    if (storage == nullptr || diagnostics == nullptr) return false;
+    *storage = {};
+    *diagnostics = {};
+    diagnostics->stage = ResolveStage::kParsingElf;
+    ElfView view{};
+    if (!ParseElf(base, &view) || snapshot_instructions == nullptr ||
+            snapshot_build_id == nullptr) {
+        diagnostics->stage = ResolveStage::kRejectedElf;
+        return false;
+    }
+    const uintptr_t base_address = reinterpret_cast<uintptr_t>(base);
+    const uintptr_t instructions_address =
+            reinterpret_cast<uintptr_t>(snapshot_instructions);
+    const uintptr_t build_id_address =
+            reinterpret_cast<uintptr_t>(snapshot_build_id);
+    if (instructions_address < base_address ||
+            build_id_address < base_address) {
+        diagnostics->stage = ResolveStage::kRejectedElf;
+        return false;
+    }
+    const uintptr_t instructions_offset = instructions_address - base_address;
+    const uintptr_t build_id_offset = build_id_address - base_address;
+    uint32_t note[4]{};
+    if ((instructions_offset & 3u) != 0u ||
+            !Contains(view, instructions_offset, sizeof(uint32_t),
+                      PF_R | PF_X) ||
+            !Contains(view, build_id_offset, sizeof(storage->snapshot_build_id),
+                      PF_R, PF_X) ||
+            (memcpy(note, base + build_id_offset, sizeof(note)) == nullptr) ||
+            note[0] != 4u || note[1] != 16u || note[2] != NT_GNU_BUILD_ID ||
+            note[3] != 0x00554e47u) {
+        diagnostics->stage = ResolveStage::kRejectedElf;
+        return false;
+    }
+
+    diagnostics->stage = ResolveStage::kResolvingDrawer;
+    DrawerCandidate drawer{};
+    for (size_t segment_index = 0u; segment_index < view.load_count;
+         ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X)) continue;
+        uintptr_t offset = (load.start + 3u) & ~uintptr_t{3u};
+        while (offset < load.end && load.end - offset >= 44u * 4u) {
+            uint32_t first = 0u;
+            if (!ReadInstruction(view, offset, &first)) break;
+            if (first == 0xa9bf79fdu) {
+                DrawerCandidate current_drawer{};
+                if (MatchDrawer(view, offset, &current_drawer)) {
+                    Increment(&diagnostics->drawer_candidate_count);
+                    drawer = current_drawer;
+                }
+            }
+            offset += 4u;
+        }
+    }
+    if (diagnostics->drawer_candidate_count != 1u) {
+        diagnostics->stage = ResolveStage::kRejectedDrawer;
+        return false;
+    }
+
+    diagnostics->stage = ResolveStage::kResolvingTransition;
+    uintptr_t transition_offset = 0u;
+    for (size_t segment_index = 0u; segment_index < view.load_count;
+         ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X)) continue;
+        uintptr_t offset = (load.start + 3u) & ~uintptr_t{3u};
+        while (offset < load.end && load.end - offset >= 44u * 4u) {
+            if (MatchTransition(view, offset, drawer.unbox_target)) {
+                Increment(&diagnostics->transition_candidate_count);
+                transition_offset = offset;
+            }
+            offset += 4u;
+        }
+    }
+    if (diagnostics->transition_candidate_count != 1u) {
+        diagnostics->stage = ResolveStage::kRejectedTransition;
+        return false;
+    }
+
+    diagnostics->stage = ResolveStage::kResolvingOverview;
+    OverviewCandidate enter{};
+    OverviewCandidate exit{};
+    for (size_t segment_index = 0u; segment_index < view.load_count;
+         ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X)) continue;
+        uintptr_t offset = (load.start + 3u) & ~uintptr_t{3u};
+        while (offset < load.end && load.end - offset >= 44u * 4u) {
+            OverviewCandidate candidate{};
+            if (MatchOverviewEnter(view, offset, drawer.unbox_target,
+                                   &candidate)) {
+                Increment(&diagnostics->overview_enter_candidate_count);
+                enter = candidate;
+            }
+            candidate = {};
+            if (MatchOverviewExit(view, offset, drawer.unbox_target,
+                                  &candidate)) {
+                Increment(&diagnostics->overview_exit_candidate_count);
+                exit = candidate;
+            }
+            offset += 4u;
+        }
+    }
+    if (diagnostics->overview_enter_candidate_count != 1u ||
+            diagnostics->overview_exit_candidate_count != 1u ||
+            enter.state_slot != exit.state_slot ||
+            enter.shared_pool_object != exit.shared_pool_object ||
+            enter.prepare_target != exit.prepare_target ||
+            enter.publish_target != exit.publish_target) {
+        diagnostics->stage = ResolveStage::kRejectedOverview;
+        return false;
+    }
+
+    storage->profile = launcher_profile;
+    auto& profile = storage->profile;
+    profile.dart_snapshot_instructions_offset = instructions_offset;
+    profile.dart_snapshot_build_id_offset = build_id_offset;
+    memcpy(storage->snapshot_build_id, base + build_id_offset,
+           sizeof(storage->snapshot_build_id));
+    profile.dart_snapshot_build_id = storage->snapshot_build_id;
+    profile.dart_snapshot_build_id_size = sizeof(storage->snapshot_build_id);
+    profile.dart_drawer_progress_end_offset = drawer.offset;
+    memcpy(storage->drawer_progress_end_prologue, base + drawer.offset,
+           sizeof(storage->drawer_progress_end_prologue));
+    profile.dart_drawer_progress_end_prologue =
+            storage->drawer_progress_end_prologue;
+    profile.dart_drawer_progress_end_prologue_size =
+            sizeof(storage->drawer_progress_end_prologue);
+    profile.dart_drawer_transition_complete_offset = transition_offset;
+    memcpy(storage->drawer_transition_complete_prologue,
+           base + transition_offset,
+           sizeof(storage->drawer_transition_complete_prologue));
+    profile.dart_drawer_transition_complete_prologue =
+            storage->drawer_transition_complete_prologue;
+    profile.dart_drawer_transition_complete_prologue_size =
+            sizeof(storage->drawer_transition_complete_prologue);
+    profile.dart_all_apps_state_slot_offset = drawer.all_apps_slot;
+    profile.dart_home_state_slot_offset = drawer.home_slot;
+    profile.dart_overview_enter_offset = enter.offset;
+    memcpy(storage->overview_enter_prologue, base + enter.offset,
+           sizeof(storage->overview_enter_prologue));
+    profile.dart_overview_enter_prologue = storage->overview_enter_prologue;
+    profile.dart_overview_enter_prologue_size =
+            sizeof(storage->overview_enter_prologue);
+    profile.dart_overview_exit_offset = exit.offset;
+    memcpy(storage->overview_exit_prologue, base + exit.offset,
+           sizeof(storage->overview_exit_prologue));
+    profile.dart_overview_exit_prologue = storage->overview_exit_prologue;
+    profile.dart_overview_exit_prologue_size =
+            sizeof(storage->overview_exit_prologue);
+
+    diagnostics->drawer_progress_end_offset = drawer.offset;
+    diagnostics->drawer_transition_complete_offset = transition_offset;
+    diagnostics->overview_enter_offset = enter.offset;
+    diagnostics->overview_exit_offset = exit.offset;
+    diagnostics->all_apps_state_slot_offset = drawer.all_apps_slot;
+    diagnostics->home_state_slot_offset = drawer.home_slot;
+    diagnostics->stage = ResolveStage::kComplete;
+    return true;
+}
+
+}  // namespace miui_home_dart_profile

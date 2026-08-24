@@ -22,7 +22,7 @@ def parse_bytes(value: str) -> bytes:
     return bytes.fromhex(value)
 
 
-def load_segments(data: bytes) -> list[tuple[int, int, int, int]]:
+def load_segments(data: bytes) -> list[tuple[int, int, int, int, int]]:
     if data[:4] != b"\x7fELF" or data[4] != 2 or data[5] != 1:
         raise ValueError("expected a little-endian ELF64 image")
     program_offset = struct.unpack_from("<Q", data, 0x20)[0]
@@ -37,18 +37,21 @@ def load_segments(data: bytes) -> list[tuple[int, int, int, int]]:
             "<IIQQ", data, offset
         )
         file_size = struct.unpack_from("<Q", data, offset + 32)[0]
+        memory_size = struct.unpack_from("<Q", data, offset + 40)[0]
         if p_type == PT_LOAD:
-            result.append((virtual_address, file_offset, file_size, flags))
+            result.append(
+                (virtual_address, file_offset, file_size, memory_size, flags)
+            )
     return result
 
 
 def rva_to_file_offset(
     rva: int,
     size: int,
-    segments: list[tuple[int, int, int, int]],
+    segments: list[tuple[int, int, int, int, int]],
     require_executable: bool = False,
 ) -> int:
-    for virtual_address, file_offset, file_size, flags in segments:
+    for virtual_address, file_offset, file_size, _memory_size, flags in segments:
         if require_executable and not flags & PF_X:
             continue
         delta = rva - virtual_address
@@ -57,13 +60,187 @@ def rva_to_file_offset(
     raise ValueError(f"RVA 0x{rva:x} (+0x{size:x}) is outside file-backed LOAD data")
 
 
+def require_load_memory(
+    rva: int, size: int, segments: list[tuple[int, int, int, int, int]]
+) -> None:
+    for virtual_address, _file_offset, _file_size, memory_size, _flags in segments:
+        delta = rva - virtual_address
+        if delta >= 0 and delta + size <= memory_size:
+            return
+    raise ValueError(f"RVA 0x{rva:x} (+0x{size:x}) is outside LOAD memory")
+
+
+def resolve_dart_runtime_profile(
+    image: bytes, segments: list[tuple[int, int, int, int, int]]
+) -> dict[str, int]:
+    """Mirror the production AOT structural resolver and require uniqueness."""
+
+    def words(rva: int, count: int) -> list[int]:
+        offset = rva_to_file_offset(rva, count * 4, segments, True)
+        return list(struct.unpack_from(f"<{count}I", image, offset))
+
+    def bl_target(rva: int, instruction: int) -> int | None:
+        if instruction & 0xFC000000 != 0x94000000:
+            return None
+        immediate = instruction & 0x03FFFFFF
+        if immediate & (1 << 25):
+            immediate -= 1 << 26
+        return rva + immediate * 4
+
+    def load_x0_offset(instruction: int) -> int | None:
+        if instruction & 0xFFC003FF != 0xF9400000:
+            return None
+        return ((instruction >> 10) & 0xFFF) * 8
+
+    def pool_object(add: int, load: int, register: int) -> int | None:
+        registers = (27 << 5) | register
+        if add & 0xFF8003FF != 0x91000000 | registers:
+            return None
+        if load & 0xFFC003FF != 0xF9400000 | (register << 5) | register:
+            return None
+        value = (add >> 10) & 0xFFF
+        if add & 0x00400000:
+            value <<= 12
+        value += ((load >> 10) & 0xFFF) * 8
+        return value if value < 0x1000000 else None
+
+    executable_ranges = [
+        (virtual, virtual + file_size)
+        for virtual, _file, file_size, _memory, flags in segments
+        if flags & PF_X
+    ]
+
+    def candidates(prefix: tuple[int, ...], count: int):
+        prefix_bytes = struct.pack(f"<{len(prefix)}I", *prefix)
+        for start, end in executable_ranges:
+            file_start = rva_to_file_offset(start, 1, segments, True)
+            file_end = file_start + end - start
+            position = file_start
+            while True:
+                position = image.find(prefix_bytes, position, file_end)
+                if position < 0:
+                    break
+                rva = start + position - file_start
+                position += 1
+                if rva & 3 or rva + count * 4 > end:
+                    continue
+                yield rva, words(rva, count)
+
+    drawer = []
+    drawer_prefix = (0xA9BF79FD, 0xAA0F03FD, 0xD10021EF,
+                     0xF81F83A2, 0xF9403F40)
+    for rva, code in candidates(drawer_prefix, 35):
+        all_apps = load_x0_offset(code[5])
+        home = load_x0_offset(code[17])
+        first_call = bl_target(rva + 44, code[11])
+        second_call = bl_target(rva + 92, code[23])
+        if (
+            all_apps is not None and home is not None
+            and all_apps == home + 0x10 and home != 0
+            and code[6:9] == [0xF9402370, 0x6B10001F, 0x54000081]
+            and code[12:17] == [0xAA0003E1, 0xF85F83A0, 0x6B01001F,
+                                0x54000200, 0xF9403F40]
+            and code[18:21] == [0xF9402370, 0x6B10001F, 0x54000081]
+            and code[24:35] == [0xF85F83A1, 0x6B00003F, 0x910082D0,
+                                0x9100C2D1, 0x9A911202, 0xAA0203E0,
+                                0x14000002, 0x9100C2C0, 0xAA1D03EF,
+                                0xA8C179FD, 0xD65F03C0]
+            and first_call is not None and first_call == second_call
+        ):
+            drawer.append((rva, all_apps, home, first_call))
+    if len(drawer) != 1:
+        raise ValueError(f"Dart resolver drawer candidates: {len(drawer)}")
+    drawer_rva, all_apps, home, unbox = drawer[0]
+
+    transition = []
+    transition_prefix = (0xA9BF79FD, 0xAA0F03FD,
+                         0xD10041EF, 0xF81F83A1)
+    for rva, code in candidates(transition_prefix, 12):
+        branch_immediate = (code[4] >> 5) & 0x3FFF
+        if branch_immediate & (1 << 13):
+            branch_immediate -= 1 << 14
+        branch_target = rva + 16 + branch_immediate * 4
+        if (
+            code[4] & 0xFFF8001F == 0x36200002
+            and rva + 0x100 <= branch_target <= rva + 0x300
+            and code[5] == 0xF9403F40
+            and load_x0_offset(code[6]) is not None
+            and code[7:11] == [0xF9402370, 0x6B10001F,
+                               0x54000061, 0xF9403362]
+            and bl_target(rva + 44, code[11]) == unbox
+        ):
+            transition.append(rva)
+    if len(transition) != 1:
+        raise ValueError(
+            f"Dart resolver transition candidates: {len(transition)}"
+        )
+
+    enters = []
+    enter_prefix = (0xA9BF79FD, 0xAA0F03FD, 0xD10041EF,
+                    0xAA0103E2, 0xF81F83A1, 0xF9403F40)
+    for rva, code in candidates(enter_prefix, 29):
+        state = load_x0_offset(code[6])
+        argument = pool_object(code[19], code[20], 3)
+        shared = pool_object(code[21], code[22], 5)
+        prepare = bl_target(rva + 64, code[16])
+        publish = bl_target(rva + 96, code[24])
+        if (
+            state is not None and argument is not None and shared is not None
+            and argument + 8 == shared
+            and code[7:10] == [0xF9402370, 0x6B10001F, 0x54000061]
+            and bl_target(rva + 44, code[11]) == unbox
+            and code[14:16] == [0xF90001F0, 0xF9402B64]
+            and code[17:19] == [0xAA0003E1, 0xF85F83A2]
+            and code[23] == 0xF9438364
+            and code[25:29] == [0xAA1603E0, 0xAA1D03EF,
+                                0xA8C179FD, 0xD65F03C0]
+            and prepare is not None and publish is not None
+        ):
+            enters.append((rva, state, shared, prepare, publish))
+
+    exits = []
+    exit_prefix = (0xA9BF79FD, 0xAA0F03FD, 0xD10041EF)
+    for rva, code in candidates(exit_prefix, 44):
+        state = load_x0_offset(code[21])
+        shared = pool_object(code[34], code[35], 2)
+        prepare = bl_target(rva + 124, code[31])
+        publish = bl_target(rva + 156, code[39])
+        if (
+            code[3:6] == [0xB8413080, 0xB841F081, 0x8B1C8021]
+            and state is not None and shared is not None
+            and code[20] == 0xF9403F40
+            and code[22:25] == [0xF9402370, 0x6B10001F, 0x54000061]
+            and bl_target(rva + 104, code[26]) == unbox
+            and code[29:31] == [0xF90001F0, 0xF9402B64]
+            and code[32:34] == [0xAA0003E1, 0xF85F83A5]
+            and code[38] == 0xF9438364
+            and code[40:44] == [0xAA1603E0, 0xAA1D03EF,
+                                0xA8C179FD, 0xD65F03C0]
+            and prepare is not None and publish is not None
+        ):
+            exits.append((rva, state, shared, prepare, publish))
+    if len(enters) != 1 or len(exits) != 1 or enters[0][1:] != exits[0][1:]:
+        raise ValueError(
+            "Dart resolver Overview candidates/relationship: "
+            f"enter={len(enters)} exit={len(exits)}"
+        )
+    return {
+        "progress_end_offset": drawer_rva,
+        "transition_complete_offset": transition[0],
+        "all_apps_state_slot_offset": all_apps,
+        "home_state_slot_offset": home,
+        "overview_enter_offset": enters[0][0],
+        "overview_exit_offset": exits[0][0],
+    }
+
+
 def verify_bytes(
     profile_id: str,
     label: str,
     rva: int,
     expected: bytes,
     image: bytes,
-    segments: list[tuple[int, int, int, int]],
+    segments: list[tuple[int, int, int, int, int]],
 ) -> None:
     file_offset = rva_to_file_offset(
         rva, len(expected), segments, require_executable=True
@@ -95,7 +272,12 @@ def verify_profile(profile: dict, library_path: Path) -> None:
             image,
             segments,
         )
-    for label in ("side_handler", "pointer_handler", "touch_processor"):
+    for label in (
+        "side_handler",
+        "pointer_handler",
+        "touch_processor",
+        "drawer_state",
+    ):
         hook = profile.get(label)
         if hook is None:
             continue
@@ -111,6 +293,80 @@ def verify_profile(profile: dict, library_path: Path) -> None:
     print(f"{profile_id}: PASS {library_path} sha256={digest}")
 
 
+def verify_dart_profile(
+    profile: dict, reference: dict, library_path: Path
+) -> None:
+    image = library_path.read_bytes()
+    digest = hashlib.sha256(image).hexdigest()
+    if digest.lower() != reference["library_sha256"].lower():
+        raise ValueError(
+            f"{profile['id']} Dart library SHA-256 mismatch: expected "
+            f"{reference['library_sha256']}, got {digest}"
+        )
+    segments = load_segments(image)
+    verify_bytes(
+        profile["id"], "dart_drawer_state/progress_end",
+        parse_int(reference["progress_end_offset"]),
+        parse_bytes(reference["progress_end_bytes"]), image, segments,
+    )
+    verify_bytes(
+        profile["id"], "dart_drawer_state/transition_complete",
+        parse_int(reference["transition_complete_offset"]),
+        parse_bytes(reference["transition_complete_bytes"]), image, segments,
+    )
+    build_offset = rva_to_file_offset(
+        parse_int(reference["snapshot_build_id_offset"]),
+        len(parse_bytes(reference["snapshot_build_id_bytes"])), segments,
+    )
+    expected_build_id = parse_bytes(reference["snapshot_build_id_bytes"])
+    if image[build_offset : build_offset + len(expected_build_id)] != expected_build_id:
+        raise ValueError(f"{profile['id']} Dart snapshot build ID mismatch")
+    for label in ("enter", "exit"):
+        verify_bytes(
+            profile["id"], f"dart_overview_state/{label}",
+            parse_int(reference[f"overview_{label}_offset"]),
+            parse_bytes(reference[f"overview_{label}_bytes"]), image, segments,
+        )
+    resolved = resolve_dart_runtime_profile(image, segments)
+    expected = {
+        "progress_end_offset": parse_int(reference["progress_end_offset"]),
+        "transition_complete_offset": parse_int(
+            reference["transition_complete_offset"]
+        ),
+        "all_apps_state_slot_offset": parse_int(
+            reference["all_apps_state_slot_offset"]
+        ),
+        "home_state_slot_offset": parse_int(
+            reference["home_state_slot_offset"]
+        ),
+        "overview_enter_offset": parse_int(
+            reference["overview_enter_offset"]
+        ),
+        "overview_exit_offset": parse_int(
+            reference["overview_exit_offset"]
+        ),
+    }
+    if resolved != expected:
+        raise ValueError(
+            f"{profile['id']} Dart runtime resolver mismatch: "
+            f"expected {expected}, got {resolved}"
+        )
+    corrupted = bytearray(image)
+    drawer_file_offset = rva_to_file_offset(
+        resolved["progress_end_offset"], 4, segments, True
+    )
+    corrupted[drawer_file_offset] ^= 0x01
+    try:
+        resolve_dart_runtime_profile(bytes(corrupted), segments)
+    except ValueError:
+        pass
+    else:
+        raise ValueError(
+            f"{profile['id']} Dart resolver accepted a corrupted unique drawer"
+        )
+    print(f"{profile['id']}: PASS {library_path} sha256={digest}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -121,17 +377,49 @@ def main() -> None:
     parser.add_argument(
         "--library",
         action="append",
-        required=True,
+        default=[],
+        metavar="PROFILE_ID=PATH",
+    )
+    parser.add_argument(
+        "--dart-library",
+        action="append",
+        default=[],
         metavar="PROFILE_ID=PATH",
     )
     args = parser.parse_args()
+    if not args.library and not args.dart_library:
+        parser.error("at least one --library or --dart-library binding is required")
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     profiles = {profile["id"]: profile for profile in manifest["profiles"]}
+    profile_references = {
+        profile["id"]: profile
+        for profile in (
+            manifest["profiles"]
+            + manifest.get("runtime_reference_profiles", [])
+        )
+    }
+    dart_references = {
+        profile["id"]: profile
+        for profile in manifest.get("dart_runtime_reference_profiles", [])
+    }
     for binding in args.library:
         profile_id, separator, raw_path = binding.partition("=")
         if not separator or profile_id not in profiles:
             raise ValueError(f"invalid --library binding: {binding}")
         verify_profile(profiles[profile_id], Path(raw_path))
+    for binding in args.dart_library:
+        profile_id, separator, raw_path = binding.partition("=")
+        if (
+            not separator
+            or profile_id not in profile_references
+            or profile_id not in dart_references
+        ):
+            raise ValueError(f"invalid --dart-library binding: {binding}")
+        verify_dart_profile(
+            profile_references[profile_id],
+            dart_references[profile_id],
+            Path(raw_path),
+        )
 
 
 if __name__ == "__main__":

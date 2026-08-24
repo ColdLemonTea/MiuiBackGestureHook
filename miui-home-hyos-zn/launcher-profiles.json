@@ -30,6 +30,10 @@
         "bytes": "ff 83 07 d1 ea b3 00 fd e9 23 17 6d fd 7b 18 a9 fc 6f 19 a9 fa 67 1a a9 f8 5f 1b a9 f6 57 1c a9 f4 4f 1d a9",
         "gesture_type_field_offset": "0x130"
       },
+      "drawer_state": {
+        "offset": "0xa756e8",
+        "bytes": "ff c3 03 d1 fe 67 0b a9 f8 5f 0c a9 f6 57 0d a9 f4 4f 0e a9 c8 4a 00 f0 08 c1 21 91"
+      },
       "pilfer": {
         "accepted_return_offset": "0xbf07b4",
         "home_return_offset": "0xc11a7c",
@@ -61,6 +65,10 @@
         "offset": "0x80c3bc",
         "bytes": "ff 03 06 d1 ea 8b 00 fd e9 a3 11 6d fd fb 12 a9 fc 9f 00 f9 fa 67 14 a9 f8 5f 15 a9 f6 57 16 a9",
         "edge_field_offset": "0xf4"
+      },
+      "drawer_state": {
+        "offset": "0x9eb9d4",
+        "bytes": "ff 43 03 d1 fd 7b 08 a9 f9 4b 00 f9 f8 5f 0a a9 f6 57 0b a9 f4 4f 0c a9 fd 03 02 91"
       },
       "contextual_search": {
         "long_press_handler_offset": "0x71af90",
@@ -110,6 +118,81 @@
         "runtime_pointer_offset": "0x132fa00",
         "runtime_state_offset": "0x132fa08",
         "runtime_ready_value": 0
+      }
+    }
+  ],
+  "dart_runtime_reference_profiles": [
+    {
+      "id": "5450",
+      "library_sha256": "b6b88508a396fec99db76bda231219fb4d21d1d31c160ea35b6b23d511c06c7e",
+      "snapshot_instructions_offset": "0x806940",
+      "snapshot_build_id_offset": "0x1c8",
+      "snapshot_build_id_bytes": "04 00 00 00 10 00 00 00 03 00 00 00 47 4e 55 00 4f 1b da ed cc da af 51 b2 28 17 f1 03 b2 5a 08",
+      "progress_end_offset": "0xb76974",
+      "progress_end_bytes": "fd 79 bf a9 fd 03 0f aa ef 21 00 d1 a2 83 1f f8 40 3f 40 f9 00 08 5a f9 70 23 40 f9 1f 00 10 6b 81 00 00 54 62 3f 40 91 42 4c 46 f9 e0 57 3b 94 e1 03 00 aa a0 83 5f f8 1f 00 01 6b 00 02 00 54",
+      "transition_complete_offset": "0x131207c",
+      "transition_complete_bytes": "fd 79 bf a9 fd 03 0f aa ef 41 00 d1 a1 83 1f f8 62 0a 20 36 40 3f 40 f9 00 68 51 f9 70 23 40 f9 1f 00 10 6b 61 00 00 54",
+      "all_apps_state_slot_offset": "0x3410",
+      "home_state_slot_offset": "0x3400",
+      "overview_enter_offset": "0x16b8838",
+      "overview_enter_bytes": "fd 79 bf a9 fd 03 0f aa ef 41 00 d1 e2 03 01 aa a1 83 1f f8 40 3f 40 f9 00 94 4d f9 70 23 40 f9",
+      "overview_exit_offset": "0xcc5aec",
+      "overview_exit_bytes": "fd 79 bf a9 fd 03 0f aa ef 41 00 d1 80 30 41 b8 81 f0 41 b8 21 80 1c 8b 70 c7 40 91 10 66 45 f9"
+    }
+  ],
+  "runtime_reference_profiles": [
+    {
+      "id": "5450",
+      "version_code": 801025450,
+      "version_name": "RELEASE-8.01.02.5450-260807-08211429-R",
+      "library_sha256": "c0e6123e303923441e7b1f93ceed70b780e7c293c70d600807a6f7ad0403b9be",
+      "image_span": "0x1400000",
+      "entry_offset": "0xc943cc",
+      "identity_fingerprints": [
+        {
+          "name": "app_entry_point",
+          "offset": "0xc943cc",
+          "bytes": "ff c3 04 d1 fd 7b 0d a9 fc 6f 0e a9 fa 67 0f a9 f8 5f 10 a9 f6 57 11 a9 f4 4f 12 a9 fd 43 03 91 f9 03 08 aa 9d 18 eb 97 c0 00 00 36 3d 19 eb 97"
+        }
+      ],
+      "hook_topology": "side_boundary_only",
+      "side_handler": {
+        "offset": "0x8104c0",
+        "bytes": "ff 03 06 d1 ea 8b 00 fd e9 a3 11 6d fd fb 12 a9 fc 9f 00 f9 fa 67 14 a9 f8 5f 15 a9 f6 57 16 a9",
+        "edge_field_offset": "0xf4"
+      },
+      "contextual_search": {
+        "long_press_handler_offset": "0x71d41c",
+        "long_press_handler_bytes": "ff c3 02 d1 fd 7b 09 a9 f4 4f 0a a9 fd 43 02 91 e8 60 00 f0 f3 03 00 aa 08 d5 40 f9 1f 0d 00 f1",
+        "invoke_offset": "0xae0214",
+        "invoke_bytes": "ff 43 05 d1 fd 7b 11 a9 fc 5f 12 a9 f6 57 13 a9 f4 4f 14 a9 fd 43 04 91 f6 c3 00 91 e0 07 00 b9"
+      },
+      "pilfer": {
+        "accepted_return_offset": "0x0",
+        "home_return_offset": "0x0",
+        "accepted_caller_bytes": ""
+      },
+      "abi": {
+        "rstring_vtable_offset": "0x12b7be8",
+        "runtime_pointer_offset": "0x132f178",
+        "runtime_state_offset": "0x132f180",
+        "runtime_ready_value": 0
+      }
+    },
+    {
+      "id": "5436",
+      "version_code": 801025436,
+      "version_name": "RELEASE-8.01.02.5436-260807-08202148-R",
+      "library_sha256": "638dd126d9e6acf6185bcda1e7d798e86f9e172927689348f2b6a99de57004a4",
+      "entry_offset": "0xc940c8",
+      "hook_topology": "side_boundary_only",
+      "side_handler": {
+        "offset": "0x810374",
+        "edge_field_offset": "0xf4"
+      },
+      "contextual_search": {
+        "long_press_handler_offset": "0x71d75c",
+        "invoke_offset": "0xadff10"
       }
     }
   ]

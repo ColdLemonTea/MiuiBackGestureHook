@@ -8,7 +8,6 @@ param(
     [switch]$Confirm4371,
     [switch]$Confirm5334,
     [switch]$Confirm5402,
-    [switch]$Confirm5436,
     [ValidatePattern('^\d{4}$')]
     [string]$ConfirmDynamic54xx
 )
@@ -29,8 +28,6 @@ $ExpectedVersionCode5334 = '801025334'
 $ExpectedVersionName5334 = 'RELEASE-8.01.02.5334-260807-08151151-R'
 $ExpectedVersionCode5402 = '801025402'
 $ExpectedVersionName5402 = 'RELEASE-8.01.02.5402-260807-08181825-R'
-$ExpectedVersionCode5436 = '801025436'
-$ExpectedVersionName5436 = 'RELEASE-8.01.02.5436-260807-08202148-R'
 $EvidenceRoot = Join-Path $PSScriptRoot 'out\device-tests'
 
 function Invoke-Adb {
@@ -88,7 +85,6 @@ function Get-ConfirmedProfile {
         $Confirm4371.IsPresent,
         $Confirm5334.IsPresent,
         $Confirm5402.IsPresent,
-        $Confirm5436.IsPresent,
         -not [string]::IsNullOrWhiteSpace($ConfirmDynamic54xx)
     ).Where({ $_ }).Count
     if ($confirmationCount -ne 1) {
@@ -116,14 +112,6 @@ function Get-ConfirmedProfile {
             VersionCode = $ExpectedVersionCode5402
             VersionName = $ExpectedVersionName5402
             Dynamic = $false
-        }
-    }
-    if ($Confirm5436) {
-        return [pscustomobject]@{
-            Id = '5436'
-            VersionCode = $ExpectedVersionCode5436
-            VersionName = $ExpectedVersionName5436
-            Dynamic = $true
         }
     }
     [pscustomobject]@{

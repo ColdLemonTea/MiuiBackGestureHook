@@ -6283,11 +6283,24 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     receiveMiuiHomeAcceptedInput(intent);
                 }
                 if (intent.hasExtra("drawer_visible")) {
-                    miuiDrawerVisible = intent.getBooleanExtra("drawer_visible", false);
-                    moduleLog(Log.INFO, TAG, "MiuiHome drawer state changed"
-                            + ", drawerVisible=" + miuiDrawerVisible
-                            + ", uid=" + senderUid
-                            + ", package=" + senderPackage);
+                    long drawerGeneration = intent.getLongExtra(
+                            EXTRA_INPUT_ARBITER_GENERATION, 0L);
+                    if (Build.VERSION.SDK_INT >= ANDROID_17_API_LEVEL
+                            && drawerGeneration != systemUiInputArbiterGeneration) {
+                        moduleLog(Log.WARN, TAG,
+                                "Ignored stale native MiuiHome drawer state"
+                                        + ", generation=" + drawerGeneration
+                                        + ", currentGeneration="
+                                        + systemUiInputArbiterGeneration);
+                    } else {
+                        miuiDrawerVisible = intent.getBooleanExtra(
+                                "drawer_visible", false);
+                        moduleLog(Log.INFO, TAG, "MiuiHome drawer state changed"
+                                + ", drawerVisible=" + miuiDrawerVisible
+                                + ", generation=" + drawerGeneration
+                                + ", uid=" + senderUid
+                                + ", package=" + senderPackage);
+                    }
                 }
                 if (intent.hasExtra(EXTRA_LAUNCHER_FOLDER_VISIBLE)) {
                     miuiFolderVisible = intent.getBooleanExtra(
@@ -6350,6 +6363,18 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 boolean overviewVisible;
                 String source;
                 if (intent.hasExtra("overview_visible")) {
+                    long overviewGeneration = intent.getLongExtra(
+                            EXTRA_INPUT_ARBITER_GENERATION, 0L);
+                    if (Build.VERSION.SDK_INT >= ANDROID_17_API_LEVEL
+                            && overviewGeneration
+                            != systemUiInputArbiterGeneration) {
+                        moduleLog(Log.WARN, TAG,
+                                "Ignored stale native MiuiHome Overview state"
+                                        + ", generation=" + overviewGeneration
+                                        + ", currentGeneration="
+                                        + systemUiInputArbiterGeneration);
+                        return;
+                    }
                     overviewVisible = intent.getBooleanExtra("overview_visible", false);
                     if (!overviewVisible
                             && intent.getBooleanExtra("task_launch_started", false)) {
@@ -6357,7 +6382,8 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                         return;
                     }
                     state = overviewVisible ? "actualRecentsEnter" : "actualRecentsExit";
-                    source = "RecentsContainer";
+                    source = Build.VERSION.SDK_INT >= ANDROID_17_API_LEVEL
+                            ? "nativeOverview" : "RecentsContainer";
                 } else if ("toRecents".equals(state)) {
                     overviewVisible = true;
                     source = "fullscreenState";
@@ -6592,6 +6618,27 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 reply.putExtra(EXTRA_STATUS_NATIVE_RUNTIME_PROFILE_STAGE,
                         nativeReply.getIntExtra(
                                 EXTRA_STATUS_NATIVE_RUNTIME_PROFILE_STAGE, 0));
+                reply.putExtra(EXTRA_STATUS_NATIVE_DART_RESOLVER_STAGE,
+                        nativeReply.getIntExtra(
+                                EXTRA_STATUS_NATIVE_DART_RESOLVER_STAGE, 0));
+                reply.putExtra(EXTRA_STATUS_NATIVE_DART_DRAWER_CANDIDATES,
+                        nativeReply.getIntExtra(
+                                EXTRA_STATUS_NATIVE_DART_DRAWER_CANDIDATES, 0));
+                reply.putExtra(EXTRA_STATUS_NATIVE_DART_TRANSITION_CANDIDATES,
+                        nativeReply.getIntExtra(
+                                EXTRA_STATUS_NATIVE_DART_TRANSITION_CANDIDATES, 0));
+                reply.putExtra(EXTRA_STATUS_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES,
+                        nativeReply.getIntExtra(
+                                EXTRA_STATUS_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES, 0));
+                reply.putExtra(EXTRA_STATUS_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES,
+                        nativeReply.getIntExtra(
+                                EXTRA_STATUS_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES, 0));
+                reply.putExtra(EXTRA_STATUS_NATIVE_DRAWER_STATE_READY,
+                        nativeReply.getBooleanExtra(
+                                EXTRA_STATUS_NATIVE_DRAWER_STATE_READY, false));
+                reply.putExtra(EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY,
+                        nativeReply.getBooleanExtra(
+                                EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY, false));
                 reply.putExtra(EXTRA_STATUS_NATIVE_BUSINESS_STATE,
                         nativeReply.getIntExtra(
                                 EXTRA_STATUS_NATIVE_BUSINESS_STATE, 0));

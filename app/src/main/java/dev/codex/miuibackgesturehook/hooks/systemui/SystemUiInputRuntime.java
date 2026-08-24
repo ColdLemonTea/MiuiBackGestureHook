@@ -3,6 +3,7 @@ package dev.codex.miuibackgesturehook.hooks.systemui;
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences;
 import dev.codex.miuibackgesturehook.hooks.core.HookRuntimeCore;
 
+import android.annotation.SuppressLint;
 import android.animation.Animator;
 import android.app.ActivityManager;
 import android.app.KeyguardManager;
@@ -200,6 +201,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
     }
 
     /** MiCTS-compatible click feedback, emitted only after native CTS succeeds. */
+    @SuppressLint("MissingPermission") // Runs inside SystemUI, which owns VIBRATE.
     protected boolean playContextualSearchHaptic(Context context) {
         if (context == null || !isContextualSearchHapticsEnabled()) {
             return false;
