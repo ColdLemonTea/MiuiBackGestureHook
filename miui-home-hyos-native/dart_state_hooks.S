@@ -116,6 +116,67 @@ MiuiHomeHyosDartOverviewExitHook:
     ret
     .size MiuiHomeHyosDartOverviewExitHook, .-MiuiHomeHyosDartOverviewExitHook
 
+    .p2align 2
+    .global MiuiHomeHyosDartEditingQueryHook
+    .hidden MiuiHomeHyosDartEditingQueryHook
+    .type MiuiHomeHyosDartEditingQueryHook, %function
+MiuiHomeHyosDartEditingQueryHook:
+    // EditModeGetxController.isNeedEnableSystemBack is shared. Observe it only
+    // for the two call sites inside LauncherOverlayStateManager's uniquely
+    // resolved back-status refresh; every other caller stays invisible.
+    bti c
+    sub sp, sp, #0x60
+    stp x0, x1, [sp, #0x00]
+    stp x2, x15, [sp, #0x10]
+    stp x22, x26, [sp, #0x20]
+    stp x27, x28, [sp, #0x30]
+    str x30, [sp, #0x40]
+
+    adrp x16, miui_home_hyos_dart_editing_query_original
+    add x16, x16, :lo12:miui_home_hyos_dart_editing_query_original
+    ldar x16, [x16]
+    blr x16
+    str x0, [sp, #0x48]
+
+    ldr x11, [sp, #0x40]
+    adrp x16, miui_home_hyos_dart_editing_return_a
+    add x16, x16, :lo12:miui_home_hyos_dart_editing_return_a
+    ldar x12, [x16]
+    cmp x11, x12
+    b.eq .Lediting_validate
+    adrp x16, miui_home_hyos_dart_editing_return_b
+    add x16, x16, :lo12:miui_home_hyos_dart_editing_return_b
+    ldar x12, [x16]
+    cmp x11, x12
+    b.ne .Lediting_restore
+
+.Lediting_validate:
+    ldr x11, [sp, #0x20]
+    ldr x12, [sp, #0x48]
+    add x13, x11, #0x20
+    cmp w12, w13
+    b.eq .Lediting_true
+    add x13, x11, #0x30
+    cmp w12, w13
+    b.ne .Lediting_restore
+    mov w0, wzr
+    b .Lediting_publish
+
+.Lediting_true:
+    mov w0, #1
+.Lediting_publish:
+    bl MiuiHomeHyosDartEditingStateObserved
+
+.Lediting_restore:
+    ldr x0, [sp, #0x48]
+    ldr x15, [sp, #0x18]
+    ldp x22, x26, [sp, #0x20]
+    ldp x27, x28, [sp, #0x30]
+    ldr x30, [sp, #0x40]
+    add sp, sp, #0x60
+    ret
+    .size MiuiHomeHyosDartEditingQueryHook, .-MiuiHomeHyosDartEditingQueryHook
+
     // Match the C++ object's BTI/PAC/GCS GNU property declaration.
     .section .note.gnu.property,"a",%note
     .p2align 3

@@ -137,7 +137,11 @@
       "overview_enter_offset": "0x16b8838",
       "overview_enter_bytes": "fd 79 bf a9 fd 03 0f aa ef 41 00 d1 e2 03 01 aa a1 83 1f f8 40 3f 40 f9 00 94 4d f9 70 23 40 f9",
       "overview_exit_offset": "0xcc5aec",
-      "overview_exit_bytes": "fd 79 bf a9 fd 03 0f aa ef 41 00 d1 80 30 41 b8 81 f0 41 b8 21 80 1c 8b 70 c7 40 91 10 66 45 f9"
+      "overview_exit_bytes": "fd 79 bf a9 fd 03 0f aa ef 41 00 d1 80 30 41 b8 81 f0 41 b8 21 80 1c 8b 70 c7 40 91 10 66 45 f9",
+      "editing_query_offset": "0x95c060",
+      "editing_query_bytes": "fd 79 bf a9 fd 03 0f aa ef 41 00 d1 a1 83 1f f8 40 3f 40 f9 00 e8 5a f9 1f 00 16 6b a1 01 00 54 40 3f 40 f9 00 94 4d f9 70 23 40 f9 1f 00 10 6b 61 00 00 54 62 03 7f f9 22 c2 43 94 70 3b 40 91",
+      "editing_query_return_offset_a": "0x17fea0c",
+      "editing_query_return_offset_b": "0x17feaa8"
     }
   ],
   "runtime_reference_profiles": [

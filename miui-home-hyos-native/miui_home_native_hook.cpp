@@ -52,6 +52,12 @@ __attribute__((visibility("hidden")))
 void MiuiHomeHyosDartOverviewStateObserved(uint32_t visible);
 
 __attribute__((visibility("hidden")))
+void MiuiHomeHyosDartEditingQueryHook();
+
+__attribute__((visibility("hidden")))
+void MiuiHomeHyosDartEditingStateObserved(uint32_t editing);
+
+__attribute__((visibility("hidden")))
 void MiuiHomeHyosInputMonitorPilferImpl(void* monitor, uintptr_t return_pc);
 
 __attribute__((visibility("hidden")))
@@ -62,6 +68,15 @@ void* miui_home_hyos_dart_overview_enter_original = nullptr;
 
 __attribute__((visibility("hidden")))
 void* miui_home_hyos_dart_overview_exit_original = nullptr;
+
+__attribute__((visibility("hidden")))
+void* miui_home_hyos_dart_editing_query_original = nullptr;
+
+__attribute__((visibility("hidden")))
+uintptr_t miui_home_hyos_dart_editing_return_a = 0u;
+
+__attribute__((visibility("hidden")))
+uintptr_t miui_home_hyos_dart_editing_return_b = 0u;
 
 }
 
@@ -186,6 +201,7 @@ void* g_dart_app_handle = nullptr;
 uint8_t* g_dart_app_base = nullptr;
 uint32_t g_dart_drawer_install_in_flight = 0;
 uint32_t g_dart_overview_install_in_flight = 0;
+uint32_t g_dart_editing_install_in_flight = 0;
 __attribute__((used)) volatile uint32_t g_dart_loader_hook_state = 0;
 void* g_contextual_search_invoke = nullptr;
 void* g_original_broadcast_receiver_on_receive = nullptr;
@@ -209,10 +225,12 @@ __attribute__((used)) volatile uint32_t g_dart_drawer_candidate_count = 0;
 __attribute__((used)) volatile uint32_t g_dart_transition_candidate_count = 0;
 __attribute__((used)) volatile uint32_t g_dart_overview_enter_candidate_count = 0;
 __attribute__((used)) volatile uint32_t g_dart_overview_exit_candidate_count = 0;
+__attribute__((used)) volatile uint32_t g_dart_editing_candidate_count = 0;
 __attribute__((used)) volatile uintptr_t g_dart_drawer_resolved_offset = 0;
 __attribute__((used)) volatile uintptr_t g_dart_transition_resolved_offset = 0;
 __attribute__((used)) volatile uintptr_t g_dart_overview_enter_resolved_offset = 0;
 __attribute__((used)) volatile uintptr_t g_dart_overview_exit_resolved_offset = 0;
+__attribute__((used)) volatile uintptr_t g_dart_editing_resolved_offset = 0;
 uint32_t g_native_receiver_state = 0;
 int64_t g_systemui_arbiter_generation = 0;
 uint32_t g_systemui_arbiter_ready = 0;
@@ -313,6 +331,17 @@ __attribute__((used)) volatile int64_t g_overview_published_generation = 0;
 __attribute__((used)) volatile uint32_t g_overview_state_publish_count = 0;
 __attribute__((used)) volatile uint32_t g_overview_dart_enter_count = 0;
 __attribute__((used)) volatile uint32_t g_overview_dart_exit_count = 0;
+// Editing encoding: 0 unknown, 1 idle, 2 editing (including its BottomSheet).
+__attribute__((used)) volatile uint32_t g_editing_state_hook_state = 0;
+__attribute__((used)) volatile uint32_t g_editing_state_observed = 0;
+__attribute__((used)) volatile uint32_t g_editing_published_state = 0;
+__attribute__((used)) volatile int64_t g_editing_published_generation = 0;
+__attribute__((used)) volatile uint32_t g_editing_state_publish_count = 0;
+__attribute__((used)) volatile uint32_t g_editing_dart_observe_count = 0;
+__attribute__((used)) volatile uint32_t g_editing_dart_repair_attempt_count = 0;
+__attribute__((used)) volatile uint32_t g_editing_dart_repair_success_count = 0;
+__attribute__((used)) volatile uint32_t g_editing_dart_repair_failure_count = 0;
+__attribute__((used)) volatile uint32_t g_editing_dart_repair_stage = 0;
 __attribute__((used)) volatile uint32_t g_overview_dart_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_overview_dart_repair_success_count = 0;
 __attribute__((used)) volatile uint32_t g_overview_dart_repair_failure_count = 0;
@@ -330,6 +359,7 @@ __attribute__((used)) volatile uint32_t g_dart_drawer_repair_failure_count = 0;
 __attribute__((used)) volatile uint32_t g_dart_drawer_repair_stage = 0;
 uint32_t g_drawer_state_publish_in_flight = 0;
 uint32_t g_overview_state_publish_in_flight = 0;
+uint32_t g_editing_state_publish_in_flight = 0;
 uint32_t g_xiaoai_state_publish_in_flight = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_attempt_count = 0;
 __attribute__((used)) volatile uint32_t g_business_repair_success_count = 0;
@@ -635,6 +665,24 @@ bool DartMappedRangeHasFlags(const uint8_t* base, uintptr_t offset,
     return false;
 }
 
+bool DartBlTargets(const uint8_t* base, uintptr_t instruction_offset,
+                   uintptr_t expected_target) {
+    if (!DartMappedRangeHasFlags(base, instruction_offset, sizeof(uint32_t),
+                                 PF_R | PF_X)) {
+        return false;
+    }
+    uint32_t instruction = 0u;
+    memcpy(&instruction, base + instruction_offset, sizeof(instruction));
+    if ((instruction & 0xfc000000u) != 0x94000000u) return false;
+    int64_t immediate = static_cast<int64_t>(instruction & 0x03ffffffu);
+    if ((immediate & (int64_t{1} << 25u)) != 0) {
+        immediate -= int64_t{1} << 26u;
+    }
+    const int64_t target = static_cast<int64_t>(instruction_offset) +
+            immediate * 4;
+    return target >= 0 && static_cast<uintptr_t>(target) == expected_target;
+}
+
 bool MatchesLauncherProfile(
         const uint8_t* base, void* app_entry_point,
         const miui_home_profiles::LauncherProfile& profile) {
@@ -787,11 +835,15 @@ const miui_home_profiles::LauncherProfile* CurrentDartFeatureProfile() {
 bool HandleRuntimeStatusQuery(void* intent);
 void PublishDrawerStateForCurrentGeneration();
 void PublishOverviewStateForCurrentGeneration();
+void PublishEditingStateForCurrentGeneration();
 void PublishXiaoAiStateForCurrentGeneration();
 bool TryInstallDartDrawerStateHook(
         void* dart_handle,
         const miui_home_profiles::LauncherProfile* profile);
 bool TryInstallDartOverviewStateHook(
+        void* dart_handle,
+        const miui_home_profiles::LauncherProfile* profile);
+bool TryInstallDartEditingStateHook(
         void* dart_handle,
         const miui_home_profiles::LauncherProfile* profile);
 bool InstallDrawerStateHook(
@@ -805,6 +857,8 @@ void TryResolveAndInstallLoadedDartProfile();
 void RepairDartDrawerStateHookIfRemapped(
         const miui_home_profiles::LauncherProfile* profile);
 void RepairDartOverviewStateHookIfRemapped(
+        const miui_home_profiles::LauncherProfile* profile);
+void RepairDartEditingStateHookIfRemapped(
         const miui_home_profiles::LauncherProfile* profile);
 
 bool IsExactCallbackName(const char* value, size_t length,
@@ -1009,6 +1063,7 @@ void HookBroadcastReceiverOnReceive(void* receiver, void* context, void* intent)
         original(receiver, context, intent);
         PublishDrawerStateForCurrentGeneration();
         PublishOverviewStateForCurrentGeneration();
+        PublishEditingStateForCurrentGeneration();
         PublishXiaoAiStateForCurrentGeneration();
         return;
     }
@@ -1430,6 +1485,54 @@ void HandleOverviewStateObserved(bool visible) {
     PublishOverviewStateForCurrentGeneration();
 }
 
+void PublishEditingStateForCurrentGeneration() {
+    const uint32_t observed = AtomicLoad(&g_editing_state_observed);
+    const int64_t generation = AtomicLoad(&g_systemui_arbiter_generation);
+    if ((observed != 1u && observed != 2u) || generation <= 0 ||
+            (AtomicLoad(&g_editing_published_state) == observed &&
+             AtomicLoad(&g_editing_published_generation) == generation)) {
+        return;
+    }
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_editing_state_publish_in_flight, &expected, uint32_t{1},
+                false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return;
+    }
+    BundleDefaultFn bundle_default = ResolveLauncherSymbol<BundleDefaultFn>(
+            "Bundle_default");
+    void* extras = bundle_default == nullptr ? nullptr : bundle_default();
+    const bool sent = extras != nullptr &&
+            AddBundleBool(extras, "launcher_editing", observed == 2u) &&
+            AddBundleI64(extras, "input_arbiter_generation", generation) &&
+            SendNativeBroadcast(kAcceptedStateAction, extras);
+    if (sent && AtomicLoad(&g_editing_state_observed) == observed &&
+            AtomicLoad(&g_systemui_arbiter_generation) == generation) {
+        __atomic_store_n(&g_editing_published_state, observed,
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_editing_published_generation, generation,
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_editing_state_publish_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                            "published native editing=%u generation=%lld",
+                            observed == 2u ? 1u : 0u,
+                            static_cast<long long>(generation));
+    } else if (!sent) {
+        Log(ANDROID_LOG_WARN, "native editing state broadcast failed");
+    }
+    AtomicStore(&g_editing_state_publish_in_flight, uint32_t{0});
+}
+
+void HandleEditingStateObserved(bool editing) {
+    __atomic_fetch_add(&g_editing_dart_observe_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    __atomic_store_n(&g_editing_state_observed,
+                     editing ? uint32_t{2} : uint32_t{1},
+                     __ATOMIC_RELEASE);
+    PublishEditingStateForCurrentGeneration();
+}
+
 void PublishXiaoAiStateForCurrentGeneration() {
     const uint32_t observed = AtomicLoad(&g_xiaoai_state_observed);
     const int64_t generation = AtomicLoad(&g_systemui_arbiter_generation);
@@ -1515,14 +1618,21 @@ bool HandleRuntimeStatusQuery(void* intent) {
     const bool overview_required = profile_resolved &&
             (dart_features_required ||
              feature_profile->dart_overview_enter_offset != 0u);
+    const bool editing_required = profile_resolved &&
+            (dart_features_required ||
+             feature_profile->dart_editing_query_offset != 0u);
     const bool drawer_ready = profile_resolved &&
             (!drawer_required ||
              AtomicLoad(&g_drawer_state_hook_state) == uint32_t{3});
     const bool overview_ready = profile_resolved &&
             (!overview_required ||
              AtomicLoad(&g_overview_state_hook_state) == uint32_t{3});
+    const bool editing_ready = profile_resolved &&
+            (!editing_required ||
+             AtomicLoad(&g_editing_state_hook_state) == uint32_t{3});
     const bool native_ready = profile_resolved && business_state == 3u &&
-            bridge_state == 3u && drawer_ready && overview_ready;
+            bridge_state == 3u && drawer_ready && overview_ready &&
+            editing_ready;
     BundleDefaultFn bundle_default = ResolveLauncherSymbol<BundleDefaultFn>(
             "Bundle_default");
     if (bundle_default == nullptr) {
@@ -1546,6 +1656,8 @@ bool HandleRuntimeStatusQuery(void* intent) {
                            drawer_ready) ||
             !AddBundleBool(response, "status_native_overview_state_ready",
                            overview_ready) ||
+            !AddBundleBool(response, "status_native_editing_state_ready",
+                           editing_ready) ||
             !AddBundleBool(response, "status_native_xiaoai_state_ready",
                            AtomicLoad(&g_xiaoai_state_hook_state) ==
                                    uint32_t{3}) ||
@@ -1574,6 +1686,9 @@ bool HandleRuntimeStatusQuery(void* intent) {
             !AddBundleI32(response,
                           "status_native_dart_overview_exit_candidates",
                           AtomicLoad(&g_dart_overview_exit_candidate_count)) ||
+            !AddBundleI32(response,
+                          "status_native_dart_editing_candidates",
+                          AtomicLoad(&g_dart_editing_candidate_count)) ||
             !AddBundleI32(response, "status_native_business_state",
                           business_state) ||
             !AddBundleI32(response, "status_native_bridge_state", bridge_state) ||
@@ -1581,6 +1696,8 @@ bool HandleRuntimeStatusQuery(void* intent) {
                           AtomicLoad(&g_drawer_state_hook_state)) ||
             !AddBundleI32(response, "status_native_overview_state_hook",
                           AtomicLoad(&g_overview_state_hook_state)) ||
+            !AddBundleI32(response, "status_native_editing_state_hook",
+                          AtomicLoad(&g_editing_state_hook_state)) ||
             !AddBundleI32(response, "status_native_xiaoai_state_hook",
                           AtomicLoad(&g_xiaoai_state_hook_state)) ||
             !AddBundleI32(response, "status_native_xiaoai_candidates",
@@ -2267,6 +2384,9 @@ const miui_home_profiles::LauncherProfile* ResolveDartFeatureProfile(
     __atomic_store_n(&g_dart_overview_exit_candidate_count,
             g_dart_profile_diagnostics.overview_exit_candidate_count,
             __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_editing_candidate_count,
+            g_dart_profile_diagnostics.editing_candidate_count,
+            __ATOMIC_RELAXED);
     __atomic_store_n(&g_dart_drawer_resolved_offset,
             g_dart_profile_diagnostics.drawer_progress_end_offset,
             __ATOMIC_RELAXED);
@@ -2278,6 +2398,9 @@ const miui_home_profiles::LauncherProfile* ResolveDartFeatureProfile(
             __ATOMIC_RELAXED);
     __atomic_store_n(&g_dart_overview_exit_resolved_offset,
             g_dart_profile_diagnostics.overview_exit_offset,
+            __ATOMIC_RELAXED);
+    __atomic_store_n(&g_dart_editing_resolved_offset,
+            g_dart_profile_diagnostics.editing_query_offset,
             __ATOMIC_RELAXED);
     if (!resolved) {
         __atomic_store_n(
@@ -2300,8 +2423,10 @@ const miui_home_profiles::LauncherProfile* ResolveDartFeatureProfile(
                      __ATOMIC_RELEASE);
     __atomic_store_n(&g_overview_state_hook_state, uint32_t{1},
                      __ATOMIC_RELEASE);
+    __atomic_store_n(&g_editing_state_hook_state, uint32_t{1},
+                     __ATOMIC_RELEASE);
     Log(ANDROID_LOG_INFO,
-        "uniquely resolved mapped Dart drawer and Overview callback family");
+        "uniquely resolved mapped Dart drawer, Overview, and editing family");
     return &g_dart_profile_storage.profile;
 }
 
@@ -2318,6 +2443,7 @@ void* HookLauncherDlopenForSlot(
         if (profile != nullptr) {
             TryInstallDartDrawerStateHook(result, profile);
             TryInstallDartOverviewStateHook(result, profile);
+            TryInstallDartEditingStateHook(result, profile);
         } else {
             const auto* launcher = CurrentLauncherProfile();
             const uint32_t dart_stage = AtomicLoad(
@@ -2329,6 +2455,10 @@ void* HookLauncherDlopenForSlot(
                                     kRejectedElf)) {
                 if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{1}) {
                     __atomic_store_n(&g_overview_state_hook_state,
+                                     uint32_t{2}, __ATOMIC_RELEASE);
+                }
+                if (AtomicLoad(&g_editing_state_hook_state) == uint32_t{1}) {
+                    __atomic_store_n(&g_editing_state_hook_state,
                                      uint32_t{2}, __ATOMIC_RELEASE);
                 }
             }
@@ -2379,6 +2509,7 @@ int32_t HookMotionGetActionForSlot(void* event, uint32_t slot_index,
     }
     RepairDartDrawerStateHookIfRemapped(profile);
     RepairDartOverviewStateHookIfRemapped(profile);
+    RepairDartEditingStateHookIfRemapped(profile);
     TryInstallLoadedDartDrawerStateHook(profile);
     g_last_motion_event = reinterpret_cast<uintptr_t>(event);
     PublishContextualMotionSnapshot(event, action);
@@ -2833,6 +2964,98 @@ bool TryInstallDartOverviewStateHook(
     return true;
 }
 
+bool TryInstallDartEditingStateHook(
+        void* dart_handle,
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (dart_handle == nullptr || profile == nullptr) return false;
+    if (AtomicLoad(&g_editing_state_hook_state) == uint32_t{3}) return true;
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_dart_editing_install_in_flight, &expected, uint32_t{1},
+                false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return AtomicLoad(&g_editing_state_hook_state) == uint32_t{3};
+    }
+    __atomic_store_n(&g_editing_state_hook_state, uint32_t{1},
+                     __ATOMIC_RELEASE);
+
+    void* instructions = dlsym(dart_handle, kDartSnapshotInstructionsSymbol);
+    void* build_id = dlsym(dart_handle, kDartSnapshotBuildIdSymbol);
+    Dl_info info{};
+    const bool resolved = instructions != nullptr && build_id != nullptr &&
+            dladdr(instructions, &info) != 0 && info.dli_fbase != nullptr &&
+            IsDartLibraryPath(info.dli_fname);
+    auto* dart_base = resolved
+            ? static_cast<uint8_t*>(info.dli_fbase) : nullptr;
+    const bool valid = resolved &&
+            instructions == dart_base +
+                    profile->dart_snapshot_instructions_offset &&
+            build_id == dart_base + profile->dart_snapshot_build_id_offset &&
+            profile->dart_snapshot_build_id != nullptr &&
+            profile->dart_snapshot_build_id_size != 0u &&
+            memcmp(build_id, profile->dart_snapshot_build_id,
+                   profile->dart_snapshot_build_id_size) == 0 &&
+            profile->dart_editing_query_offset != 0u &&
+            profile->dart_editing_query_prologue != nullptr &&
+            profile->dart_editing_query_prologue_size != 0u &&
+            profile->dart_editing_query_return_offset_a >= 4u &&
+            profile->dart_editing_query_return_offset_b >= 4u &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_editing_query_offset,
+                    profile->dart_editing_query_prologue_size, PF_R | PF_X) &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_editing_query_return_offset_a - 4u,
+                    sizeof(uint32_t), PF_R | PF_X) &&
+            DartMappedRangeHasFlags(
+                    dart_base, profile->dart_editing_query_return_offset_b - 4u,
+                    sizeof(uint32_t), PF_R | PF_X) &&
+            MatchesCode(dart_base, profile->dart_editing_query_offset,
+                        profile->dart_editing_query_prologue,
+                        profile->dart_editing_query_prologue_size) &&
+            DartBlTargets(dart_base,
+                          profile->dart_editing_query_return_offset_a - 4u,
+                          profile->dart_editing_query_offset) &&
+            DartBlTargets(dart_base,
+                          profile->dart_editing_query_return_offset_b - 4u,
+                          profile->dart_editing_query_offset);
+    if (!valid) {
+        __atomic_store_n(&g_editing_state_hook_state, uint32_t{5},
+                         __ATOMIC_RELEASE);
+        AtomicStore(&g_dart_editing_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR,
+            "Dart editing route rejected snapshot graph or fingerprint");
+        return false;
+    }
+    AtomicStore(&miui_home_hyos_dart_editing_return_a,
+                reinterpret_cast<uintptr_t>(dart_base) +
+                        profile->dart_editing_query_return_offset_a);
+    AtomicStore(&miui_home_hyos_dart_editing_return_b,
+                reinterpret_cast<uintptr_t>(dart_base) +
+                        profile->dart_editing_query_return_offset_b);
+    if (InstallInlineHook(
+                dart_base + profile->dart_editing_query_offset,
+                reinterpret_cast<void*>(MiuiHomeHyosDartEditingQueryHook),
+                &miui_home_hyos_dart_editing_query_original) != kHookSuccess ||
+            AtomicLoad(&miui_home_hyos_dart_editing_query_original) == nullptr) {
+        AtomicStore(&miui_home_hyos_dart_editing_query_original,
+                    static_cast<void*>(nullptr));
+        AtomicStore(&miui_home_hyos_dart_editing_return_a, uintptr_t{0});
+        AtomicStore(&miui_home_hyos_dart_editing_return_b, uintptr_t{0});
+        __atomic_store_n(&g_editing_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        AtomicStore(&g_dart_editing_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR, "Dart editing-state query hook failed");
+        return false;
+    }
+    AtomicStore(&g_dart_app_handle, dart_handle);
+    AtomicStore(&g_dart_app_base, dart_base);
+    __atomic_store_n(&g_editing_state_hook_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    AtomicStore(&g_dart_editing_install_in_flight, uint32_t{0});
+    Log(ANDROID_LOG_INFO,
+        "installed exact Dart launcher editing-state bridge");
+    return true;
+}
+
 void RepairDartDrawerStateHookIfRemapped(
         const miui_home_profiles::LauncherProfile* profile) {
     if (profile == nullptr ||
@@ -2936,6 +3159,95 @@ void RepairDartDrawerStateHookIfRemapped(
     AtomicStore(&g_dart_drawer_install_in_flight, uint32_t{0});
     Log(ANDROID_LOG_INFO,
         "repaired remapped Dart ALL_APPS visibility hook");
+}
+
+void RepairDartEditingStateHookIfRemapped(
+        const miui_home_profiles::LauncherProfile* profile) {
+    if (profile == nullptr ||
+            AtomicLoad(&g_editing_state_hook_state) != uint32_t{3}) {
+        return;
+    }
+    auto* dart_base = static_cast<uint8_t*>(AtomicLoad(&g_dart_app_base));
+    if (dart_base == nullptr || profile != CurrentDartFeatureProfile() ||
+            profile->dart_editing_query_offset == 0u ||
+            profile->dart_editing_query_prologue == nullptr ||
+            profile->dart_editing_query_prologue_size == 0u ||
+            !MatchesCode(dart_base, profile->dart_editing_query_offset,
+                         profile->dart_editing_query_prologue,
+                         profile->dart_editing_query_prologue_size)) {
+        return;
+    }
+    __atomic_fetch_add(&g_editing_dart_repair_attempt_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    __atomic_store_n(&g_editing_dart_repair_stage, uint32_t{1},
+                     __ATOMIC_RELEASE);
+    uint32_t install_expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_dart_editing_install_in_flight, &install_expected,
+                uint32_t{1}, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return;
+    }
+    uint32_t expected = 3u;
+    if (!__atomic_compare_exchange_n(&g_editing_state_hook_state, &expected,
+                                     uint32_t{1}, false,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        AtomicStore(&g_dart_editing_install_in_flight, uint32_t{0});
+        return;
+    }
+    auto* target = dart_base + profile->dart_editing_query_offset;
+    if (RemoveInlineHook(target) != kHookSuccess ||
+            !MatchesCode(dart_base, profile->dart_editing_query_offset,
+                         profile->dart_editing_query_prologue,
+                         profile->dart_editing_query_prologue_size) ||
+            !DartBlTargets(dart_base,
+                    profile->dart_editing_query_return_offset_a - 4u,
+                    profile->dart_editing_query_offset) ||
+            !DartBlTargets(dart_base,
+                    profile->dart_editing_query_return_offset_b - 4u,
+                    profile->dart_editing_query_offset)) {
+        __atomic_store_n(&g_editing_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_editing_dart_repair_stage, uint32_t{5},
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_editing_dart_repair_failure_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        AtomicStore(&g_dart_editing_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR, "Dart editing remap repair validation failed");
+        return;
+    }
+    AtomicStore(&miui_home_hyos_dart_editing_query_original,
+                static_cast<void*>(nullptr));
+    AtomicStore(&miui_home_hyos_dart_editing_return_a,
+                reinterpret_cast<uintptr_t>(dart_base) +
+                        profile->dart_editing_query_return_offset_a);
+    AtomicStore(&miui_home_hyos_dart_editing_return_b,
+                reinterpret_cast<uintptr_t>(dart_base) +
+                        profile->dart_editing_query_return_offset_b);
+    if (InstallInlineHook(
+                target,
+                reinterpret_cast<void*>(MiuiHomeHyosDartEditingQueryHook),
+                &miui_home_hyos_dart_editing_query_original) != kHookSuccess ||
+            AtomicLoad(&miui_home_hyos_dart_editing_query_original) == nullptr) {
+        AtomicStore(&miui_home_hyos_dart_editing_return_a, uintptr_t{0});
+        AtomicStore(&miui_home_hyos_dart_editing_return_b, uintptr_t{0});
+        __atomic_store_n(&g_editing_state_hook_state, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_store_n(&g_editing_dart_repair_stage, uint32_t{6},
+                         __ATOMIC_RELEASE);
+        __atomic_fetch_add(&g_editing_dart_repair_failure_count, uint32_t{1},
+                           __ATOMIC_RELAXED);
+        AtomicStore(&g_dart_editing_install_in_flight, uint32_t{0});
+        Log(ANDROID_LOG_ERROR, "failed to repair Dart editing-state hook");
+        return;
+    }
+    __atomic_store_n(&g_editing_state_hook_state, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    __atomic_store_n(&g_editing_dart_repair_stage, uint32_t{3},
+                     __ATOMIC_RELEASE);
+    __atomic_fetch_add(&g_editing_dart_repair_success_count, uint32_t{1},
+                       __ATOMIC_RELAXED);
+    AtomicStore(&g_dart_editing_install_in_flight, uint32_t{0});
+    Log(ANDROID_LOG_INFO, "repaired remapped Dart editing-state hook");
 }
 
 void RepairDartOverviewStateHookIfRemapped(
@@ -3066,7 +3378,10 @@ void TryInstallLoadedDartDrawerStateHook(
     const bool overview_pending =
             profile->dart_overview_enter_offset != 0u &&
             AtomicLoad(&g_overview_state_hook_state) == uint32_t{1};
-    if (!drawer_pending && !overview_pending) return;
+    const bool editing_pending =
+            profile->dart_editing_query_offset != 0u &&
+            AtomicLoad(&g_editing_state_hook_state) == uint32_t{1};
+    if (!drawer_pending && !overview_pending && !editing_pending) return;
     // Flutter's engine can load the AOT image below libapp_launcher's own
     // dlopen boundary. RTLD_NOLOAD only acquires the already-loaded image; it
     // must never manufacture a second AOT owner during input readiness.
@@ -3078,6 +3393,10 @@ void TryInstallLoadedDartDrawerStateHook(
     }
     if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{1}) {
         retained = TryInstallDartOverviewStateHook(dart_handle, profile) ||
+                retained;
+    }
+    if (AtomicLoad(&g_editing_state_hook_state) == uint32_t{1}) {
+        retained = TryInstallDartEditingStateHook(dart_handle, profile) ||
                 retained;
     }
     if (!retained) {
@@ -3097,6 +3416,8 @@ void TryResolveAndInstallLoadedDartProfile() {
         retained = TryInstallDartDrawerStateHook(dart_handle, profile);
         retained = TryInstallDartOverviewStateHook(dart_handle, profile) ||
                 retained;
+        retained = TryInstallDartEditingStateHook(dart_handle, profile) ||
+                retained;
     }
     if (profile == nullptr) {
         const auto* launcher = CurrentLauncherProfile();
@@ -3107,6 +3428,10 @@ void TryResolveAndInstallLoadedDartProfile() {
                         miui_home_dart_profile::ResolveStage::kRejectedElf)) {
             if (AtomicLoad(&g_overview_state_hook_state) == uint32_t{1}) {
                 __atomic_store_n(&g_overview_state_hook_state,
+                                 uint32_t{2}, __ATOMIC_RELEASE);
+            }
+            if (AtomicLoad(&g_editing_state_hook_state) == uint32_t{1}) {
+                __atomic_store_n(&g_editing_state_hook_state,
                                  uint32_t{2}, __ATOMIC_RELEASE);
             }
         }
@@ -3742,6 +4067,7 @@ void OnLsposedLibraryLoaded(const char* name, void* handle) {
         if (profile != nullptr) {
             TryInstallDartDrawerStateHook(handle, profile);
             TryInstallDartOverviewStateHook(handle, profile);
+            TryInstallDartEditingStateHook(handle, profile);
         }
     }
     TryInstallArbiterBridge();
@@ -3760,6 +4086,11 @@ void MiuiHomeHyosDartOverviewStateObserved(uint32_t visible) {
                                     : &g_overview_dart_exit_count,
                        uint32_t{1}, __ATOMIC_RELAXED);
     HandleOverviewStateObserved(visible != 0u);
+}
+
+extern "C" __attribute__((visibility("hidden")))
+void MiuiHomeHyosDartEditingStateObserved(uint32_t editing) {
+    HandleEditingStateObserved(editing != 0u);
 }
 
 extern "C" __attribute__((visibility("hidden")))

@@ -6334,12 +6334,27 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                             + ", package=" + senderPackage);
                 }
                 if (intent.hasExtra(EXTRA_LAUNCHER_EDITING)) {
-                    miuiLauncherEditing = intent.getBooleanExtra(
-                            EXTRA_LAUNCHER_EDITING, false);
-                    moduleLog(Log.INFO, TAG, "MiuiHome editing state changed"
-                            + ", editing=" + miuiLauncherEditing
-                            + ", uid=" + senderUid
-                            + ", package=" + senderPackage);
+                    long editingGeneration = intent.getLongExtra(
+                            EXTRA_INPUT_ARBITER_GENERATION, 0L);
+                    if (Build.VERSION.SDK_INT >= ANDROID_17_API_LEVEL
+                            && (editingGeneration <= 0L
+                            || editingGeneration
+                            != systemUiInputArbiterGeneration)) {
+                        moduleLog(Log.WARN, TAG,
+                                "Ignored stale native MiuiHome editing state"
+                                        + ", generation=" + editingGeneration
+                                        + ", currentGeneration="
+                                        + systemUiInputArbiterGeneration);
+                    } else {
+                        miuiLauncherEditing = intent.getBooleanExtra(
+                                EXTRA_LAUNCHER_EDITING, false);
+                        moduleLog(Log.INFO, TAG,
+                                "MiuiHome editing state changed"
+                                        + ", editing=" + miuiLauncherEditing
+                                        + ", generation=" + editingGeneration
+                                        + ", uid=" + senderUid
+                                        + ", package=" + senderPackage);
+                    }
                 }
                 if (intent.hasExtra(EXTRA_LAUNCHER_OPEN_BREAK_AVAILABLE)
                         && intent.hasExtra(EXTRA_LAUNCHER_OPEN_ACTIVE)) {
@@ -6629,13 +6644,16 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     EXTRA_STATUS_NATIVE_DRAWER_STATE_READY, false);
             boolean overviewStateReady = nativeReply != null && nativeReply.getBooleanExtra(
                     EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY, false);
+            boolean editingStateReady = nativeReply != null && nativeReply.getBooleanExtra(
+                    EXTRA_STATUS_NATIVE_EDITING_STATE_READY, false);
             boolean profileRejected = (profileStage >= 101 && profileStage <= 105)
-                    || (dartResolverStage >= 101 && dartResolverStage <= 104);
+                    || (dartResolverStage >= 101 && dartResolverStage <= 105);
             boolean statusReady = nativeResponse && systemUiReady
                     && (legacyMode ? legacyReady
                     : !profileRejected && nativeReady && profileResolved
                     && businessState == 3 && bridgeState == 3
-                    && drawerStateReady && overviewStateReady);
+                    && drawerStateReady && overviewStateReady
+                    && editingStateReady);
             Intent reply = new Intent(MODULE_RUNTIME_STATUS_REPLY)
                     .setPackage(MODULE_PACKAGE)
                     .putExtra(EXTRA_STATUS_NONCE, nonce)
@@ -6674,10 +6692,15 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                 reply.putExtra(EXTRA_STATUS_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES,
                         nativeReply.getIntExtra(
                                 EXTRA_STATUS_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES, 0));
+                reply.putExtra(EXTRA_STATUS_NATIVE_DART_EDITING_CANDIDATES,
+                        nativeReply.getIntExtra(
+                                EXTRA_STATUS_NATIVE_DART_EDITING_CANDIDATES, 0));
                 reply.putExtra(EXTRA_STATUS_NATIVE_DRAWER_STATE_READY,
                         drawerStateReady);
                 reply.putExtra(EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY,
                         overviewStateReady);
+                reply.putExtra(EXTRA_STATUS_NATIVE_EDITING_STATE_READY,
+                        editingStateReady);
                 reply.putExtra(EXTRA_STATUS_NATIVE_BUSINESS_STATE, businessState);
                 reply.putExtra(EXTRA_STATUS_NATIVE_BRIDGE_STATE, bridgeState);
                 reply.putExtra(EXTRA_STATUS_NATIVE_RECEIVER_STATE,
@@ -6700,6 +6723,7 @@ public abstract class SystemUiHookRuntime extends SystemUiInputRuntime {
                     + ", dartResolverStage=" + dartResolverStage
                     + ", drawerStateReady=" + drawerStateReady
                     + ", overviewStateReady=" + overviewStateReady
+                    + ", editingStateReady=" + editingStateReady
                     + ", reason=" + reason);
         } catch (Throwable throwable) {
             moduleLog(Log.WARN, TAG, "Failed to publish module runtime status reply",

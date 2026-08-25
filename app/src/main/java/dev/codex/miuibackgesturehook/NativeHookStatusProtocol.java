@@ -39,10 +39,14 @@ public final class NativeHookStatusProtocol {
             "status_native_dart_overview_enter_candidates";
     public static final String EXTRA_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES =
             "status_native_dart_overview_exit_candidates";
+    public static final String EXTRA_NATIVE_DART_EDITING_CANDIDATES =
+            "status_native_dart_editing_candidates";
     public static final String EXTRA_NATIVE_DRAWER_STATE_READY =
             "status_native_drawer_state_ready";
     public static final String EXTRA_NATIVE_OVERVIEW_STATE_READY =
             "status_native_overview_state_ready";
+    public static final String EXTRA_NATIVE_EDITING_STATE_READY =
+            "status_native_editing_state_ready";
     public static final String EXTRA_NATIVE_BUSINESS_STATE =
             "status_native_business_state";
     public static final String EXTRA_NATIVE_BRIDGE_STATE =

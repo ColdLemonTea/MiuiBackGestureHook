@@ -60,6 +60,11 @@ struct LauncherProfile {
     uintptr_t dart_overview_exit_offset;
     const uint8_t* dart_overview_exit_prologue;
     size_t dart_overview_exit_prologue_size;
+    uintptr_t dart_editing_query_offset;
+    const uint8_t* dart_editing_query_prologue;
+    size_t dart_editing_query_prologue_size;
+    uintptr_t dart_editing_query_return_offset_a;
+    uintptr_t dart_editing_query_return_offset_b;
 
     uintptr_t contextual_long_press_handler_offset;
     const uint8_t* contextual_long_press_handler_prologue;

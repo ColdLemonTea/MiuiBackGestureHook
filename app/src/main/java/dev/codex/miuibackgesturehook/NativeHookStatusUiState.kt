@@ -29,6 +29,7 @@ internal fun classifyNativeHookStatus(
     dartResolverStage: Int,
     drawerStateReady: Boolean,
     overviewStateReady: Boolean,
+    editingStateReady: Boolean,
 ): NativeHookStatusKind = when {
     !nativeResponse && systemUiReady -> NativeHookStatusKind.WaitingForNative
     !systemUiReady -> NativeHookStatusKind.SystemUiNotReady
@@ -36,9 +37,10 @@ internal fun classifyNativeHookStatus(
     legacyMode && !legacyReady -> NativeHookStatusKind.LegacyNotReady
     legacyMode -> NativeHookStatusKind.Ready
     profileStage in 101..105 -> NativeHookStatusKind.ProfileRejected
-    dartResolverStage in 101..104 -> NativeHookStatusKind.ProfileRejected
+    dartResolverStage in 101..105 -> NativeHookStatusKind.ProfileRejected
     !nativeReady || !profileResolved || businessState != 3 || bridgeState != 3 ||
-        !drawerStateReady || !overviewStateReady -> NativeHookStatusKind.NativeNotReady
+        !drawerStateReady || !overviewStateReady || !editingStateReady ->
+        NativeHookStatusKind.NativeNotReady
     else -> NativeHookStatusKind.Ready
 }
 
@@ -57,8 +59,10 @@ data class NativeHookStatusUiState(
     val dartTransitionCandidates: Int = 0,
     val dartOverviewEnterCandidates: Int = 0,
     val dartOverviewExitCandidates: Int = 0,
+    val dartEditingCandidates: Int = 0,
     val drawerStateReady: Boolean = false,
     val overviewStateReady: Boolean = false,
+    val editingStateReady: Boolean = false,
     val reason: String = "",
 ) {
     val dartRuntimeResolved: Boolean
@@ -67,8 +71,10 @@ data class NativeHookStatusUiState(
             dartTransitionCandidates == 1 &&
             dartOverviewEnterCandidates == 1 &&
             dartOverviewExitCandidates == 1 &&
+            dartEditingCandidates == 1 &&
             drawerStateReady &&
-            overviewStateReady
+            overviewStateReady &&
+            editingStateReady
 
     companion object {
         fun checking(legacyMode: Boolean = false) = NativeHookStatusUiState(
@@ -139,12 +145,20 @@ data class NativeHookStatusUiState(
                 NativeHookStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES,
                 0,
             )
+            val dartEditingCandidates = intent.getIntExtra(
+                NativeHookStatusProtocol.EXTRA_NATIVE_DART_EDITING_CANDIDATES,
+                0,
+            )
             val drawerStateReady = intent.getBooleanExtra(
                 NativeHookStatusProtocol.EXTRA_NATIVE_DRAWER_STATE_READY,
                 false,
             )
             val overviewStateReady = intent.getBooleanExtra(
                 NativeHookStatusProtocol.EXTRA_NATIVE_OVERVIEW_STATE_READY,
+                false,
+            )
+            val editingStateReady = intent.getBooleanExtra(
+                NativeHookStatusProtocol.EXTRA_NATIVE_EDITING_STATE_READY,
                 false,
             )
             val kind = classifyNativeHookStatus(
@@ -160,6 +174,7 @@ data class NativeHookStatusUiState(
                 dartResolverStage = dartResolverStage,
                 drawerStateReady = drawerStateReady,
                 overviewStateReady = overviewStateReady,
+                editingStateReady = editingStateReady,
             )
             return NativeHookStatusUiState(
                 kind = kind,
@@ -176,8 +191,10 @@ data class NativeHookStatusUiState(
                 dartTransitionCandidates = dartTransitionCandidates,
                 dartOverviewEnterCandidates = dartOverviewEnterCandidates,
                 dartOverviewExitCandidates = dartOverviewExitCandidates,
+                dartEditingCandidates = dartEditingCandidates,
                 drawerStateReady = drawerStateReady,
                 overviewStateReady = overviewStateReady,
+                editingStateReady = editingStateReady,
                 reason = intent.getStringExtra(NativeHookStatusProtocol.EXTRA_REASON).orEmpty(),
             )
         }

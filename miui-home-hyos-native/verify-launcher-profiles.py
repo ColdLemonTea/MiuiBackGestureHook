@@ -224,6 +224,55 @@ def resolve_dart_runtime_profile(
             "Dart resolver Overview candidates/relationship: "
             f"enter={len(enters)} exit={len(exits)}"
         )
+
+    editing_queries = []
+    query_prefix = (0xA9BF79FD, 0xAA0F03FD, 0xD10041EF, 0xF81F83A1,
+                    0xF9403F40, 0xF95AE800, 0x6B16001F, 0x540001A1,
+                    0xF9403F40, 0xF94D9400, 0xF9402370, 0x6B10001F,
+                    0x54000061)
+    for query_rva, query_code in candidates(query_prefix, 16):
+        if (
+            query_code[13] & 0xFFC003FF == 0xF9400362
+            and
+            bl_target(query_rva + 14 * 4, query_code[14]) is not None
+            and query_code[15] == 0x91403B70
+        ):
+            editing_queries.append(query_rva)
+
+    editing_refreshes = []
+    notify_prefix = (0xA9BF79FD, 0xAA0F03FD, 0xD100A1EF,
+                     0xF81F83A1, 0xD28000A1)
+    for notify_rva, notify in candidates(notify_prefix, 63):
+        refresh_rva = bl_target(notify_rva + 61 * 4, notify[61])
+        if (
+            bl_target(notify_rva + 5 * 4, notify[5]) is not None
+            and notify[53:57] == [0xAA1603E0, 0xAA1D03EF,
+                                  0xA8C179FD, 0xD65F03C0]
+            and notify[60] == 0xF85F83A1
+            and refresh_rva is not None
+            and notify[62] == 0xAA0003E1
+            and words(refresh_rva, 2) == [0xA9BF79FD, 0xAA0F03FD]
+        ):
+            editing_refreshes.append(refresh_rva)
+
+    editing = []
+    if len(editing_refreshes) == 1:
+        editing_refresh = editing_refreshes[0]
+        for editing_query in editing_queries:
+            returns = []
+            for caller in range(editing_refresh, editing_refresh + 0x500, 4):
+                if bl_target(caller, words(caller, 1)[0]) == editing_query:
+                    returns.append(caller + 4)
+            if len(returns) == 2:
+                editing.append((editing_refresh, editing_query,
+                                returns[0], returns[1]))
+    if len(editing) != 1:
+        raise ValueError(
+            "Dart resolver editing graph: "
+            f"query={len(editing_queries)} refresh={len(editing_refreshes)} "
+            f"graph={len(editing)}"
+        )
+    _editing_refresh, editing_query, editing_return_a, editing_return_b = editing[0]
     return {
         "progress_end_offset": drawer_rva,
         "transition_complete_offset": transition[0],
@@ -231,6 +280,9 @@ def resolve_dart_runtime_profile(
         "home_state_slot_offset": home,
         "overview_enter_offset": enters[0][0],
         "overview_exit_offset": exits[0][0],
+        "editing_query_offset": editing_query,
+        "editing_query_return_offset_a": editing_return_a,
+        "editing_query_return_offset_b": editing_return_b,
     }
 
 
@@ -327,6 +379,11 @@ def verify_dart_profile(
             parse_int(reference[f"overview_{label}_offset"]),
             parse_bytes(reference[f"overview_{label}_bytes"]), image, segments,
         )
+    verify_bytes(
+        profile["id"], "dart_editing_state/query",
+        parse_int(reference["editing_query_offset"]),
+        parse_bytes(reference["editing_query_bytes"]), image, segments,
+    )
     resolved = resolve_dart_runtime_profile(image, segments)
     expected = {
         "progress_end_offset": parse_int(reference["progress_end_offset"]),
@@ -344,6 +401,15 @@ def verify_dart_profile(
         ),
         "overview_exit_offset": parse_int(
             reference["overview_exit_offset"]
+        ),
+        "editing_query_offset": parse_int(
+            reference["editing_query_offset"]
+        ),
+        "editing_query_return_offset_a": parse_int(
+            reference["editing_query_return_offset_a"]
+        ),
+        "editing_query_return_offset_b": parse_int(
+            reference["editing_query_return_offset_b"]
         ),
     }
     if resolved != expected:

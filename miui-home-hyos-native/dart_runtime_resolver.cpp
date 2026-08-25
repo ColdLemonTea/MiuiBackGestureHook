@@ -37,6 +37,13 @@ struct OverviewCandidate {
     uintptr_t publish_target;
 };
 
+struct EditingCandidate {
+    uintptr_t refresh_offset;
+    uintptr_t query_offset;
+    uintptr_t return_offset_a;
+    uintptr_t return_offset_b;
+};
+
 bool AddOverflows(uintptr_t left, uintptr_t right) {
     return right > UINTPTR_MAX - left;
 }
@@ -310,6 +317,47 @@ bool MatchOverviewExit(const ElfView& view, uintptr_t offset,
     return true;
 }
 
+bool MatchEditingQuery(const ElfView& view, uintptr_t offset) {
+    uint32_t code[16]{};
+    return ReadInstructions(view, offset, code, 16u) &&
+            code[0] == 0xa9bf79fdu && code[1] == 0xaa0f03fdu &&
+            code[2] == 0xd10041efu && code[3] == 0xf81f83a1u &&
+            code[4] == 0xf9403f40u && code[5] == 0xf95ae800u &&
+            code[6] == 0x6b16001fu && code[7] == 0x540001a1u &&
+            code[8] == 0xf9403f40u && code[9] == 0xf94d9400u &&
+            code[10] == 0xf9402370u && code[11] == 0x6b10001fu &&
+            code[12] == 0x54000061u &&
+            (code[13] & 0xffc003ffu) == 0xf9400362u &&
+            IsBl(code[14]) && code[15] == 0x91403b70u;
+}
+
+bool MatchNotifyBackStatus(const ElfView& view, uintptr_t offset,
+                           uintptr_t* refresh_offset) {
+    uint32_t code[63]{};
+    uintptr_t target = 0u;
+    if (refresh_offset == nullptr ||
+            !ReadInstructions(view, offset, code, 63u) ||
+            code[0] != 0xa9bf79fdu || code[1] != 0xaa0f03fdu ||
+            code[2] != 0xd100a1efu || code[3] != 0xf81f83a1u ||
+            code[4] != 0xd28000a1u || !IsBl(code[5]) ||
+            code[53] != 0xaa1603e0u || code[54] != 0xaa1d03efu ||
+            code[55] != 0xa8c179fdu || code[56] != 0xd65f03c0u ||
+            code[60] != 0xf85f83a1u ||
+            !DecodeBlTarget(offset + 61u * 4u, code[61], &target) ||
+            code[62] != 0xaa0003e1u ||
+            !Contains(view, target, 2u * sizeof(uint32_t), PF_R | PF_X)) {
+        return false;
+    }
+    uint32_t refresh_prefix[2]{};
+    if (!ReadInstructions(view, target, refresh_prefix, 2u) ||
+            refresh_prefix[0] != 0xa9bf79fdu ||
+            refresh_prefix[1] != 0xaa0f03fdu) {
+        return false;
+    }
+    *refresh_offset = target;
+    return true;
+}
+
 void Increment(uint32_t* value) {
     if (value != nullptr && *value != UINT32_MAX) ++*value;
 }
@@ -435,6 +483,64 @@ bool ResolveDartFeatureProfile(
         return false;
     }
 
+    diagnostics->stage = ResolveStage::kResolvingEditing;
+    EditingCandidate editing{};
+    uintptr_t editing_refresh = 0u;
+    uint32_t editing_notify_candidates = 0u;
+    for (size_t segment_index = 0u; segment_index < view.load_count;
+         ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X)) continue;
+        uintptr_t offset = (load.start + 3u) & ~uintptr_t{3u};
+        while (offset < load.end && load.end - offset >= 63u * 4u) {
+            uintptr_t refresh = 0u;
+            if (MatchNotifyBackStatus(view, offset, &refresh)) {
+                Increment(&editing_notify_candidates);
+                editing_refresh = refresh;
+            }
+            offset += 4u;
+        }
+    }
+    if (editing_notify_candidates == 1u &&
+            editing_refresh <= UINTPTR_MAX - 0x500u) {
+        const uintptr_t refresh_end = editing_refresh + 0x500u;
+        for (size_t segment_index = 0u; segment_index < view.load_count;
+             ++segment_index) {
+            const LoadSegment& load = view.loads[segment_index];
+            if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X)) continue;
+            uintptr_t query = (load.start + 3u) & ~uintptr_t{3u};
+            while (query < load.end && load.end - query >= 16u * 4u) {
+                if (MatchEditingQuery(view, query)) {
+                    uintptr_t returns[2]{};
+                    uint32_t return_count = 0u;
+                    for (uintptr_t caller = editing_refresh;
+                         caller < refresh_end; caller += 4u) {
+                        uint32_t instruction = 0u;
+                        uintptr_t target = 0u;
+                        if (!ReadInstruction(view, caller, &instruction)) break;
+                        if (DecodeBlTarget(caller, instruction, &target) &&
+                                target == query) {
+                            if (return_count < 2u) {
+                                returns[return_count] = caller + 4u;
+                            }
+                            Increment(&return_count);
+                        }
+                    }
+                    if (return_count == 2u) {
+                        Increment(&diagnostics->editing_candidate_count);
+                        editing = {editing_refresh, query,
+                                   returns[0], returns[1]};
+                    }
+                }
+                query += 4u;
+            }
+        }
+    }
+    if (diagnostics->editing_candidate_count != 1u) {
+        diagnostics->stage = ResolveStage::kRejectedEditing;
+        return false;
+    }
+
     storage->profile = launcher_profile;
     auto& profile = storage->profile;
     profile.dart_snapshot_instructions_offset = instructions_offset;
@@ -472,11 +578,23 @@ bool ResolveDartFeatureProfile(
     profile.dart_overview_exit_prologue = storage->overview_exit_prologue;
     profile.dart_overview_exit_prologue_size =
             sizeof(storage->overview_exit_prologue);
+    profile.dart_editing_query_offset = editing.query_offset;
+    memcpy(storage->editing_query_prologue, base + editing.query_offset,
+           sizeof(storage->editing_query_prologue));
+    profile.dart_editing_query_prologue = storage->editing_query_prologue;
+    profile.dart_editing_query_prologue_size =
+            sizeof(storage->editing_query_prologue);
+    profile.dart_editing_query_return_offset_a = editing.return_offset_a;
+    profile.dart_editing_query_return_offset_b = editing.return_offset_b;
 
     diagnostics->drawer_progress_end_offset = drawer.offset;
     diagnostics->drawer_transition_complete_offset = transition_offset;
     diagnostics->overview_enter_offset = enter.offset;
     diagnostics->overview_exit_offset = exit.offset;
+    diagnostics->editing_refresh_offset = editing.refresh_offset;
+    diagnostics->editing_query_offset = editing.query_offset;
+    diagnostics->editing_query_return_offset_a = editing.return_offset_a;
+    diagnostics->editing_query_return_offset_b = editing.return_offset_b;
     diagnostics->all_apps_state_slot_offset = drawer.all_apps_slot;
     diagnostics->home_state_slot_offset = drawer.home_slot;
     diagnostics->stage = ResolveStage::kComplete;

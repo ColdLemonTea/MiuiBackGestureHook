@@ -324,10 +324,14 @@ public abstract class HookRuntimeCore extends XposedModule {
             NativeHookStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES;
     protected static final String EXTRA_STATUS_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES =
             NativeHookStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES;
+    protected static final String EXTRA_STATUS_NATIVE_DART_EDITING_CANDIDATES =
+            NativeHookStatusProtocol.EXTRA_NATIVE_DART_EDITING_CANDIDATES;
     protected static final String EXTRA_STATUS_NATIVE_DRAWER_STATE_READY =
             NativeHookStatusProtocol.EXTRA_NATIVE_DRAWER_STATE_READY;
     protected static final String EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY =
             NativeHookStatusProtocol.EXTRA_NATIVE_OVERVIEW_STATE_READY;
+    protected static final String EXTRA_STATUS_NATIVE_EDITING_STATE_READY =
+            NativeHookStatusProtocol.EXTRA_NATIVE_EDITING_STATE_READY;
     protected static final String EXTRA_STATUS_NATIVE_BUSINESS_STATE =
             NativeHookStatusProtocol.EXTRA_NATIVE_BUSINESS_STATE;
     protected static final String EXTRA_STATUS_NATIVE_BRIDGE_STATE =
