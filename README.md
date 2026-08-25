@@ -26,6 +26,10 @@ validated native profile cannot be established.
 | Android 17 / HyperOS 4+ | Internal LSPosed with HYOS-spawner support | `4371` static profile; validated newer builds use the runtime resolver |
 
 The native entry is arm64-v8a only. Unsupported or ambiguous layouts fail closed.
+LSPosed's enabled/scope state and HYOS injection own spawner compatibility; the
+entry validates the exact executable and launcher process identity but does not
+pin a `hyos_spawner` Build ID across OTAs. Launcher ELF profiles and business
+hook fingerprints remain fail-closed.
 
 ## Build
 

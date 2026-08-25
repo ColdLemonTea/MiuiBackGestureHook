@@ -262,22 +262,39 @@ function Stop-ExactSpawner {
 }
 
 function Start-AndWaitLauncher {
-    param([int]$ExpectedParent, [int[]]$RejectedPids)
+    param(
+        [int]$ExpectedParent,
+        [int[]]$RejectedPids,
+        [pscustomobject]$ApkIdentity,
+        [int64[]]$RejectedInodes = @()
+    )
     Invoke-Adb -Arguments @(
         'shell', 'am', 'start', '-W', '-a', 'android.intent.action.MAIN',
         '-c', 'android.intent.category.HOME') -AllowFailure | Out-Null
+    $lastMappingFailure = ''
     for ($attempt = 0; $attempt -lt 200; $attempt++) {
         $launchers = @(Get-LauncherProcesses)
         $accepted = @($launchers | Where-Object {
             $_.ParentPid -eq $ExpectedParent -and $_.Pid -notin $RejectedPids
         })
         $rejectedAlive = @($launchers | Where-Object { $_.Pid -in $RejectedPids })
-        if ($accepted.Count -eq 1 -and $rejectedAlive.Count -eq 0) {
-            return $accepted[0]
+        if ($launchers.Count -eq 1 -and $accepted.Count -eq 1 -and
+                $rejectedAlive.Count -eq 0) {
+            try {
+                Assert-LauncherMapsCurrentApk -LauncherPid $accepted[0].Pid `
+                    -ApkIdentity $ApkIdentity -RejectedInodes $RejectedInodes |
+                    Out-Null
+                return $accepted[0]
+            } catch {
+                # HYOS may publish a short-lived launcher child before the
+                # final child maps the module APK. Keep following the exact
+                # replacement spawner until the mapped owner is stable.
+                $lastMappingFailure = $_.Exception.Message
+            }
         }
         Start-Sleep -Milliseconds 100
     }
-    throw 'MiuiHome did not reach one clean child under the replacement spawner.'
+    throw "MiuiHome did not reach one clean mapped child under the replacement spawner. $lastMappingFailure"
 }
 
 function Assert-LauncherMapsCurrentApk {
@@ -330,8 +347,7 @@ function Wait-NativeReadyStatus {
         $_ -match "\s$LauncherPid\s+\d+\s+[VDIWEF]\s+MiuiHomeHyos"
     })
     $nativeLog = $selected -join $Nl
-    if ($nativeLog.Contains('LSPosed launcher hooks rejected without madvise guard') -or
-            $nativeLog.Contains('unsupported hyos_spawner Build ID')) {
+    if ($nativeLog.Contains('LSPosed launcher hooks rejected without madvise guard')) {
         throw "Native initialization rejected the replacement Launcher.$Nl$nativeLog"
     }
 
@@ -341,8 +357,7 @@ function Wait-NativeReadyStatus {
     # Ready only after the native profile, business hooks, bridge, drawer hook,
     # overview hook, and SystemUI input monitor all report ready.
     $statusComponent = "$PackageName/.activity.PredictiveBackSettingsActivity"
-    $remoteDump = "/data/local/tmp/mbgh-native-status-$LauncherPid.xml"
-    $lastText = ''
+    $lastNativeStatus = ''
     $statusLogBefore = Get-LsposedLogSnapshot
     try {
         $start = Invoke-Adb -Arguments @(
@@ -359,6 +374,7 @@ function Wait-NativeReadyStatus {
                 $_ -match 'nativeResponse=true'
             })
             $nativeStatus = $nativeStatusLines | Select-Object -Last 1
+            if ($null -ne $nativeStatus) { $lastNativeStatus = $nativeStatus }
             if ($null -ne $nativeStatus -and
                     $nativeStatus -match 'statusReady=true') {
                 return "authenticated_native_status=ready$Nl$nativeStatus"
@@ -367,28 +383,9 @@ function Wait-NativeReadyStatus {
                     $nativeStatus -match 'statusReady=false') {
                 throw "Authenticated native status reported not ready.$Nl$nativeStatus"
             }
-            # APKs built before statusReady was added still need the visible UI
-            # compatibility path. New builds no longer depend on foreground
-            # ownership once the authenticated nonce exchange has completed.
-            Invoke-Adb -Arguments @(
-                'shell', 'uiautomator', 'dump', $remoteDump) `
-                -AllowFailure | Out-Null
-            $dump = Invoke-Adb -Arguments @(
-                'shell', 'cat', $remoteDump) -AllowFailure
-            if ($dump.ExitCode -ne 0) { continue }
-            $matches = [regex]::Matches($dump.Text, 'text="([^"]+)"')
-            $lastText = (@($matches | ForEach-Object {
-                [System.Net.WebUtility]::HtmlDecode($_.Groups[1].Value)
-            }) | Select-Object -Unique) -join ' | '
-            if ($lastText.Contains('Native hook is working') -or
-                    $lastText.Contains('原生 Hook 运行正常')) {
-                return "authenticated_native_status=ready$Nl$lastText"
-            }
         }
-        throw "Authenticated native status did not become ready.$Nl$lastText"
+        throw "Authenticated native status did not become ready.$Nl$lastNativeStatus"
     } finally {
-        Invoke-Adb -Arguments @(
-            'shell', 'rm', '-f', $remoteDump) -AllowFailure | Out-Null
         # Remove only the temporary settings UI used by the challenge.  The
         # LSPosed hooks live in their scoped processes and remain untouched.
         Invoke-Adb -Arguments @(
@@ -575,9 +572,7 @@ function Invoke-Rollback {
     try {
         $newSpawner = Stop-ExactSpawner -OldPid $oldSpawner
         $launcher = Start-AndWaitLauncher -ExpectedParent $newSpawner `
-            -RejectedPids $oldLaunchers
-        Assert-LauncherMapsCurrentApk -LauncherPid $launcher.Pid `
-            -ApkIdentity $identity | Out-Null
+            -RejectedPids $oldLaunchers -ApkIdentity $identity
         Wait-NativeReadyStatus -LauncherPid $launcher.Pid | Out-Null
         return "rollback=restored,method=$rollbackMethod," +
             "hyos_pid=$newSpawner,launcher_pid=$($launcher.Pid)"
@@ -689,10 +684,8 @@ switch ($Action) {
             }
             $spawnerAfter = Stop-ExactSpawner -OldPid $spawnerBefore
             $launcherAfter = Start-AndWaitLauncher -ExpectedParent $spawnerAfter `
-                -RejectedPids $launchersBefore
-            Assert-LauncherMapsCurrentApk -LauncherPid $launcherAfter.Pid `
-                -ApkIdentity $installed -RejectedInodes @($installedBefore.Inode) |
-                Out-Null
+                -RejectedPids $launchersBefore -ApkIdentity $installed `
+                -RejectedInodes @($installedBefore.Inode)
             Wait-NativeReadyStatus -LauncherPid $launcherAfter.Pid | Out-Null
             Start-Sleep -Milliseconds 1500
             $tombstoneAfter = Get-LatestTombstone

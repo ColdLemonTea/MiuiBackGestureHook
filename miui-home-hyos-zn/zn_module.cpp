@@ -98,11 +98,6 @@ constexpr char kDartLibraryTail[] = "/libapp.so";
 constexpr char kDartSnapshotInstructionsSymbol[] =
         "_kDartIsolateSnapshotInstructions";
 constexpr char kDartSnapshotBuildIdSymbol[] = "_kDartSnapshotBuildId";
-constexpr uint8_t kExpectedSpawnerBuildId[] = {
-        0x87, 0xf2, 0x63, 0x2e, 0x7d, 0x68, 0xfd, 0xa0,
-        0x22, 0x63, 0x66, 0xfd, 0xa5, 0x34, 0x6c, 0x2d,
-};
-
 using DlopenFn = void* (*)(const char*, int);
 using AndroidDlopenExtFn = void* (*)(const char*, int,
                                     const android_dlextinfo*);
@@ -589,107 +584,6 @@ void MarkLsposedLauncherSpecialized() {
                        __ATOMIC_RELAXED);
     RecordFirstLifecycleSequence(&g_hyos_specialize_sequence,
                                  NextHyosLifecycleSequence());
-}
-
-bool ReadFullyAt(int fd, void* destination, size_t size, off_t offset) {
-    auto* cursor = static_cast<uint8_t*>(destination);
-    while (size != 0u) {
-        const ssize_t result = pread(fd, cursor, size, offset);
-        if (result == 0) return false;
-        if (result < 0) {
-            if (errno == EINTR) continue;
-            return false;
-        }
-        cursor += static_cast<size_t>(result);
-        size -= static_cast<size_t>(result);
-        offset += result;
-    }
-    return true;
-}
-
-constexpr size_t AlignNote(size_t value) {
-    return (value + size_t{3}) & ~size_t{3};
-}
-
-bool NoteContainsBuildId(const uint8_t* notes, size_t size,
-                         const uint8_t* expected, size_t expected_size) {
-    size_t offset = 0u;
-    while (size - offset >= sizeof(Elf64_Nhdr)) {
-        Elf64_Nhdr header{};
-        memcpy(&header, notes + offset, sizeof(header));
-        offset += sizeof(header);
-
-        const size_t name_size = header.n_namesz;
-        const size_t desc_size = header.n_descsz;
-        const size_t aligned_name = AlignNote(name_size);
-        const size_t aligned_desc = AlignNote(desc_size);
-        if (aligned_name > size - offset) return false;
-        const uint8_t* name = notes + offset;
-        offset += aligned_name;
-        if (aligned_desc > size - offset) return false;
-        const uint8_t* description = notes + offset;
-        offset += aligned_desc;
-
-        if (header.n_type == NT_GNU_BUILD_ID && name_size == 4u &&
-                memcmp(name, "GNU", 4u) == 0 &&
-                desc_size == expected_size &&
-                memcmp(description, expected, expected_size) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool ValidateElfBuildId(const char* path, const uint8_t* expected,
-                        size_t expected_size) {
-    const int fd = open(path, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return false;
-
-    Elf64_Ehdr elf_header{};
-    bool valid = ReadFullyAt(fd, &elf_header, sizeof(elf_header), 0) &&
-            memcmp(elf_header.e_ident, ELFMAG, SELFMAG) == 0 &&
-            elf_header.e_ident[EI_CLASS] == ELFCLASS64 &&
-            elf_header.e_ident[EI_DATA] == ELFDATA2LSB &&
-            elf_header.e_machine == EM_AARCH64 &&
-            elf_header.e_phentsize == sizeof(Elf64_Phdr) &&
-            elf_header.e_phnum != 0u && elf_header.e_phnum <= 128u;
-
-    for (uint16_t index = 0u; valid && index < elf_header.e_phnum; ++index) {
-        Elf64_Phdr program_header{};
-        const off_t program_offset = static_cast<off_t>(elf_header.e_phoff) +
-                static_cast<off_t>(index) * sizeof(Elf64_Phdr);
-        if (!ReadFullyAt(fd, &program_header, sizeof(program_header),
-                         program_offset)) {
-            valid = false;
-            break;
-        }
-        if (program_header.p_type != PT_NOTE) continue;
-        if (program_header.p_filesz == 0u ||
-                program_header.p_filesz > 64u * 1024u) {
-            continue;
-        }
-        uint8_t notes[64u * 1024u]{};
-        if (!ReadFullyAt(fd, notes,
-                         static_cast<size_t>(program_header.p_filesz),
-                         static_cast<off_t>(program_header.p_offset))) {
-            valid = false;
-            break;
-        }
-        if (NoteContainsBuildId(notes,
-                    static_cast<size_t>(program_header.p_filesz),
-                    expected, expected_size)) {
-            close(fd);
-            return true;
-        }
-    }
-
-    close(fd);
-    return false;
-}
-
-bool ValidateSpawnerBuildId() {
-    return ValidateElfBuildId(kSpawnerPath, kExpectedSpawnerBuildId,
-                              sizeof(kExpectedSpawnerBuildId));
 }
 
 bool IsExplicitlyEnabled() {
@@ -4063,11 +3957,6 @@ void OnModuleLoaded(void*, const ZygiskNextAPI* api) {
         Log(ANDROID_LOG_INFO, "disabled; no hook installed");
         return;
     }
-    if (!ValidateSpawnerBuildId()) {
-        Log(ANDROID_LOG_ERROR, "unsupported hyos_spawner Build ID");
-        return;
-    }
-
     __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{1},
                      __ATOMIC_RELEASE);
     const ZygiskNextRuntime* runtime = g_api.getRuntime();
@@ -4175,12 +4064,6 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
                          __ATOMIC_RELEASE);
         Log(ANDROID_LOG_WARN,
             "LSPosed native entry rejected a non-launcher HYOS process");
-        return nullptr;
-    }
-    if (!ValidateSpawnerBuildId()) {
-        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{7},
-                         __ATOMIC_RELEASE);
-        Log(ANDROID_LOG_ERROR, "unsupported hyos_spawner Build ID");
         return nullptr;
     }
     MarkLsposedLauncherSpecialized();
