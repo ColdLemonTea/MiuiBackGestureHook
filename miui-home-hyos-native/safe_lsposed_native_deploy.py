@@ -753,7 +753,11 @@ done
         self.emit(f"launcher_pid={matching[0].pid}")
 
     def deploy(
-        self, apk: str | None, variant: str, skip_build: bool
+        self,
+        apk: str | None,
+        variant: str,
+        skip_build: bool,
+        skip_rollback_backup: bool = False,
     ) -> None:
         self.assert_no_foreign_native_owner()
         deployment_apk = self.resolve_deployment_apk(apk, variant, skip_build)
@@ -784,12 +788,15 @@ done
         rollback_hash = ""
         mutation_started = False
         try:
-            rollback_hash = installed_before.sha256
-            self.invoke_adb(["pull", installed_before_path, os.fspath(rollback_apk)])
-            if sha256_file(rollback_apk) != rollback_hash:
-                raise RuntimeError(
-                    "Pulled rollback APK hash does not match the installed package."
-                )
+            if skip_rollback_backup:
+                self.emit("rollback_backup=skipped")
+            else:
+                rollback_hash = installed_before.sha256
+                self.invoke_adb(["pull", installed_before_path, os.fspath(rollback_apk)])
+                if sha256_file(rollback_apk) != rollback_hash:
+                    raise RuntimeError(
+                        "Pulled rollback APK hash does not match the installed package."
+                    )
 
             self.install_apk(deployment_apk, enable_rollback=True)
             mutation_started = True
@@ -862,6 +869,7 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--apk")
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--skip-rollback-backup", action="store_true")
     return parser.parse_args(arguments)
 
 
@@ -877,7 +885,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
         elif args.action == "capture":
             deployer.emit(f"evidence={deployer.write_evidence('manual-capture')}")
         else:
-            deployer.deploy(args.apk, args.variant, args.skip_build)
+            deployer.deploy(
+                args.apk,
+                args.variant,
+                args.skip_build,
+                args.skip_rollback_backup,
+            )
         return 0
     except Exception as error:
         print(f"error: {error}", file=sys.stderr)
