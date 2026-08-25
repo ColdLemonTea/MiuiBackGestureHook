@@ -9,7 +9,7 @@ if(NOT DEFINED LAUNCHER_PROFILE_INCLUDE_DIR OR
 endif()
 
 if(NOT ANDROID)
-    message(FATAL_ERROR "miui_home_hyos_zn must use the Android NDK toolchain")
+    message(FATAL_ERROR "miui_home_hyos_native must use the Android NDK toolchain")
 endif()
 
 if(NOT "${ANDROID_ABI}" STREQUAL "arm64-v8a")
@@ -19,8 +19,8 @@ endif()
 find_package(lsplt REQUIRED CONFIG)
 
 set(MIUI_HOME_NATIVE_SOURCES
-    zn_module.cpp
-    lsposed_native_bridge.cpp
+    miui_home_native_hook.cpp
+    lsposed_hook_backend.cpp
     runtime_profile_resolver.cpp
     dart_runtime_resolver.cpp
     broadcast_options_tail_hook.S
@@ -63,8 +63,6 @@ target_link_options(${MIUI_HOME_NATIVE_TARGET} PRIVATE
 target_link_options(${MIUI_HOME_NATIVE_TARGET} PRIVATE "-Wl,-rpath,$ORIGIN")
 
 target_link_libraries(${MIUI_HOME_NATIVE_TARGET} PRIVATE log dl lsplt::lsplt)
-target_compile_definitions(${MIUI_HOME_NATIVE_TARGET} PRIVATE
-    MIUI_HOME_LSPOSED_NATIVE=1)
 
 set_target_properties(${MIUI_HOME_NATIVE_TARGET} PROPERTIES
     CXX_EXTENSIONS OFF

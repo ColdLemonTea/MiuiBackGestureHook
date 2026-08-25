@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package dev.codex.miuibackgesturehook;
 
-/** Shared wire names for the UI/SystemUI/ZN runtime status challenge. */
-public final class ZnStatusProtocol {
+/** Shared wire names for the UI, SystemUI, and native-hook status challenge. */
+public final class NativeHookStatusProtocol {
     public static final String PACKAGE_NAME =
             "dev.codex.miuibackgesturehook";
     public static final String SYSTEM_UI_PACKAGE = "com.android.systemui";
@@ -55,5 +55,5 @@ public final class ZnStatusProtocol {
     public static final String EXTRA_SYSTEMUI_MONITORS = "status_systemui_monitors";
     public static final String EXTRA_REASON = "status_reason";
 
-    private ZnStatusProtocol() {}
+    private NativeHookStatusProtocol() {}
 }

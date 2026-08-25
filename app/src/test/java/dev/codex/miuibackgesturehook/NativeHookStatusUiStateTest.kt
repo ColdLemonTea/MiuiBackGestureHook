@@ -5,13 +5,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class ZnStatusUiStateTest {
+class NativeHookStatusUiStateTest {
     private fun classify(
         nativeReady: Boolean = true,
         drawerReady: Boolean = true,
         overviewReady: Boolean = true,
         dartStage: Int = 5,
-    ): ZnStatusKind = classifyZnStatus(
+    ): NativeHookStatusKind = classifyNativeHookStatus(
         nativeResponse = true,
         systemUiReady = true,
         legacyMode = false,
@@ -28,13 +28,13 @@ class ZnStatusUiStateTest {
 
     @Test
     fun readyRequiresBothFeatureHooks() {
-        assertEquals(ZnStatusKind.Ready, classify())
+        assertEquals(NativeHookStatusKind.Ready, classify())
         assertEquals(
-            ZnStatusKind.NativeNotReady,
+            NativeHookStatusKind.NativeNotReady,
             classify(drawerReady = false),
         )
         assertEquals(
-            ZnStatusKind.NativeNotReady,
+            NativeHookStatusKind.NativeNotReady,
             classify(overviewReady = false),
         )
     }
@@ -42,15 +42,15 @@ class ZnStatusUiStateTest {
     @Test
     fun resolverRejectionPrecedesNativeReadiness() {
         assertEquals(
-            ZnStatusKind.ProfileRejected,
+            NativeHookStatusKind.ProfileRejected,
             classify(nativeReady = false, dartStage = 104),
         )
     }
 
     @Test
     fun dartRuntimeResolvedIncludesInstalledHookHealth() {
-        val healthy = ZnStatusUiState(
-            kind = ZnStatusKind.Ready,
+        val healthy = NativeHookStatusUiState(
+            kind = NativeHookStatusKind.Ready,
             dartResolverStage = 5,
             dartDrawerCandidates = 1,
             dartTransitionCandidates = 1,

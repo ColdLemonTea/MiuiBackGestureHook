@@ -3,7 +3,7 @@ package dev.codex.miuibackgesturehook
 
 import android.content.Intent
 
-enum class ZnStatusKind {
+enum class NativeHookStatusKind {
     Checking,
     WaitingForNative,
     Ready,
@@ -16,7 +16,7 @@ enum class ZnStatusKind {
     LsPosedUnavailable,
 }
 
-internal fun classifyZnStatus(
+internal fun classifyNativeHookStatus(
     nativeResponse: Boolean,
     systemUiReady: Boolean,
     legacyMode: Boolean,
@@ -29,21 +29,21 @@ internal fun classifyZnStatus(
     dartResolverStage: Int,
     drawerStateReady: Boolean,
     overviewStateReady: Boolean,
-): ZnStatusKind = when {
-    !nativeResponse && systemUiReady -> ZnStatusKind.WaitingForNative
-    !systemUiReady -> ZnStatusKind.SystemUiNotReady
-    !nativeResponse -> ZnStatusKind.WaitingForNative
-    legacyMode && !legacyReady -> ZnStatusKind.LegacyNotReady
-    legacyMode -> ZnStatusKind.Ready
-    profileStage in 101..105 -> ZnStatusKind.ProfileRejected
-    dartResolverStage in 101..104 -> ZnStatusKind.ProfileRejected
+): NativeHookStatusKind = when {
+    !nativeResponse && systemUiReady -> NativeHookStatusKind.WaitingForNative
+    !systemUiReady -> NativeHookStatusKind.SystemUiNotReady
+    !nativeResponse -> NativeHookStatusKind.WaitingForNative
+    legacyMode && !legacyReady -> NativeHookStatusKind.LegacyNotReady
+    legacyMode -> NativeHookStatusKind.Ready
+    profileStage in 101..105 -> NativeHookStatusKind.ProfileRejected
+    dartResolverStage in 101..104 -> NativeHookStatusKind.ProfileRejected
     !nativeReady || !profileResolved || businessState != 3 || bridgeState != 3 ||
-        !drawerStateReady || !overviewStateReady -> ZnStatusKind.NativeNotReady
-    else -> ZnStatusKind.Ready
+        !drawerStateReady || !overviewStateReady -> NativeHookStatusKind.NativeNotReady
+    else -> NativeHookStatusKind.Ready
 }
 
-data class ZnStatusUiState(
-    val kind: ZnStatusKind,
+data class NativeHookStatusUiState(
+    val kind: NativeHookStatusKind,
     val profileDynamic: Boolean = false,
     val legacyMode: Boolean = false,
     val profileResolved: Boolean = false,
@@ -71,83 +71,83 @@ data class ZnStatusUiState(
             overviewStateReady
 
     companion object {
-        fun checking(legacyMode: Boolean = false) = ZnStatusUiState(
-            kind = ZnStatusKind.Checking,
+        fun checking(legacyMode: Boolean = false) = NativeHookStatusUiState(
+            kind = NativeHookStatusKind.Checking,
             legacyMode = legacyMode,
         )
 
-        fun noResponse() = ZnStatusUiState(ZnStatusKind.NoResponse)
+        fun noResponse() = NativeHookStatusUiState(NativeHookStatusKind.NoResponse)
 
-        fun fromReply(intent: Intent): ZnStatusUiState {
+        fun fromReply(intent: Intent): NativeHookStatusUiState {
             val nativeResponse = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_RESPONSE,
+                NativeHookStatusProtocol.EXTRA_NATIVE_RESPONSE,
                 false,
             )
             val systemUiReady = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_SYSTEMUI_READY,
+                NativeHookStatusProtocol.EXTRA_SYSTEMUI_READY,
                 false,
             )
             val legacyMode = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_LEGACY_MODE,
+                NativeHookStatusProtocol.EXTRA_LEGACY_MODE,
                 false,
             )
             val legacyReady = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_LEGACY_READY,
+                NativeHookStatusProtocol.EXTRA_LEGACY_READY,
                 false,
             )
             val profileResolved = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_PROFILE_RESOLVED,
+                NativeHookStatusProtocol.EXTRA_NATIVE_PROFILE_RESOLVED,
                 false,
             )
             val nativeReady = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_READY,
+                NativeHookStatusProtocol.EXTRA_NATIVE_READY,
                 false,
             )
             val profileDynamic = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_PROFILE_DYNAMIC,
+                NativeHookStatusProtocol.EXTRA_NATIVE_PROFILE_DYNAMIC,
                 false,
             )
             val businessState = intent.getIntExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_BUSINESS_STATE,
+                NativeHookStatusProtocol.EXTRA_NATIVE_BUSINESS_STATE,
                 0,
             )
             val bridgeState = intent.getIntExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_BRIDGE_STATE,
+                NativeHookStatusProtocol.EXTRA_NATIVE_BRIDGE_STATE,
                 0,
             )
             val profileStage = intent.getIntExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_RUNTIME_PROFILE_STAGE,
+                NativeHookStatusProtocol.EXTRA_NATIVE_RUNTIME_PROFILE_STAGE,
                 0,
             )
             val dartResolverStage = intent.getIntExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_DART_RESOLVER_STAGE,
+                NativeHookStatusProtocol.EXTRA_NATIVE_DART_RESOLVER_STAGE,
                 0,
             )
             val dartDrawerCandidates = intent.getIntExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_DART_DRAWER_CANDIDATES,
+                NativeHookStatusProtocol.EXTRA_NATIVE_DART_DRAWER_CANDIDATES,
                 0,
             )
             val dartTransitionCandidates = intent.getIntExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_DART_TRANSITION_CANDIDATES,
+                NativeHookStatusProtocol.EXTRA_NATIVE_DART_TRANSITION_CANDIDATES,
                 0,
             )
             val dartOverviewEnterCandidates = intent.getIntExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES,
+                NativeHookStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES,
                 0,
             )
             val dartOverviewExitCandidates = intent.getIntExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES,
+                NativeHookStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES,
                 0,
             )
             val drawerStateReady = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_DRAWER_STATE_READY,
+                NativeHookStatusProtocol.EXTRA_NATIVE_DRAWER_STATE_READY,
                 false,
             )
             val overviewStateReady = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_OVERVIEW_STATE_READY,
+                NativeHookStatusProtocol.EXTRA_NATIVE_OVERVIEW_STATE_READY,
                 false,
             )
-            val kind = classifyZnStatus(
+            val kind = classifyNativeHookStatus(
                 nativeResponse = nativeResponse,
                 systemUiReady = systemUiReady,
                 legacyMode = legacyMode,
@@ -161,7 +161,7 @@ data class ZnStatusUiState(
                 drawerStateReady = drawerStateReady,
                 overviewStateReady = overviewStateReady,
             )
-            return ZnStatusUiState(
+            return NativeHookStatusUiState(
                 kind = kind,
                 profileDynamic = profileDynamic,
                 legacyMode = legacyMode,
@@ -178,7 +178,7 @@ data class ZnStatusUiState(
                 dartOverviewExitCandidates = dartOverviewExitCandidates,
                 drawerStateReady = drawerStateReady,
                 overviewStateReady = overviewStateReady,
-                reason = intent.getStringExtra(ZnStatusProtocol.EXTRA_REASON).orEmpty(),
+                reason = intent.getStringExtra(NativeHookStatusProtocol.EXTRA_REASON).orEmpty(),
             )
         }
     }

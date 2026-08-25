@@ -1,5 +1,8 @@
 # Android 17 小米桌面 Native 加载链调查报告
 
+> 历史归档：本文记录已废弃的 Zygisk Next 实验，路径和命令仅用于还原当时证据，
+> 不代表当前实现。当前版本只通过 LSPosed APK native entry 注入。
+
 ## 1. 调查目标
 
 确认 Android 17 / HyperOS 4 中纯 Native 版 `com.miui.home` 的进程由谁创建、入口库由谁装载，以及它是否经过传统 ART zygote、Android 17 `zygote_next` 或小米自有加载器。
@@ -1075,7 +1078,7 @@ Home Activity 已 resumed。实验 module 仍为 disabled、`run/` markers 为�
 直接原因是 Home 进程缺失，不是新的 native tombstone，也不是接管成功。
 
 后续不再允许手工组合安装、文件替换、ZN reload 与 spawner 信号。仓库新增
-`miui-home-hyos-zn/safe-device-test.ps1` 作为唯一主机入口；它验证 exact 4371
+当时已废弃的 PowerShell 设备测试脚本作为唯一主机入口；它验证 exact 4371
 和单一 package SHA，使用不同路径/inode staging，核对 native SHA，先禁用 ZN；存在旧
 mapping 时再替换 exact root/PPID-1 spawner，确认旧 ELF 已完全解除映射后才原子激活新文件。设备端 `hsctl` 只保留
 `status`、`activate --confirm`、`rollback --confirm` 与日志读取；激活会显式启动 Home 并
@@ -1113,7 +1116,7 @@ carrier 分支在该 shim 入口直接 `return`，因此不是“只吃模块 ex
 Xiaomi 的 receiver callback。0.8.20 不增加 receiver、filter 或输入 hook：认证并记录状态后，
 把同一个未修改 intent 交回原 callback。新增 `state_marked`/`state_passthrough` BSS 计数，
 正式测试前二者必须同步增长。当前 clean rollback 基线正常；0.8.20 只在重新构建并经
-`safe-device-test.ps1` 校验后才允许下发。
+当时的受控设备测试脚本校验后才允许下发。
 
 ### 11.18 0.8.20 正式轨迹与 processor accepted-DOWN 修正
 
@@ -1245,7 +1248,7 @@ java.lang.NullPointerException
 `mIsRequestingStatusBarAppearance` 置真，这与 Xiaomi 已剥离功能的正常状态等价，并保留当前
 窗口请求的状态栏外观。该 hook 已同时进入冷启动安装、旧 handle replacement、成功 presence
 tracking 和 missing-hook backfill；Java 编译通过。native 0.8.24 仍保持安全回滚，等待新
-SystemUI APK 安装后再通过唯一的 `safe-device-test.ps1` 重新激活测试。
+SystemUI APK 安装后再通过当时唯一的受控设备测试脚本重新激活测试。
 
 正式测试先得到一次 readiness warmup：`send_state=14`、`arbiter_ready=1`，但
 `publish_count=0`，因此仍由 Xiaomi 处理且取消后两个目标进程都保持稳定。下一次提交完整出现

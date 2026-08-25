@@ -1,10 +1,9 @@
-#include "native_api.h"
+#include "lsposed_hook_backend.h"
 #include "dart_runtime_resolver.h"
 #include "launcher_profiles.h"
 #include "launcher_profiles.generated.h"
 #include "runtime_profile_resolver.h"
 
-#include <android/dlext.h>
 #include <android/log.h>
 #include <dlfcn.h>
 #include <elf.h>
@@ -99,9 +98,6 @@ constexpr char kDartSnapshotInstructionsSymbol[] =
         "_kDartIsolateSnapshotInstructions";
 constexpr char kDartSnapshotBuildIdSymbol[] = "_kDartSnapshotBuildId";
 using DlopenFn = void* (*)(const char*, int);
-using AndroidDlopenExtFn = void* (*)(const char*, int,
-                                    const android_dlextinfo*);
-using DlsymFn = void* (*)(void*, const char*);
 using MotionEventIntFn = int32_t (*)(void*);
 using MotionEventLongFn = int64_t (*)(void*);
 using MotionEventFloatFn = float (*)(void*);
@@ -177,7 +173,6 @@ using PackageManagerGetApplicationInfoFn = NativeResult (*)(
 using ApplicationInfoGetUidFn = int32_t (*)(void*);
 using ApplicationInfoDropFn = void (*)(void*);
 
-ZygiskNextAPI g_api{};
 void* g_launcher_handle = nullptr;
 void* g_original_motion_get_action = nullptr;
 void* g_original_motion_get_action_masked = nullptr;
@@ -225,18 +220,10 @@ __attribute__((used)) volatile uint32_t g_contextual_search_enabled = 0;
 uint32_t g_entry_reported = 0;
 uint32_t g_business_hook_state = 0;
 uint32_t g_arbiter_bridge_hook_state = 0;
-// HYOS runtime registration states: 0 not attempted, 1 registering,
-// 3 registered, 4 API missing, 5 runtime missing, 6 wrong runtime type,
-// 7 runtime API too old, 8 register callback missing, 9 registration failed.
-__attribute__((used)) volatile uint32_t
-        g_hyos_runtime_registration_state = 0;
-__attribute__((used)) volatile uint32_t g_hyos_runtime_type = 0;
-__attribute__((used)) volatile uint32_t g_hyos_runtime_api_version = 0;
 // Specialization callbacks run post-fork. These values are consequently
 // process-local in the final launcher and provide ordering evidence without
 // retaining any callback-owned string pointer.
 __attribute__((used)) volatile uint32_t g_hyos_specialize_count = 0;
-__attribute__((used)) volatile uint32_t g_hyos_specialize_rejected_count = 0;
 __attribute__((used)) volatile uint32_t g_hyos_launcher_specialized = 0;
 __attribute__((used)) volatile uint64_t g_hyos_lifecycle_sequence = 0;
 __attribute__((used)) volatile uint64_t g_hyos_specialize_sequence = 0;
@@ -584,14 +571,6 @@ void MarkLsposedLauncherSpecialized() {
                        __ATOMIC_RELAXED);
     RecordFirstLifecycleSequence(&g_hyos_specialize_sequence,
                                  NextHyosLifecycleSequence());
-}
-
-bool IsExplicitlyEnabled() {
-    // Reaching either owner entry proves that the framework enabled and
-    // injected this payload. hyos_spawner's SELinux domain cannot read
-    // /data/adb/modules, so a module-local marker cannot be a valid in-process
-    // gate.
-    return true;
 }
 
 constexpr char kSystemUiPackage[] = "com.android.systemui";
@@ -1647,7 +1626,7 @@ bool TryQuerySystemUiArbiter(uint32_t maximum_attempts) {
 }
 
 void TryInstallArbiterBridge() {
-    if (!IsExplicitlyEnabled() || !IsLauncherProcess() ||
+    if (!IsLauncherProcess() ||
             AtomicLoad(&g_business_hook_state) != uint32_t{3}) {
         return;
     }
@@ -1660,17 +1639,17 @@ void TryInstallArbiterBridge() {
         return;
     }
 
-    ZnSymbolResolver* resolver = g_api.newSymbolResolver(
+    NativeSymbolResolver* resolver = NewNativeSymbolResolver(
             kBroadcastPrivatePath, nullptr);
     size_t receiver_size = 0u;
     size_t broadcast_size = 0u;
     void* receiver_on_receive = resolver == nullptr ? nullptr
-            : g_api.symbolLookup(resolver, kBroadcastReceiverOnReceiveSymbol,
+            : LookupNativeSymbol(resolver, kBroadcastReceiverOnReceiveSymbol,
                                  false, &receiver_size);
     void* broadcast_intent_with_feature = resolver == nullptr ? nullptr
-            : g_api.symbolLookup(resolver, kBroadcastIntentWithFeatureSymbol,
+            : LookupNativeSymbol(resolver, kBroadcastIntentWithFeatureSymbol,
                                  false, &broadcast_size);
-    if (resolver != nullptr) g_api.freeSymbolResolver(resolver);
+    if (resolver != nullptr) FreeNativeSymbolResolver(resolver);
     if (receiver_on_receive == nullptr || broadcast_intent_with_feature == nullptr ||
             receiver_size == 0u || broadcast_size == 0u) {
         // The broadcast dylib is not a guaranteed dependency at launcher
@@ -1690,10 +1669,10 @@ void TryInstallArbiterBridge() {
                         ? uint32_t{2} : uint32_t{4});
         return;
     }
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 receiver_on_receive,
                 reinterpret_cast<void*>(HookBroadcastReceiverOnReceive),
-                &g_original_broadcast_receiver_on_receive) != ZN_SUCCESS ||
+                &g_original_broadcast_receiver_on_receive) != kHookSuccess ||
             AtomicLoad(&g_original_broadcast_receiver_on_receive) == nullptr) {
         RestoreBroadcastIntentWithFeatureGot();
         AtomicStore(&g_native_receiver_state, uint32_t{108});
@@ -2625,10 +2604,10 @@ bool InstallContextualSearchLongPressHook(
     AtomicStore(&g_contextual_search_invoke,
                 static_cast<void*>(
                         base + profile->contextual_search_invoke_offset));
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 base + profile->contextual_long_press_handler_offset,
                 reinterpret_cast<void*>(HookContextualLongPressHandler),
-                &g_original_contextual_long_press_handler) != ZN_SUCCESS ||
+                &g_original_contextual_long_press_handler) != kHookSuccess ||
             AtomicLoad(&g_original_contextual_long_press_handler) == nullptr) {
         AtomicStore(&g_contextual_search_invoke, static_cast<void*>(nullptr));
         __atomic_store_n(&g_contextual_long_press_hook_state, uint32_t{6},
@@ -2721,12 +2700,12 @@ bool TryInstallDartDrawerStateHook(
         return false;
     }
 
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 dart_base + profile->dart_drawer_transition_complete_offset,
                 reinterpret_cast<void*>(
                         MiuiHomeHyosDartDrawerTransitionCompleteHook),
                 &miui_home_hyos_dart_transition_complete_original) !=
-                    ZN_SUCCESS ||
+                    kHookSuccess ||
             AtomicLoad(&miui_home_hyos_dart_transition_complete_original) ==
                     nullptr) {
         AtomicStore(&miui_home_hyos_dart_transition_complete_original,
@@ -2815,10 +2794,10 @@ bool TryInstallDartOverviewStateHook(
             "Dart Overview route rejected snapshot identity or fingerprint");
         return false;
     }
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 dart_base + profile->dart_overview_enter_offset,
                 reinterpret_cast<void*>(MiuiHomeHyosDartOverviewEnterHook),
-                &miui_home_hyos_dart_overview_enter_original) != ZN_SUCCESS ||
+                &miui_home_hyos_dart_overview_enter_original) != kHookSuccess ||
             AtomicLoad(&miui_home_hyos_dart_overview_enter_original) == nullptr) {
         AtomicStore(&miui_home_hyos_dart_overview_enter_original,
                     static_cast<void*>(nullptr));
@@ -2828,12 +2807,12 @@ bool TryInstallDartOverviewStateHook(
         Log(ANDROID_LOG_ERROR, "Dart Overview enter hook failed");
         return false;
     }
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 dart_base + profile->dart_overview_exit_offset,
                 reinterpret_cast<void*>(MiuiHomeHyosDartOverviewExitHook),
-                &miui_home_hyos_dart_overview_exit_original) != ZN_SUCCESS ||
+                &miui_home_hyos_dart_overview_exit_original) != kHookSuccess ||
             AtomicLoad(&miui_home_hyos_dart_overview_exit_original) == nullptr) {
-        g_api.inlineUnhook(dart_base + profile->dart_overview_enter_offset);
+        RemoveInlineHook(dart_base + profile->dart_overview_enter_offset);
         AtomicStore(&miui_home_hyos_dart_overview_enter_original,
                     static_cast<void*>(nullptr));
         AtomicStore(&miui_home_hyos_dart_overview_exit_original,
@@ -2856,8 +2835,7 @@ bool TryInstallDartOverviewStateHook(
 
 void RepairDartDrawerStateHookIfRemapped(
         const miui_home_profiles::LauncherProfile* profile) {
-    if (profile == nullptr || g_api.inlineHook == nullptr ||
-            g_api.inlineUnhook == nullptr ||
+    if (profile == nullptr ||
             AtomicLoad(&g_drawer_state_hook_state) != uint32_t{3}) {
         return;
     }
@@ -2899,7 +2877,7 @@ void RepairDartDrawerStateHookIfRemapped(
     __atomic_store_n(&g_dart_drawer_repair_stage, uint32_t{2},
                      __ATOMIC_RELEASE);
     auto* target = dart_base + profile->dart_drawer_transition_complete_offset;
-    if (g_api.inlineUnhook(target) != ZN_SUCCESS) {
+    if (RemoveInlineHook(target) != kHookSuccess) {
         __atomic_store_n(&g_drawer_state_hook_state, uint32_t{6},
                          __ATOMIC_RELEASE);
         __atomic_store_n(&g_dart_drawer_repair_stage, uint32_t{5},
@@ -2928,12 +2906,12 @@ void RepairDartDrawerStateHookIfRemapped(
     }
     AtomicStore(&miui_home_hyos_dart_transition_complete_original,
                 static_cast<void*>(nullptr));
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 target,
                 reinterpret_cast<void*>(
                         MiuiHomeHyosDartDrawerTransitionCompleteHook),
                 &miui_home_hyos_dart_transition_complete_original) !=
-                    ZN_SUCCESS ||
+                    kHookSuccess ||
             AtomicLoad(&miui_home_hyos_dart_transition_complete_original) ==
                     nullptr) {
         AtomicStore(&miui_home_hyos_dart_transition_complete_original,
@@ -2962,8 +2940,7 @@ void RepairDartDrawerStateHookIfRemapped(
 
 void RepairDartOverviewStateHookIfRemapped(
         const miui_home_profiles::LauncherProfile* profile) {
-    if (profile == nullptr || g_api.inlineHook == nullptr ||
-            g_api.inlineUnhook == nullptr ||
+    if (profile == nullptr ||
             AtomicLoad(&g_overview_state_hook_state) != uint32_t{3} ||
             profile->dart_overview_enter_offset == 0u) {
         return;
@@ -2998,9 +2975,9 @@ void RepairDartOverviewStateHookIfRemapped(
     }
     auto* enter_target = dart_base + profile->dart_overview_enter_offset;
     auto* exit_target = dart_base + profile->dart_overview_exit_offset;
-    const int enter_unhook = g_api.inlineUnhook(enter_target);
-    const int exit_unhook = g_api.inlineUnhook(exit_target);
-    if (enter_unhook != ZN_SUCCESS || exit_unhook != ZN_SUCCESS) {
+    const int enter_unhook = RemoveInlineHook(enter_target);
+    const int exit_unhook = RemoveInlineHook(exit_target);
+    if (enter_unhook != kHookSuccess || exit_unhook != kHookSuccess) {
         __atomic_store_n(&g_overview_state_hook_state, uint32_t{6},
                          __ATOMIC_RELEASE);
         __atomic_store_n(&g_overview_dart_repair_stage, uint32_t{4},
@@ -3035,10 +3012,10 @@ void RepairDartOverviewStateHookIfRemapped(
                 static_cast<void*>(nullptr));
     AtomicStore(&miui_home_hyos_dart_overview_exit_original,
                 static_cast<void*>(nullptr));
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 enter_target,
                 reinterpret_cast<void*>(MiuiHomeHyosDartOverviewEnterHook),
-                &miui_home_hyos_dart_overview_enter_original) != ZN_SUCCESS ||
+                &miui_home_hyos_dart_overview_enter_original) != kHookSuccess ||
             AtomicLoad(&miui_home_hyos_dart_overview_enter_original) == nullptr) {
         __atomic_store_n(&g_overview_state_hook_state, uint32_t{6},
                          __ATOMIC_RELEASE);
@@ -3050,12 +3027,12 @@ void RepairDartOverviewStateHookIfRemapped(
         Log(ANDROID_LOG_ERROR, "failed to repair Dart Overview enter hook");
         return;
     }
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 exit_target,
                 reinterpret_cast<void*>(MiuiHomeHyosDartOverviewExitHook),
-                &miui_home_hyos_dart_overview_exit_original) != ZN_SUCCESS ||
+                &miui_home_hyos_dart_overview_exit_original) != kHookSuccess ||
             AtomicLoad(&miui_home_hyos_dart_overview_exit_original) == nullptr) {
-        g_api.inlineUnhook(enter_target);
+        RemoveInlineHook(enter_target);
         AtomicStore(&miui_home_hyos_dart_overview_enter_original,
                     static_cast<void*>(nullptr));
         AtomicStore(&miui_home_hyos_dart_overview_exit_original,
@@ -3217,10 +3194,10 @@ bool InstallDrawerStateHook(
     }
     __atomic_store_n(&g_drawer_state_hook_state, uint32_t{1},
                      __ATOMIC_RELEASE);
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 base + profile->drawer_state_handler_offset,
                 reinterpret_cast<void*>(HookDrawerStateHandler),
-                &g_original_drawer_state_handler) != ZN_SUCCESS ||
+                &g_original_drawer_state_handler) != kHookSuccess ||
             AtomicLoad(&g_original_drawer_state_handler) == nullptr) {
         __atomic_store_n(&g_drawer_state_hook_state, uint32_t{6},
                          __ATOMIC_RELEASE);
@@ -3328,18 +3305,18 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
     AtomicStore(&slot.base, reinterpret_cast<uintptr_t>(base));
     AtomicStore(&slot.profile, profile);
     AtomicStore(&slot.state, uint32_t{1});
-    if (g_api.pltHook(base, "input_MotionEvent_getAction",
+    if (InstallPltHook(base, "input_MotionEvent_getAction",
                       reinterpret_cast<void*>(kActionHooks[index]),
-                      &slot.original_action) != ZN_SUCCESS ||
+                      &slot.original_action) != kHookSuccess ||
             slot.original_action == nullptr ||
-            g_api.pltHook(base, "input_MotionEvent_getActionMasked",
+            InstallPltHook(base, "input_MotionEvent_getActionMasked",
                           reinterpret_cast<void*>(kActionMaskedHooks[index]),
-                          &slot.original_action_masked) != ZN_SUCCESS ||
+                          &slot.original_action_masked) != kHookSuccess ||
             slot.original_action_masked == nullptr ||
-            g_api.pltHook(base, "input_InputMonitor_pilferPointers",
+            InstallPltHook(base, "input_InputMonitor_pilferPointers",
                           reinterpret_cast<void*>(
                                   MiuiHomeHyosInputMonitorPilferHook),
-                          &slot.original_pilfer) != ZN_SUCCESS ||
+                          &slot.original_pilfer) != kHookSuccess ||
             slot.original_pilfer == nullptr) {
         AtomicStore(&slot.state, uint32_t{6});
         return false;
@@ -3359,10 +3336,10 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
             profile->dart_drawer_progress_end_offset != 0u) {
         __atomic_store_n(&g_dart_loader_hook_state, uint32_t{1},
                          __ATOMIC_RELEASE);
-        if (g_api.pltHook(base, "dlopen",
+        if (InstallPltHook(base, "dlopen",
                            reinterpret_cast<void*>(
                                    kLauncherDlopenHooks[index]),
-                           &slot.original_dlopen) != ZN_SUCCESS ||
+                           &slot.original_dlopen) != kHookSuccess ||
                 slot.original_dlopen == nullptr) {
             __atomic_store_n(&g_dart_loader_hook_state, uint32_t{6},
                              __ATOMIC_RELEASE);
@@ -3377,9 +3354,9 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
         }
     }
     AtomicStore(&slot.contextual_search_state, uint32_t{1});
-    if (g_api.pltHook(base, "PackageManager_has_system_feature",
+    if (InstallPltHook(base, "PackageManager_has_system_feature",
                       reinterpret_cast<void*>(kContextualFeatureHooks[index]),
-                      &slot.original_has_system_feature) == ZN_SUCCESS &&
+                      &slot.original_has_system_feature) == kHookSuccess &&
             slot.original_has_system_feature != nullptr) {
         AtomicStore(&slot.contextual_search_state, uint32_t{3});
         __atomic_store_n(&g_contextual_feature_hook_state, uint32_t{3},
@@ -3397,10 +3374,10 @@ bool InstallLauncherInputHooksForProfile(void* app_entry_point) {
     }
     if (profile->xiaoai_bundle_bool_return_offset != 0u) {
         AtomicStore(&slot.xiaoai_state, uint32_t{1});
-        if (g_api.pltHook(base, "Bundle_get_boolean",
+        if (InstallPltHook(base, "Bundle_get_boolean",
                           reinterpret_cast<void*>(
                                   kXiaoAiBooleanHooks[index]),
-                          &slot.original_bundle_get_boolean) == ZN_SUCCESS &&
+                          &slot.original_bundle_get_boolean) == kHookSuccess &&
                 slot.original_bundle_get_boolean != nullptr) {
             AtomicStore(&slot.xiaoai_state, uint32_t{3});
             __atomic_store_n(&g_xiaoai_state_hook_state, uint32_t{3},
@@ -3493,10 +3470,10 @@ bool InstallClaimedBusinessHooksForProfile(void* app_entry_point, bool repair) {
     // Install transparent leaf hooks first. They cannot claim a stream until
     // the outer accepted-DOWN handler publishes thread-local ownership, so a
     // later failure cannot leave Xiaomi business unconditionally disabled.
-    if (g_api.inlineHook(
+    if (InstallInlineHook(
                 base + profile->side_handler_offset,
                 reinterpret_cast<void*>(HookGestureStubBackHandler),
-                &g_original_gesture_stub_back_handler) != ZN_SUCCESS ||
+                &g_original_gesture_stub_back_handler) != kHookSuccess ||
             AtomicLoad(&g_original_gesture_stub_back_handler) == nullptr) {
         AtomicStore(&g_business_hook_state, uint32_t{6});
         Log(ANDROID_LOG_ERROR, "GestureStub Back handler hook failed");
@@ -3506,19 +3483,19 @@ bool InstallClaimedBusinessHooksForProfile(void* app_entry_point, bool repair) {
             miui_home_profiles::BusinessHookTopology::kLegacyThreeStage) {
         // 4371 still has the two transparent diagnostic stages around the
         // side-only boundary. They never claim a stream themselves.
-        if (g_api.inlineHook(
+        if (InstallInlineHook(
                     base + profile->touch_processor_offset,
                     reinterpret_cast<void*>(HookGestureBackTouchProcessor),
-                    &g_original_gesture_back_touch_processor) != ZN_SUCCESS ||
+                    &g_original_gesture_back_touch_processor) != kHookSuccess ||
                 AtomicLoad(&g_original_gesture_back_touch_processor) == nullptr) {
             AtomicStore(&g_business_hook_state, uint32_t{6});
             Log(ANDROID_LOG_ERROR, "inner processor business hook failed");
             return false;
         }
-        if (g_api.inlineHook(
+        if (InstallInlineHook(
                     base + profile->pointer_handler_offset,
                     reinterpret_cast<void*>(HookGestureStubPointerHandler),
-                    &g_original_gesture_stub_pointer_handler) != ZN_SUCCESS ||
+                    &g_original_gesture_stub_pointer_handler) != kHookSuccess ||
                 AtomicLoad(&g_original_gesture_stub_pointer_handler) == nullptr) {
             AtomicStore(&g_business_hook_state, uint32_t{6});
             Log(ANDROID_LOG_ERROR, "accepted-DOWN outer handler hook failed");
@@ -3562,7 +3539,6 @@ bool InstallClaimedBusinessHooksForProfile(void* app_entry_point, bool repair) {
 }
 
 void InstallBusinessHooksForProfile(void* app_entry_point) {
-    if (g_api.inlineHook == nullptr) return;
     uint32_t expected_state = 0u;
     if (!__atomic_compare_exchange_n(&g_business_hook_state, &expected_state,
                                      uint32_t{1}, false,
@@ -3573,8 +3549,7 @@ void InstallBusinessHooksForProfile(void* app_entry_point) {
 }
 
 void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
-    if (g_api.inlineHook == nullptr || g_api.inlineUnhook == nullptr ||
-            slot_index >= kLauncherInputSlotCount ||
+    if (slot_index >= kLauncherInputSlotCount ||
             AtomicLoad(&g_business_hook_state) != uint32_t{3}) {
         return;
     }
@@ -3638,22 +3613,22 @@ void RepairBusinessHooksIfRemapped(uint32_t slot_index) {
     __atomic_fetch_add(&g_business_repair_attempt_count, uint32_t{1},
                        __ATOMIC_RELAXED);
     __atomic_store_n(&g_business_repair_stage, uint32_t{1}, __ATOMIC_RELEASE);
-    const int stub_back_handler_unhook = g_api.inlineUnhook(
+    const int stub_back_handler_unhook = RemoveInlineHook(
             base + profile->side_handler_offset);
-    const int inner_unhook = legacy ? g_api.inlineUnhook(
-            base + profile->touch_processor_offset) : ZN_SUCCESS;
-    const int outer_unhook = legacy ? g_api.inlineUnhook(
-            base + profile->pointer_handler_offset) : ZN_SUCCESS;
+    const int inner_unhook = legacy ? RemoveInlineHook(
+            base + profile->touch_processor_offset) : kHookSuccess;
+    const int outer_unhook = legacy ? RemoveInlineHook(
+            base + profile->pointer_handler_offset) : kHookSuccess;
     const int contextual_unhook = contextual_hook_expected
-            ? g_api.inlineUnhook(
+            ? RemoveInlineHook(
                     base + profile->contextual_long_press_handler_offset)
-            : ZN_SUCCESS;
+            : kHookSuccess;
     const int drawer_unhook = drawer_hook_expected
-            ? g_api.inlineUnhook(base + profile->drawer_state_handler_offset)
-            : ZN_SUCCESS;
-    if (stub_back_handler_unhook != ZN_SUCCESS || inner_unhook != ZN_SUCCESS ||
-            outer_unhook != ZN_SUCCESS || contextual_unhook != ZN_SUCCESS ||
-            drawer_unhook != ZN_SUCCESS) {
+            ? RemoveInlineHook(base + profile->drawer_state_handler_offset)
+            : kHookSuccess;
+    if (stub_back_handler_unhook != kHookSuccess || inner_unhook != kHookSuccess ||
+            outer_unhook != kHookSuccess || contextual_unhook != kHookSuccess ||
+            drawer_unhook != kHookSuccess) {
         __atomic_store_n(&g_business_repair_stage, uint32_t{4},
                          __ATOMIC_RELEASE);
         AtomicStore(&g_business_hook_state, uint32_t{7});
@@ -3717,10 +3692,6 @@ void RecordLauncherEntryObservation() {
 }
 
 void ObserveLauncherHandle(const char* filename, void* result) {
-    if (!IsExplicitlyEnabled()) {
-        AtomicStore(&g_launcher_handle, static_cast<void*>(nullptr));
-        return;
-    }
     if (result != nullptr && IsLauncherLibraryPath(filename) &&
             IsLauncherProcess()) {
         RecordLauncherLibraryObservation();
@@ -3730,8 +3701,8 @@ void ObserveLauncherHandle(const char* filename, void* result) {
 }
 
 void ObserveLauncherSymbol(void* handle, const char* symbol, void* result) {
-    if (IsExplicitlyEnabled() && result != nullptr &&
-            handle == AtomicLoad(&g_launcher_handle) && symbol != nullptr &&
+    if (result != nullptr && handle == AtomicLoad(&g_launcher_handle) &&
+            symbol != nullptr &&
             strcmp(symbol, kLauncherEntrySymbol) == 0 &&
             __atomic_exchange_n(&g_entry_reported, uint32_t{1},
                                 __ATOMIC_ACQ_REL) == 0u) {
@@ -3740,122 +3711,8 @@ void ObserveLauncherSymbol(void* handle, const char* symbol, void* result) {
     }
 }
 
-#ifndef MIUI_HOME_LSPOSED_NATIVE
-void* HookAppPublicDlsym(void* handle, const char* symbol) {
-    DlsymFn original = reinterpret_cast<DlsymFn>(
-            AtomicLoad(&g_original_app_public_dlsym));
-    if (original == nullptr) return nullptr;
-    void* result = original(handle, symbol);
-    if (IsExplicitlyEnabled() && IsLauncherProcess() && result != nullptr &&
-            symbol != nullptr &&
-            strcmp(symbol, kLauncherEntrySymbol) == 0) {
-        RecordLauncherEntryObservation();
-        AtomicStore(&g_launcher_handle, handle);
-        if (__atomic_exchange_n(&g_entry_reported, uint32_t{1},
-                                __ATOMIC_ACQ_REL) == 0u) {
-            Log(ANDROID_LOG_INFO, "resolved MiuiHome app_entry_point");
-        }
-        if (!InstallLauncherInputHooksForProfile(result)) {
-            Log(ANDROID_LOG_ERROR,
-                "failed to install per-image launcher input hooks");
-            return result;
-        }
-        InstallBusinessHooksForProfile(result);
-    }
-    return result;
-}
-
-void InstallAppPublicHooks() {
-    uint32_t expected = 0u;
-    if (!__atomic_compare_exchange_n(&g_app_public_hook_state, &expected,
-                                     uint32_t{1}, false,
-                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-        return;
-    }
-    ZnSymbolResolver* resolver =
-            g_api.newSymbolResolver(kAppPublicPath, nullptr);
-    if (resolver == nullptr) {
-        AtomicStore(&g_app_public_hook_state, uint32_t{4});
-        return;
-    }
-    void* base = g_api.getBaseAddress(resolver);
-    g_api.freeSymbolResolver(resolver);
-    if (base == nullptr) {
-        AtomicStore(&g_app_public_hook_state, uint32_t{5});
-        return;
-    }
-    if (g_api.pltHook(base, "dlsym", reinterpret_cast<void*>(HookAppPublicDlsym),
-                      &g_original_app_public_dlsym) != ZN_SUCCESS ||
-            AtomicLoad(&g_original_app_public_dlsym) == nullptr) {
-        AtomicStore(&g_app_public_hook_state, uint32_t{6});
-        return;
-    }
-    AtomicStore(&g_app_public_hook_state, uint32_t{3});
-}
-
-void* HookShellAndroidDlopenExt(const char* filename, int flags,
-                               const android_dlextinfo* info) {
-    AndroidDlopenExtFn original = reinterpret_cast<AndroidDlopenExtFn>(
-            AtomicLoad(&g_original_shell_android_dlopen_ext));
-    if (original == nullptr) return nullptr;
-    void* result = original(filename, flags, info);
-    if (result != nullptr && filename != nullptr &&
-            strcmp(filename, kAppPublicName) == 0) {
-        InstallAppPublicHooks();
-    }
-    ObserveLauncherHandle(filename, result);
-    TryInstallArbiterBridge();
-    return result;
-}
-
-void* HookShellDlsym(void* handle, const char* symbol) {
-    DlsymFn original = reinterpret_cast<DlsymFn>(
-            AtomicLoad(&g_original_shell_dlsym));
-    if (original == nullptr) return nullptr;
-    void* result = original(handle, symbol);
-    ObserveLauncherSymbol(handle, symbol, result);
-    TryInstallArbiterBridge();
-    return result;
-}
-
-void InstallShellHooks() {
-    uint32_t expected = 0u;
-    if (!__atomic_compare_exchange_n(&g_shell_hook_state, &expected,
-                                     uint32_t{1}, false,
-                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-        return;
-    }
-
-    ZnSymbolResolver* resolver = g_api.newSymbolResolver(kShellPath, nullptr);
-    if (resolver == nullptr) {
-        AtomicStore(&g_shell_hook_state, uint32_t{4});
-        return;
-    }
-    void* base = g_api.getBaseAddress(resolver);
-    g_api.freeSymbolResolver(resolver);
-    if (base == nullptr) {
-        AtomicStore(&g_shell_hook_state, uint32_t{5});
-        return;
-    }
-    if (g_api.pltHook(base, "android_dlopen_ext",
-                      reinterpret_cast<void*>(HookShellAndroidDlopenExt),
-                      &g_original_shell_android_dlopen_ext) != ZN_SUCCESS ||
-            AtomicLoad(&g_original_shell_android_dlopen_ext) == nullptr) {
-        AtomicStore(&g_shell_hook_state, uint32_t{6});
-        return;
-    }
-    if (g_api.pltHook(base, "dlsym", reinterpret_cast<void*>(HookShellDlsym),
-                      &g_original_shell_dlsym) != ZN_SUCCESS ||
-            AtomicLoad(&g_original_shell_dlsym) == nullptr) {
-        AtomicStore(&g_shell_hook_state, uint32_t{7});
-        return;
-    }
-    AtomicStore(&g_shell_hook_state, uint32_t{3});
-}
-#endif
-
 void OnLsposedLibraryLoaded(const char* name, void* handle) {
-    if (!IsExplicitlyEnabled() || name == nullptr || handle == nullptr) return;
+    if (name == nullptr || handle == nullptr) return;
 
     if (EndsWith(name, kHyperRuntimeName)) {
         EnsureLsposedMadviseGuard();
@@ -3890,148 +3747,6 @@ void OnLsposedLibraryLoaded(const char* name, void* handle) {
     TryInstallArbiterBridge();
 }
 
-#ifndef MIUI_HOME_LSPOSED_NATIVE
-void* HookDlopen(const char* filename, int flags) {
-    DlopenFn original = reinterpret_cast<DlopenFn>(
-            AtomicLoad(&g_original_dlopen));
-    if (original == nullptr) return nullptr;
-    void* result = original(filename, flags);
-    if (result != nullptr && filename != nullptr &&
-            strcmp(filename, kShellName) == 0) {
-        InstallShellHooks();
-    }
-    ObserveLauncherHandle(filename, result);
-    return result;
-}
-
-void* HookDlsym(void* handle, const char* symbol) {
-    DlsymFn original = reinterpret_cast<DlsymFn>(
-            AtomicLoad(&g_original_dlsym));
-    if (original == nullptr) return nullptr;
-    void* result = original(handle, symbol);
-    ObserveLauncherSymbol(handle, symbol, result);
-    return result;
-}
-#endif
-
-#ifndef MIUI_HOME_LSPOSED_NATIVE
-void OnHyosAppSpecialized(const ZnHyosAppSpecializeArgs* args) {
-    const uint64_t sequence = NextHyosLifecycleSequence();
-    __atomic_fetch_add(&g_hyos_specialize_count, uint32_t{1},
-                       __ATOMIC_RELAXED);
-    RecordFirstLifecycleSequence(&g_hyos_specialize_sequence, sequence);
-
-    // The runtime owns this structure and all strings. Retain only the exact
-    // identity result in process-local atomics; no callback-owned pointer may
-    // escape this post-fork callback.
-    if (args == nullptr || args->process_name == nullptr ||
-            args->package_name == nullptr || args->se_info == nullptr ||
-            !StringsEqual(args->process_name, kLauncherProcessName) ||
-            !StringsEqual(args->package_name, kLauncherProcessName)) {
-        __atomic_fetch_add(&g_hyos_specialize_rejected_count, uint32_t{1},
-                           __ATOMIC_RELAXED);
-        return;
-    }
-    __atomic_store_n(&g_hyos_launcher_specialized, uint32_t{1},
-                     __ATOMIC_RELEASE);
-}
-
-const ZygiskNextHyosModule kHyosModule = {
-        ZYGISK_NEXT_HYOS_API_VERSION,
-        OnHyosAppSpecialized,
-};
-
-void OnModuleLoaded(void*, const ZygiskNextAPI* api) {
-    if (api == nullptr || api->pltHook == nullptr ||
-            api->newSymbolResolver == nullptr ||
-            api->freeSymbolResolver == nullptr ||
-            api->getBaseAddress == nullptr || api->symbolLookup == nullptr ||
-            api->getRuntime == nullptr) {
-        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{4},
-                         __ATOMIC_RELEASE);
-        return;
-    }
-    memcpy(&g_api, api, sizeof(g_api));
-
-    if (!IsExplicitlyEnabled()) {
-        Log(ANDROID_LOG_INFO, "disabled; no hook installed");
-        return;
-    }
-    __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{1},
-                     __ATOMIC_RELEASE);
-    const ZygiskNextRuntime* runtime = g_api.getRuntime();
-    if (runtime == nullptr) {
-        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{5},
-                         __ATOMIC_RELEASE);
-        Log(ANDROID_LOG_ERROR, "HYOS runtime API unavailable");
-        return;
-    }
-    __atomic_store_n(&g_hyos_runtime_type,
-                     static_cast<uint32_t>(runtime->type), __ATOMIC_RELAXED);
-    __atomic_store_n(&g_hyos_runtime_api_version,
-                     runtime->api_version > 0
-                             ? static_cast<uint32_t>(runtime->api_version)
-                             : uint32_t{0},
-                     __ATOMIC_RELAXED);
-    if (runtime->type != ZN_RUNTIME_HYOS) {
-        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{6},
-                         __ATOMIC_RELEASE);
-        Log(ANDROID_LOG_ERROR, "unexpected Zygisk Next runtime type");
-        return;
-    }
-    if (runtime->api_version < ZYGISK_NEXT_HYOS_API_VERSION) {
-        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{7},
-                         __ATOMIC_RELEASE);
-        Log(ANDROID_LOG_ERROR, "HYOS runtime API is too old");
-        return;
-    }
-    if (runtime->registerModule == nullptr) {
-        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{8},
-                         __ATOMIC_RELEASE);
-        Log(ANDROID_LOG_ERROR, "HYOS runtime registration unavailable");
-        return;
-    }
-    if (runtime->registerModule(&kHyosModule) != ZN_SUCCESS) {
-        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{9},
-                         __ATOMIC_RELEASE);
-        Log(ANDROID_LOG_ERROR, "HYOS runtime module registration failed");
-        return;
-    }
-    __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{3},
-                     __ATOMIC_RELEASE);
-    Log(ANDROID_LOG_INFO, "HYOS runtime specialization callback registered");
-
-    ZnSymbolResolver* resolver =
-            g_api.newSymbolResolver(kSpawnerPath, nullptr);
-    if (resolver == nullptr) {
-        Log(ANDROID_LOG_ERROR, "failed to create hyos_spawner resolver");
-        return;
-    }
-    void* base = g_api.getBaseAddress(resolver);
-    g_api.freeSymbolResolver(resolver);
-    if (base == nullptr) {
-        Log(ANDROID_LOG_ERROR, "failed to resolve hyos_spawner base");
-        return;
-    }
-
-    if (g_api.pltHook(base, "dlopen", reinterpret_cast<void*>(HookDlopen),
-                      &g_original_dlopen) != ZN_SUCCESS ||
-            AtomicLoad(&g_original_dlopen) == nullptr) {
-        Log(ANDROID_LOG_ERROR, "failed to hook hyos_spawner dlopen PLT");
-        return;
-    }
-
-    if (g_api.pltHook(base, "dlsym", reinterpret_cast<void*>(HookDlsym),
-                      &g_original_dlsym) != ZN_SUCCESS ||
-            AtomicLoad(&g_original_dlsym) == nullptr) {
-        Log(ANDROID_LOG_ERROR,
-            "dlopen hook is transparent; failed to hook dlsym PLT");
-        return;
-    }
-    Log(ANDROID_LOG_INFO, "hyos_spawner loader observation installed");
-}
-#endif
-
 }  // namespace
 
 extern "C" __attribute__((visibility("hidden")))
@@ -4054,24 +3769,15 @@ void MiuiHomeHyosInputMonitorPilferImpl(void* monitor, uintptr_t return_pc) {
 
 extern "C" __attribute__((visibility("default"), unused))
 NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
-    if (!InitializeLsposedCompatibilityApi(entries, &g_api)) {
-        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{4},
-                         __ATOMIC_RELEASE);
+    if (!InitializeLsposedHookBackend(entries)) {
         return nullptr;
     }
     if (!IsHyosSpawnerProcessFamily() || !IsLauncherProcess()) {
-        __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{6},
-                         __ATOMIC_RELEASE);
         Log(ANDROID_LOG_WARN,
             "LSPosed native entry rejected a non-launcher HYOS process");
         return nullptr;
     }
     MarkLsposedLauncherSpecialized();
-    __atomic_store_n(&g_hyos_runtime_type, uint32_t{2}, __ATOMIC_RELAXED);
-    __atomic_store_n(&g_hyos_runtime_api_version, entries->version,
-                     __ATOMIC_RELAXED);
-    __atomic_store_n(&g_hyos_runtime_registration_state, uint32_t{3},
-                     __ATOMIC_RELEASE);
     Log(ANDROID_LOG_INFO,
         "LSPosed native hook initialized in MiuiHome HYOS child");
     return OnLsposedLibraryLoaded;

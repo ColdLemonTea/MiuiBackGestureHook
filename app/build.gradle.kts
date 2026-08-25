@@ -69,7 +69,7 @@ android {
         minSdk = 36
         targetSdk = 37
         versionCode = gitVersionCode.get()
-        versionName = "0.11.3"
+        versionName = "0.11.4"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -79,7 +79,7 @@ android {
             cmake {
                 arguments += listOf(
                     "-DANDROID_STL=c++_static",
-                    "-DLAUNCHER_PROFILE_INCLUDE_DIR=${rootProject.file("miui-home-hyos-zn/generated").absolutePath}",
+                    "-DLAUNCHER_PROFILE_INCLUDE_DIR=${rootProject.file("miui-home-hyos-native/generated").absolutePath}",
                 )
                 targets += "miui_home_hyos_lsp"
             }
@@ -122,7 +122,7 @@ android {
 
     externalNativeBuild {
         cmake {
-            path = rootProject.file("miui-home-hyos-zn/CMakeLists.txt")
+            path = rootProject.file("miui-home-hyos-native/CMakeLists.txt")
             version = "4.1.2"
         }
     }

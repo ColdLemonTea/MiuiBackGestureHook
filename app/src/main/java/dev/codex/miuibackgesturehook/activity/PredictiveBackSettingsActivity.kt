@@ -65,9 +65,9 @@ import dev.codex.miuibackgesturehook.BuildConfig
 import dev.codex.miuibackgesturehook.ModuleApplication
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences
 import dev.codex.miuibackgesturehook.R
-import dev.codex.miuibackgesturehook.ZnStatusKind
-import dev.codex.miuibackgesturehook.ZnStatusProtocol
-import dev.codex.miuibackgesturehook.ZnStatusUiState
+import dev.codex.miuibackgesturehook.NativeHookStatusKind
+import dev.codex.miuibackgesturehook.NativeHookStatusProtocol
+import dev.codex.miuibackgesturehook.NativeHookStatusUiState
 import io.github.libxposed.service.XposedService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -101,8 +101,8 @@ class PredictiveBackSettingsActivity :
     ModuleApplication.ServiceStateListener {
     private var xposedService: XposedService? by mutableStateOf(null)
     private var serviceStateObserved by mutableStateOf(false)
-    private var znStatus by mutableStateOf(
-        ZnStatusUiState.checking(Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL),
+    private var nativeHookStatus by mutableStateOf(
+        NativeHookStatusUiState.checking(Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL),
     )
     private val statusHandler = Handler(Looper.getMainLooper())
     private var statusNonce = 0L
@@ -112,13 +112,13 @@ class PredictiveBackSettingsActivity :
     private val statusTimeout = Runnable {
         if (statusNonce != 0L) {
             statusNonce = 0L
-            znStatus = if (!systemUiResponseReceived) {
-                ZnStatusUiState.noResponse()
+            nativeHookStatus = if (!systemUiResponseReceived) {
+                NativeHookStatusUiState.noResponse()
             } else if (!systemUiReadyReported) {
-                ZnStatusUiState(ZnStatusKind.SystemUiNotReady)
+                NativeHookStatusUiState(NativeHookStatusKind.SystemUiNotReady)
             } else {
-                ZnStatusUiState(
-                    kind = ZnStatusKind.NativeNoResponse,
+                NativeHookStatusUiState(
+                    kind = NativeHookStatusKind.NativeNoResponse,
                     legacyMode = Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL,
                 )
             }
@@ -126,30 +126,30 @@ class PredictiveBackSettingsActivity :
     }
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != ZnStatusProtocol.ACTION_REPLY) {
+            if (intent.action != NativeHookStatusProtocol.ACTION_REPLY) {
                 return
             }
             val senderUid = getSentFromUid()
             val senderPackage = getSentFromPackage()
             if (senderUid == Process.INVALID_UID
-                || senderPackage != ZnStatusProtocol.SYSTEM_UI_PACKAGE
-                || !isUidOwner(senderUid, ZnStatusProtocol.SYSTEM_UI_PACKAGE)
+                || senderPackage != NativeHookStatusProtocol.SYSTEM_UI_PACKAGE
+                || !isUidOwner(senderUid, NativeHookStatusProtocol.SYSTEM_UI_PACKAGE)
             ) {
                 return
             }
-            val nonce = intent.getLongExtra(ZnStatusProtocol.EXTRA_NONCE, 0L)
+            val nonce = intent.getLongExtra(NativeHookStatusProtocol.EXTRA_NONCE, 0L)
             if (nonce <= 0L || nonce != statusNonce) {
                 return
             }
-            znStatus = ZnStatusUiState.fromReply(intent)
+            nativeHookStatus = NativeHookStatusUiState.fromReply(intent)
             val nativeResponse = intent.getBooleanExtra(
-                ZnStatusProtocol.EXTRA_NATIVE_RESPONSE,
+                NativeHookStatusProtocol.EXTRA_NATIVE_RESPONSE,
                 false,
             )
             if (!nativeResponse) {
                 systemUiResponseReceived = true
                 systemUiReadyReported = intent.getBooleanExtra(
-                    ZnStatusProtocol.EXTRA_SYSTEMUI_READY,
+                    NativeHookStatusProtocol.EXTRA_SYSTEMUI_READY,
                     false,
                 )
             } else {
@@ -168,8 +168,8 @@ class PredictiveBackSettingsActivity :
                 PredictiveBackSettingsScreen(
                     service = xposedService,
                     serviceStateObserved = serviceStateObserved,
-                    znStatus = znStatus,
-                    onRefreshZnStatus = ::requestZnStatus,
+                    nativeHookStatus = nativeHookStatus,
+                    onRefreshNativeHookStatus = ::requestNativeHookStatus,
                     onClose = { finish() },
                     onOpenGestureTriggerSettings = {
                         startActivity(
@@ -204,7 +204,7 @@ class PredictiveBackSettingsActivity :
         super.onStart()
         ModuleApplication.addServiceStateListener(this, notifyImmediately = true)
         registerStatusReceiver()
-        requestZnStatus()
+        requestNativeHookStatus()
     }
 
     override fun onStop() {
@@ -222,7 +222,7 @@ class PredictiveBackSettingsActivity :
         if (statusReceiverRegistered) {
             return
         }
-        val filter = IntentFilter(ZnStatusProtocol.ACTION_REPLY)
+        val filter = IntentFilter(NativeHookStatusProtocol.ACTION_REPLY)
         registerReceiver(statusReceiver, filter, Context.RECEIVER_EXPORTED)
         statusReceiverRegistered = true
     }
@@ -239,7 +239,7 @@ class PredictiveBackSettingsActivity :
         statusReceiverRegistered = false
     }
 
-    private fun requestZnStatus() {
+    private fun requestNativeHookStatus() {
         if (!statusReceiverRegistered) {
             return
         }
@@ -247,15 +247,15 @@ class PredictiveBackSettingsActivity :
         statusNonce = nonce
         systemUiResponseReceived = false
         systemUiReadyReported = false
-        znStatus = ZnStatusUiState.checking(
+        nativeHookStatus = NativeHookStatusUiState.checking(
             Build.VERSION.SDK_INT < ANDROID_17_API_LEVEL,
         )
         statusHandler.removeCallbacks(statusTimeout)
         statusHandler.postDelayed(statusTimeout, STATUS_TIMEOUT_MS)
         try {
-            val query = Intent(ZnStatusProtocol.ACTION_QUERY)
-                .setPackage(ZnStatusProtocol.SYSTEM_UI_PACKAGE)
-                .putExtra(ZnStatusProtocol.EXTRA_NONCE, nonce)
+            val query = Intent(NativeHookStatusProtocol.ACTION_QUERY)
+                .setPackage(NativeHookStatusProtocol.SYSTEM_UI_PACKAGE)
+                .putExtra(NativeHookStatusProtocol.EXTRA_NONCE, nonce)
                 .putExtra("sender_uid", Process.myUid())
             val options = BroadcastOptions.makeBasic()
                 .setShareIdentityEnabled(true)
@@ -264,7 +264,7 @@ class PredictiveBackSettingsActivity :
         } catch (_: Throwable) {
             statusHandler.removeCallbacks(statusTimeout)
             statusNonce = 0L
-            znStatus = ZnStatusUiState.noResponse()
+            nativeHookStatus = NativeHookStatusUiState.noResponse()
         }
     }
 
@@ -283,109 +283,109 @@ class PredictiveBackSettingsActivity :
 }
 
 @Composable
-private fun ZnRuntimeStatusCard(
-    state: ZnStatusUiState,
+private fun NativeHookRuntimeStatusCard(
+    state: NativeHookStatusUiState,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val ready = state.kind == ZnStatusKind.Ready
-    val warning = state.kind == ZnStatusKind.Checking
-        || state.kind == ZnStatusKind.WaitingForNative
-        || state.kind == ZnStatusKind.SystemUiNotReady
-        || state.kind == ZnStatusKind.NativeNotReady
-        || state.kind == ZnStatusKind.LegacyNotReady
+    val ready = state.kind == NativeHookStatusKind.Ready
+    val warning = state.kind == NativeHookStatusKind.Checking
+        || state.kind == NativeHookStatusKind.WaitingForNative
+        || state.kind == NativeHookStatusKind.SystemUiNotReady
+        || state.kind == NativeHookStatusKind.NativeNotReady
+        || state.kind == NativeHookStatusKind.LegacyNotReady
     val title = when (state.kind) {
-        ZnStatusKind.Checking -> stringResource(
+        NativeHookStatusKind.Checking -> stringResource(
             if (state.legacyMode) {
-                R.string.zn_status_legacy_checking_title
+                R.string.native_hook_status_legacy_checking_title
             } else {
-                R.string.zn_status_checking_title
+                R.string.native_hook_status_checking_title
             },
         )
-        ZnStatusKind.WaitingForNative -> stringResource(
+        NativeHookStatusKind.WaitingForNative -> stringResource(
             if (state.legacyMode) {
-                R.string.zn_status_legacy_waiting_title
+                R.string.native_hook_status_legacy_waiting_title
             } else {
-                R.string.zn_status_waiting_title
+                R.string.native_hook_status_waiting_title
             },
         )
-        ZnStatusKind.Ready -> stringResource(
+        NativeHookStatusKind.Ready -> stringResource(
             if (state.legacyMode) {
-                R.string.zn_status_ready_legacy_title
+                R.string.native_hook_status_ready_legacy_title
             } else {
-                R.string.zn_status_ready_title
+                R.string.native_hook_status_ready_title
             },
         )
-        ZnStatusKind.SystemUiNotReady ->
-            stringResource(R.string.zn_status_systemui_not_ready_title)
-        ZnStatusKind.NativeNotReady ->
-            stringResource(R.string.zn_status_native_not_ready_title)
-        ZnStatusKind.LegacyNotReady ->
-            stringResource(R.string.zn_status_legacy_not_ready_title)
-        ZnStatusKind.NativeNoResponse ->
+        NativeHookStatusKind.SystemUiNotReady ->
+            stringResource(R.string.native_hook_status_systemui_not_ready_title)
+        NativeHookStatusKind.NativeNotReady ->
+            stringResource(R.string.native_hook_status_native_not_ready_title)
+        NativeHookStatusKind.LegacyNotReady ->
+            stringResource(R.string.native_hook_status_legacy_not_ready_title)
+        NativeHookStatusKind.NativeNoResponse ->
             stringResource(
                 if (state.legacyMode) {
-                    R.string.zn_status_legacy_no_response_title
+                    R.string.native_hook_status_legacy_no_response_title
                 } else {
-                    R.string.zn_status_native_no_response_title
+                    R.string.native_hook_status_native_no_response_title
                 },
             )
-        ZnStatusKind.ProfileRejected ->
-            stringResource(R.string.zn_status_profile_rejected_title)
-        ZnStatusKind.NoResponse -> stringResource(R.string.zn_status_no_response_title)
-        ZnStatusKind.LsPosedUnavailable ->
-            stringResource(R.string.zn_status_lsposed_unavailable_title)
+        NativeHookStatusKind.ProfileRejected ->
+            stringResource(R.string.native_hook_status_profile_rejected_title)
+        NativeHookStatusKind.NoResponse -> stringResource(R.string.native_hook_status_no_response_title)
+        NativeHookStatusKind.LsPosedUnavailable ->
+            stringResource(R.string.native_hook_status_lsposed_unavailable_title)
     }
     val summary = when (state.kind) {
-        ZnStatusKind.Checking -> stringResource(
+        NativeHookStatusKind.Checking -> stringResource(
             if (state.legacyMode) {
-                R.string.zn_status_legacy_checking_summary
+                R.string.native_hook_status_legacy_checking_summary
             } else {
-                R.string.zn_status_checking_summary
+                R.string.native_hook_status_checking_summary
             },
         )
-        ZnStatusKind.WaitingForNative ->
+        NativeHookStatusKind.WaitingForNative ->
             stringResource(
                 if (state.legacyMode) {
-                    R.string.zn_status_legacy_waiting_summary
+                    R.string.native_hook_status_legacy_waiting_summary
                 } else {
-                    R.string.zn_status_waiting_summary
+                    R.string.native_hook_status_waiting_summary
                 },
             )
-        ZnStatusKind.Ready -> stringResource(
+        NativeHookStatusKind.Ready -> stringResource(
             if (state.legacyMode) {
-                R.string.zn_status_ready_legacy_summary
+                R.string.native_hook_status_ready_legacy_summary
             } else if (state.profileDynamic) {
-                R.string.zn_status_ready_runtime_summary
+                R.string.native_hook_status_ready_runtime_summary
             } else {
-                R.string.zn_status_ready_static_summary
+                R.string.native_hook_status_ready_static_summary
             },
         )
-        ZnStatusKind.SystemUiNotReady ->
-            stringResource(R.string.zn_status_systemui_not_ready_summary)
-        ZnStatusKind.NativeNotReady ->
-            stringResource(R.string.zn_status_native_not_ready_summary)
-        ZnStatusKind.LegacyNotReady ->
-            stringResource(R.string.zn_status_legacy_not_ready_summary)
-        ZnStatusKind.NativeNoResponse ->
+        NativeHookStatusKind.SystemUiNotReady ->
+            stringResource(R.string.native_hook_status_systemui_not_ready_summary)
+        NativeHookStatusKind.NativeNotReady ->
+            stringResource(R.string.native_hook_status_native_not_ready_summary)
+        NativeHookStatusKind.LegacyNotReady ->
+            stringResource(R.string.native_hook_status_legacy_not_ready_summary)
+        NativeHookStatusKind.NativeNoResponse ->
             stringResource(
                 if (state.legacyMode) {
-                    R.string.zn_status_legacy_no_response_summary
+                    R.string.native_hook_status_legacy_no_response_summary
                 } else {
-                    R.string.zn_status_native_no_response_summary
+                    R.string.native_hook_status_native_no_response_summary
                 },
             )
-        ZnStatusKind.ProfileRejected ->
-            stringResource(R.string.zn_status_profile_rejected_summary)
-        ZnStatusKind.NoResponse -> stringResource(R.string.zn_status_no_response_summary)
-        ZnStatusKind.LsPosedUnavailable ->
-            stringResource(R.string.zn_status_lsposed_unavailable_summary)
+        NativeHookStatusKind.ProfileRejected ->
+            stringResource(R.string.native_hook_status_profile_rejected_summary)
+        NativeHookStatusKind.NoResponse -> stringResource(R.string.native_hook_status_no_response_summary)
+        NativeHookStatusKind.LsPosedUnavailable ->
+            stringResource(R.string.native_hook_status_lsposed_unavailable_summary)
     }
-    val mode: String? = if (state.kind == ZnStatusKind.Ready) {
+    val mode: String? = if (state.kind == NativeHookStatusKind.Ready) {
         when {
             state.legacyMode -> "LSPOSED"
-            state.profileDynamic -> stringResource(R.string.zn_status_mode_runtime_profile)
-            else -> stringResource(R.string.zn_status_mode_builtin_profile)
+            state.profileDynamic -> stringResource(R.string.native_hook_status_mode_runtime_profile)
+            else -> stringResource(R.string.native_hook_status_mode_builtin_profile)
         }
     } else {
         null
@@ -495,8 +495,8 @@ private enum class SettingsCardSeverity {
 private fun PredictiveBackSettingsScreen(
     service: XposedService?,
     serviceStateObserved: Boolean,
-    znStatus: ZnStatusUiState,
-    onRefreshZnStatus: () -> Unit,
+    nativeHookStatus: NativeHookStatusUiState,
+    onRefreshNativeHookStatus: () -> Unit,
     onClose: () -> Unit,
     onOpenGestureTriggerSettings: () -> Unit,
     onOpenAppList: () -> Unit,
@@ -789,14 +789,14 @@ private fun PredictiveBackSettingsScreen(
             ),
             overscrollEffect = null,
         ) {
-            item(key = "zn_runtime_status") {
-                ZnRuntimeStatusCard(
+            item(key = "native_hook_runtime_status") {
+                NativeHookRuntimeStatusCard(
                     state = if (serviceStateObserved && service == null) {
-                        ZnStatusUiState(ZnStatusKind.LsPosedUnavailable)
+                        NativeHookStatusUiState(NativeHookStatusKind.LsPosedUnavailable)
                     } else {
-                        znStatus
+                        nativeHookStatus
                     },
-                    onRefresh = onRefreshZnStatus,
+                    onRefresh = onRefreshNativeHookStatus,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 8.dp),

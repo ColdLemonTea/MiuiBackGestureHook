@@ -23,7 +23,7 @@ This repository is an LSPosed module for researching Xiaomi/MIUI back gesture be
   `.so` separately. Replace the exact owning spawner through the approved
   no-property workflow so the new APK inode becomes active.
 - Every iterative LSPosed native APK update must use
-  `miui-home-hyos-zn/safe-lsposed-native-deploy.ps1`. It must install the whole
+  `python miui-home-hyos-native/safe_lsposed_native_deploy.py`. It must install the whole
   APK through PackageManager, prove the SystemUI API-102 hot reload without a
   SystemUI restart, and replace only the exact root `hyos_spawner` through the
   no-property workflow. It must verify the new Launcher parent, current APK
@@ -748,7 +748,7 @@ dev.codex.miuibackgesturehook.MiuiBackGestureHook
 ## MiuiHome Native Crash Recovery
 
 - If a native MiuiHome experiment crashes into a loop, first fail closed through
-  `safe-lsposed-native-deploy.ps1`'s PackageManager rollback path, replace only
+  `safe_lsposed_native_deploy.py`'s PackageManager rollback path, replace only
   the exact `hyos_spawner`, and explicitly start Home. Never clear or write
   RescueParty properties, and do not clear launcher application data.
 - Once the crash loop has stopped and `SafeLauncher` is stable, explicitly ask the user

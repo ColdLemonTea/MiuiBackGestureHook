@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import dev.codex.miuibackgesturehook.BuildConfig;
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences;
-import dev.codex.miuibackgesturehook.ZnStatusProtocol;
+import dev.codex.miuibackgesturehook.NativeHookStatusProtocol;
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
@@ -104,7 +104,7 @@ public abstract class HookRuntimeCore extends XposedModule {
             BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")";
     protected static final String SYSTEM_UI = "com.android.systemui";
     protected static final String MIUI_HOME = "com.miui.home";
-    protected static final String MODULE_PACKAGE = ZnStatusProtocol.PACKAGE_NAME;
+    protected static final String MODULE_PACKAGE = NativeHookStatusProtocol.PACKAGE_NAME;
     protected static final int ANDROID_17_API_LEVEL = 37;
     protected static final String WINDOW_ON_BACK_INVOKED_DISPATCHER =
             WindowOnBackInvokedDispatcher.class.getName();
@@ -285,62 +285,62 @@ public abstract class HookRuntimeCore extends XposedModule {
     protected static final String MODULE_MIUI_HOME_OPEN_BREAK_COMMAND =
             "dev.codex.miuibackgesturehook.action.MIUI_HOME_OPEN_BREAK";
     protected static final String MODULE_SYSTEMUI_INPUT_ARBITER_STATE =
-            ZnStatusProtocol.ACTION_SYSTEMUI_STATE;
+            NativeHookStatusProtocol.ACTION_SYSTEMUI_STATE;
     protected static final String MODULE_MIUI_HOME_INPUT_ARBITER_QUERY =
             "dev.codex.miuibackgesturehook.action.MIUI_HOME_INPUT_ARBITER_QUERY";
     protected static final String MODULE_CONTEXTUAL_SEARCH_TRIGGERED =
             "dev.codex.miuibackgesturehook.action.CONTEXTUAL_SEARCH_TRIGGERED";
     protected static final String MODULE_RUNTIME_STATUS_QUERY =
-            ZnStatusProtocol.ACTION_QUERY;
+            NativeHookStatusProtocol.ACTION_QUERY;
     protected static final String MODULE_RUNTIME_STATUS_REPLY =
-            ZnStatusProtocol.ACTION_REPLY;
-    protected static final String EXTRA_STATUS_NONCE = ZnStatusProtocol.EXTRA_NONCE;
-    protected static final String EXTRA_STATUS_QUERY = ZnStatusProtocol.EXTRA_QUERY;
+            NativeHookStatusProtocol.ACTION_REPLY;
+    protected static final String EXTRA_STATUS_NONCE = NativeHookStatusProtocol.EXTRA_NONCE;
+    protected static final String EXTRA_STATUS_QUERY = NativeHookStatusProtocol.EXTRA_QUERY;
     protected static final String EXTRA_STATUS_NATIVE_RESPONSE =
-            ZnStatusProtocol.EXTRA_NATIVE_RESPONSE;
+            NativeHookStatusProtocol.EXTRA_NATIVE_RESPONSE;
     protected static final String EXTRA_STATUS_LEGACY_MODE =
-            ZnStatusProtocol.EXTRA_LEGACY_MODE;
+            NativeHookStatusProtocol.EXTRA_LEGACY_MODE;
     protected static final String EXTRA_STATUS_LEGACY_READY =
-            ZnStatusProtocol.EXTRA_LEGACY_READY;
+            NativeHookStatusProtocol.EXTRA_LEGACY_READY;
     protected static final String EXTRA_STATUS_NATIVE_READY =
-            ZnStatusProtocol.EXTRA_NATIVE_READY;
+            NativeHookStatusProtocol.EXTRA_NATIVE_READY;
     protected static final String EXTRA_STATUS_NATIVE_PROFILE_RESOLVED =
-            ZnStatusProtocol.EXTRA_NATIVE_PROFILE_RESOLVED;
+            NativeHookStatusProtocol.EXTRA_NATIVE_PROFILE_RESOLVED;
     protected static final String EXTRA_STATUS_NATIVE_PROFILE_DYNAMIC =
-            ZnStatusProtocol.EXTRA_NATIVE_PROFILE_DYNAMIC;
+            NativeHookStatusProtocol.EXTRA_NATIVE_PROFILE_DYNAMIC;
     protected static final String EXTRA_STATUS_NATIVE_PROFILE_ENTRY_OFFSET =
-            ZnStatusProtocol.EXTRA_NATIVE_PROFILE_ENTRY_OFFSET;
+            NativeHookStatusProtocol.EXTRA_NATIVE_PROFILE_ENTRY_OFFSET;
     protected static final String EXTRA_STATUS_NATIVE_SIDE_OFFSET =
-            ZnStatusProtocol.EXTRA_NATIVE_SIDE_OFFSET;
+            NativeHookStatusProtocol.EXTRA_NATIVE_SIDE_OFFSET;
     protected static final String EXTRA_STATUS_NATIVE_RUNTIME_PROFILE_STAGE =
-            ZnStatusProtocol.EXTRA_NATIVE_RUNTIME_PROFILE_STAGE;
+            NativeHookStatusProtocol.EXTRA_NATIVE_RUNTIME_PROFILE_STAGE;
     protected static final String EXTRA_STATUS_NATIVE_DART_RESOLVER_STAGE =
-            ZnStatusProtocol.EXTRA_NATIVE_DART_RESOLVER_STAGE;
+            NativeHookStatusProtocol.EXTRA_NATIVE_DART_RESOLVER_STAGE;
     protected static final String EXTRA_STATUS_NATIVE_DART_DRAWER_CANDIDATES =
-            ZnStatusProtocol.EXTRA_NATIVE_DART_DRAWER_CANDIDATES;
+            NativeHookStatusProtocol.EXTRA_NATIVE_DART_DRAWER_CANDIDATES;
     protected static final String EXTRA_STATUS_NATIVE_DART_TRANSITION_CANDIDATES =
-            ZnStatusProtocol.EXTRA_NATIVE_DART_TRANSITION_CANDIDATES;
+            NativeHookStatusProtocol.EXTRA_NATIVE_DART_TRANSITION_CANDIDATES;
     protected static final String EXTRA_STATUS_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES =
-            ZnStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES;
+            NativeHookStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_ENTER_CANDIDATES;
     protected static final String EXTRA_STATUS_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES =
-            ZnStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES;
+            NativeHookStatusProtocol.EXTRA_NATIVE_DART_OVERVIEW_EXIT_CANDIDATES;
     protected static final String EXTRA_STATUS_NATIVE_DRAWER_STATE_READY =
-            ZnStatusProtocol.EXTRA_NATIVE_DRAWER_STATE_READY;
+            NativeHookStatusProtocol.EXTRA_NATIVE_DRAWER_STATE_READY;
     protected static final String EXTRA_STATUS_NATIVE_OVERVIEW_STATE_READY =
-            ZnStatusProtocol.EXTRA_NATIVE_OVERVIEW_STATE_READY;
+            NativeHookStatusProtocol.EXTRA_NATIVE_OVERVIEW_STATE_READY;
     protected static final String EXTRA_STATUS_NATIVE_BUSINESS_STATE =
-            ZnStatusProtocol.EXTRA_NATIVE_BUSINESS_STATE;
+            NativeHookStatusProtocol.EXTRA_NATIVE_BUSINESS_STATE;
     protected static final String EXTRA_STATUS_NATIVE_BRIDGE_STATE =
-            ZnStatusProtocol.EXTRA_NATIVE_BRIDGE_STATE;
+            NativeHookStatusProtocol.EXTRA_NATIVE_BRIDGE_STATE;
     protected static final String EXTRA_STATUS_NATIVE_RECEIVER_STATE =
-            ZnStatusProtocol.EXTRA_NATIVE_RECEIVER_STATE;
+            NativeHookStatusProtocol.EXTRA_NATIVE_RECEIVER_STATE;
     protected static final String EXTRA_STATUS_SYSTEMUI_READY =
-            ZnStatusProtocol.EXTRA_SYSTEMUI_READY;
+            NativeHookStatusProtocol.EXTRA_SYSTEMUI_READY;
     protected static final String EXTRA_STATUS_SYSTEMUI_GENERATION =
-            ZnStatusProtocol.EXTRA_SYSTEMUI_GENERATION;
+            NativeHookStatusProtocol.EXTRA_SYSTEMUI_GENERATION;
     protected static final String EXTRA_STATUS_SYSTEMUI_MONITORS =
-            ZnStatusProtocol.EXTRA_SYSTEMUI_MONITORS;
-    protected static final String EXTRA_STATUS_REASON = ZnStatusProtocol.EXTRA_REASON;
+            NativeHookStatusProtocol.EXTRA_SYSTEMUI_MONITORS;
+    protected static final String EXTRA_STATUS_REASON = NativeHookStatusProtocol.EXTRA_REASON;
     protected static final String EXTRA_INPUT_ARBITER_READY = "input_arbiter_ready";
     protected static final String EXTRA_INPUT_ARBITER_GENERATION =
             "input_arbiter_generation";

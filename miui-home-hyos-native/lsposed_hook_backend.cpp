@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-#include "native_api.h"
+#include "lsposed_hook_backend.h"
 
 #include <android/log.h>
 #include <elf.h>
@@ -26,7 +26,7 @@ constexpr size_t kMaxPltSlots = 16u;
 constexpr size_t kMaxSymbols = 1u << 24;
 constexpr size_t kInlinePatchGuardSpan = 32u;
 
-const NativeAPIEntries* g_native_api = nullptr;
+const NativeAPIEntries* g_lsposed_api = nullptr;
 using MadviseFn = int (*)(void*, size_t, int);
 MadviseFn g_original_madvise = madvise;
 volatile uint32_t g_madvise_guard_state = 0u;
@@ -49,7 +49,7 @@ struct Image {
     char path[512];
 };
 
-struct BridgeResolver {
+struct NativeSymbolResolverImpl {
     Image image;
 };
 
@@ -458,13 +458,13 @@ int PltHookRaw(void* base, const char* symbol, void* replacement,
                void** original) {
     if (base == nullptr || symbol == nullptr || replacement == nullptr ||
             original == nullptr) {
-        return ZN_FAILED;
+        return kHookFailed;
     }
     Image image{};
     DynamicView view{};
     if (!FindImage(nullptr, reinterpret_cast<uintptr_t>(base), &image) ||
             !BuildDynamicView(image, &view)) {
-        return ZN_FAILED;
+        return kHookFailed;
     }
     void** slots[kMaxPltSlots]{};
     size_t slot_count = 0u;
@@ -475,18 +475,18 @@ int PltHookRaw(void* base, const char* symbol, void* replacement,
                                     view.dyn_rela_count, symbol, slots,
                                     &slot_count) ||
             slot_count == 0u) {
-        return ZN_FAILED;
+        return kHookFailed;
     }
     void* expected = __atomic_load_n(slots[0], __ATOMIC_ACQUIRE);
-    if (expected == nullptr || expected == replacement) return ZN_FAILED;
+    if (expected == nullptr || expected == replacement) return kHookFailed;
     for (size_t index = 1u; index < slot_count; ++index) {
         if (__atomic_load_n(slots[index], __ATOMIC_ACQUIRE) != expected) {
-            return ZN_FAILED;
+            return kHookFailed;
         }
     }
     for (size_t index = 0u; index < slot_count; ++index) {
         if (!AddProtectedPage(reinterpret_cast<uintptr_t>(slots[index]))) {
-            return ZN_FAILED;
+            return kHookFailed;
         }
     }
     size_t written = 0u;
@@ -498,77 +498,79 @@ int PltHookRaw(void* base, const char* symbol, void* replacement,
             --written;
             WritePointer(slots[written], expected);
         }
-        return ZN_FAILED;
+        return kHookFailed;
     }
     *original = expected;
-    return ZN_SUCCESS;
+    return kHookSuccess;
 }
 
-int CompatibilityPltHook(void* base, const char* symbol, void* replacement,
-                         void** original) {
-    if (!EnsureLsposedMadviseGuard()) return ZN_FAILED;
+}  // namespace
+
+int InstallPltHook(void* base, const char* symbol, void* replacement,
+                   void** original) {
+    if (!EnsureLsposedMadviseGuard()) return kHookFailed;
     return PltHookRaw(base, symbol, replacement, original);
 }
 
-int CompatibilityInlineHook(void* target, void* replacement, void** original) {
-    if (g_native_api == nullptr || g_native_api->hookFunc == nullptr ||
+int InstallInlineHook(void* target, void* replacement, void** original) {
+    if (g_lsposed_api == nullptr || g_lsposed_api->hookFunc == nullptr ||
             !EnsureLsposedMadviseGuard() || target == nullptr ||
             replacement == nullptr || original == nullptr) {
-        return ZN_FAILED;
+        return kHookFailed;
     }
     const uintptr_t begin = reinterpret_cast<uintptr_t>(target);
     const uintptr_t end = begin <= UINTPTR_MAX - (kInlinePatchGuardSpan - 1u)
             ? begin + kInlinePatchGuardSpan - 1u : begin;
     if (!AddProtectedPage(begin) || !AddProtectedPage(end)) {
-        return ZN_FAILED;
+        return kHookFailed;
     }
     // Publish both possible patch pages before LSPosed writes the trampoline.
     // Xiaomi may issue MADV_DONTNEED concurrently with hook installation, so
     // registering only after hookFunc returns leaves a small destructive race.
     *original = nullptr;
-    const int result = g_native_api->hookFunc(target, replacement, original);
-    if (result != 0) return ZN_FAILED;
+    const int result = g_lsposed_api->hookFunc(target, replacement, original);
+    if (result != 0) return kHookFailed;
     if (*original == nullptr) {
-        g_native_api->unhookFunc(target);
-        return ZN_FAILED;
+        g_lsposed_api->unhookFunc(target);
+        return kHookFailed;
     }
-    return ZN_SUCCESS;
+    return kHookSuccess;
 }
 
-int CompatibilityInlineUnhook(void* target) {
-    if (g_native_api == nullptr || g_native_api->unhookFunc == nullptr ||
+int RemoveInlineHook(void* target) {
+    if (g_lsposed_api == nullptr || g_lsposed_api->unhookFunc == nullptr ||
             target == nullptr) {
-        return ZN_FAILED;
+        return kHookFailed;
     }
-    return g_native_api->unhookFunc(target) == 0 ? ZN_SUCCESS : ZN_FAILED;
+    return g_lsposed_api->unhookFunc(target) == 0 ? kHookSuccess : kHookFailed;
 }
 
-::ZnSymbolResolver* NewSymbolResolver(const char* path, void* base) {
-    auto* resolver = static_cast<BridgeResolver*>(
-            calloc(1u, sizeof(BridgeResolver)));
+NativeSymbolResolver* NewNativeSymbolResolver(const char* path, void* base) {
+    auto* resolver = static_cast<NativeSymbolResolverImpl*>(
+            calloc(1u, sizeof(NativeSymbolResolverImpl)));
     if (resolver == nullptr ||
             !FindImage(path, reinterpret_cast<uintptr_t>(base),
                        &resolver->image)) {
         free(resolver);
         return nullptr;
     }
-    return reinterpret_cast<::ZnSymbolResolver*>(resolver);
+    return reinterpret_cast<NativeSymbolResolver*>(resolver);
 }
 
-void FreeSymbolResolver(::ZnSymbolResolver* resolver) {
+void FreeNativeSymbolResolver(NativeSymbolResolver* resolver) {
     free(resolver);
 }
 
-void* GetBaseAddress(::ZnSymbolResolver* resolver) {
-    auto* bridge = reinterpret_cast<BridgeResolver*>(resolver);
+void* GetNativeBaseAddress(NativeSymbolResolver* resolver) {
+    auto* bridge = reinterpret_cast<NativeSymbolResolverImpl*>(resolver);
     return resolver == nullptr ? nullptr
             : reinterpret_cast<void*>(bridge->image.base);
 }
 
-void* SymbolLookup(::ZnSymbolResolver* resolver, const char* name, bool prefix,
-                   size_t* size) {
+void* LookupNativeSymbol(NativeSymbolResolver* resolver, const char* name,
+                         bool prefix, size_t* size) {
     if (resolver == nullptr || name == nullptr || prefix) return nullptr;
-    auto* bridge = reinterpret_cast<BridgeResolver*>(resolver);
+    auto* bridge = reinterpret_cast<NativeSymbolResolverImpl*>(resolver);
     DynamicView view{};
     if (!BuildDynamicView(bridge->image, &view)) return nullptr;
     for (size_t index = 0u; index < view.symbol_count; ++index) {
@@ -584,8 +586,6 @@ void* SymbolLookup(::ZnSymbolResolver* resolver, const char* name, bool prefix,
     }
     return nullptr;
 }
-
-}  // namespace
 
 bool EnsureLsposedMadviseGuard() {
     uint32_t state = __atomic_load_n(&g_madvise_guard_state, __ATOMIC_ACQUIRE);
@@ -605,21 +605,11 @@ bool EnsureLsposedMadviseGuard() {
     return true;
 }
 
-bool InitializeLsposedCompatibilityApi(const NativeAPIEntries* entries,
-                                       ZygiskNextAPI* compatibility_api) {
+bool InitializeLsposedHookBackend(const NativeAPIEntries* entries) {
     if (entries == nullptr || entries->hookFunc == nullptr ||
-            entries->unhookFunc == nullptr || compatibility_api == nullptr) {
+            entries->unhookFunc == nullptr) {
         return false;
     }
-    g_native_api = entries;
-    ZygiskNextAPI result{};
-    result.pltHook = CompatibilityPltHook;
-    result.inlineHook = CompatibilityInlineHook;
-    result.inlineUnhook = CompatibilityInlineUnhook;
-    result.newSymbolResolver = NewSymbolResolver;
-    result.freeSymbolResolver = FreeSymbolResolver;
-    result.getBaseAddress = GetBaseAddress;
-    result.symbolLookup = SymbolLookup;
-    *compatibility_api = result;
+    g_lsposed_api = entries;
     return true;
 }

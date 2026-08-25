@@ -1,9 +1,9 @@
 # MiuiHome LSPosed native hook
 
 This directory contains the Android 17 MiuiHome native payload embedded in the
-LSPosed module APK. The directory name is retained for source-path continuity;
-this branch has no standalone native-module package, installer, controller,
-activation path, or alternate exported module entry.
+LSPosed module APK. This branch has no standalone native-module package,
+installer, controller, activation path, alternate exported module entry, or
+adapter for the retired standalone native API.
 
 The only produced native library is:
 
@@ -21,9 +21,11 @@ into this APK payload.
 
 Use the application build; there is no separate native-module package task:
 
-```powershell
-.\gradlew.bat :app:assembleDebug
-.\gradlew.bat :app:assembleRelease
+```text
+./gradlew :app:assembleDebug          # Linux/macOS
+gradlew.bat :app:assembleDebug        # Windows
+./gradlew :app:assembleRelease        # Linux/macOS
+gradlew.bat :app:assembleRelease      # Windows
 ```
 
 Debug is the normal iterative target. Release is reserved for a final delivery
@@ -33,9 +35,10 @@ candidate.
 
 Use the guarded deployment script:
 
-```powershell
-.\miui-home-hyos-zn\safe-lsposed-native-deploy.ps1 `
-    -Action Deploy -Serial <adb-serial>
+Python 3.10 or newer is required. The script uses only the standard library.
+
+```text
+python miui-home-hyos-native/safe_lsposed_native_deploy.py --action deploy --serial <adb-serial>
 ```
 
 It builds Debug by default, validates the complete APK, installs it through
@@ -53,26 +56,21 @@ conflict; the script does not enable, disable, reload, or otherwise control it.
 
 Useful variants:
 
-```powershell
+```text
 # Deploy an existing Debug APK without rebuilding.
-.\miui-home-hyos-zn\safe-lsposed-native-deploy.ps1 `
-    -Action Deploy -Serial <adb-serial> -SkipBuild
+python miui-home-hyos-native/safe_lsposed_native_deploy.py --action deploy --serial <adb-serial> --skip-build
 
 # Deploy one explicitly selected complete APK.
-.\miui-home-hyos-zn\safe-lsposed-native-deploy.ps1 `
-    -Action Deploy -Serial <adb-serial> -Apk <apk-path>
+python miui-home-hyos-native/safe_lsposed_native_deploy.py --action deploy --serial <adb-serial> --apk <apk-path>
 
 # Read-only process/package status.
-.\miui-home-hyos-zn\safe-lsposed-native-deploy.ps1 `
-    -Action Status -Serial <adb-serial>
+python miui-home-hyos-native/safe_lsposed_native_deploy.py --action status --serial <adb-serial>
 
 # Verify the current APK mapping and authenticated native readiness.
-.\miui-home-hyos-zn\safe-lsposed-native-deploy.ps1 `
-    -Action Verify -Serial <adb-serial>
+python miui-home-hyos-native/safe_lsposed_native_deploy.py --action verify --serial <adb-serial>
 
 # Capture process, LSPosed-log, native-log, and tombstone evidence.
-.\miui-home-hyos-zn\safe-lsposed-native-deploy.ps1 `
-    -Action Capture -Serial <adb-serial>
+python miui-home-hyos-native/safe_lsposed_native_deploy.py --action capture --serial <adb-serial>
 ```
 
 ## Resolver verification
@@ -80,16 +78,12 @@ Useful variants:
 The launcher profile generator and offline verifiers remain available because
 they validate the LSPosed payload itself:
 
-```powershell
-python .\miui-home-hyos-zn\generate-launcher-profiles.py `
-    --manifest .\miui-home-hyos-zn\launcher-profiles.json `
-    --output .\miui-home-hyos-zn\generated\launcher_profiles.generated.h
+```text
+python miui-home-hyos-native/generate-launcher-profiles.py --manifest miui-home-hyos-native/launcher-profiles.json --output miui-home-hyos-native/generated/launcher_profiles.generated.h
 
-python .\miui-home-hyos-zn\verify-launcher-profiles.py `
-    --manifest .\miui-home-hyos-zn\launcher-profiles.json
+python miui-home-hyos-native/verify-launcher-profiles.py --manifest miui-home-hyos-native/launcher-profiles.json --library <profile-id>=<libapp_launcher.so-path>
 
-python .\miui-home-hyos-zn\verify-runtime-profile.py `
-    --manifest .\miui-home-hyos-zn\launcher-profiles.json
+python miui-home-hyos-native/verify-runtime-profile.py --manifest miui-home-hyos-native/launcher-profiles.json --library <profile-id>=<libapp_launcher.so-path>
 ```
 
 Local Xiaomi binaries and reverse-engineering workspaces remain ignored and

@@ -46,17 +46,17 @@ app/build/outputs/apk/release/app-release.apk
 ```
 
 For iterative native development, use the guarded LSPosed deployment script.
-It builds the debug APK by default, installs the complete APK through Package
-Manager, verifies the API-102 SystemUI hot reload, and rolls only the exact
+It requires Python 3.10 or newer, builds the debug APK by default, installs the
+complete APK through Package Manager, verifies the API-102 SystemUI hot reload,
+and rolls only the exact
 root `hyos_spawner` so the new native APK inode becomes active without a phone
 reboot:
 
-```powershell
-.\miui-home-hyos-zn\safe-lsposed-native-deploy.ps1 `
-    -Action Deploy -Serial <adb-serial>
+```text
+python miui-home-hyos-native/safe_lsposed_native_deploy.py --action deploy --serial <adb-serial>
 ```
 
-Pass `-SkipBuild` to deploy the existing debug APK, or `-Apk <path>` to deploy
+Pass `--skip-build` to deploy the existing debug APK, or `--apk <path>` to deploy
 an explicitly selected complete APK. The script refuses to run while a retired
 standalone owner remains mapped. It never extracts or pushes the APK's native
 library separately and never writes Android system properties. The
@@ -91,8 +91,8 @@ Checked-in AOSP references are under `refs/android16/aosp_back_16/`. Xiaomi
 artifacts and device evidence remain local-only under ignored `refs/android17`
 paths; see [refs/README.md](refs/README.md).
 
-Shared native sources, the LSPosed APK target, and legacy rollback tooling are
-under `miui-home-hyos-zn/`.
+Shared native sources, the LSPosed APK target, and guarded deployment tooling are
+under `miui-home-hyos-native/`.
 
 ## License
 
