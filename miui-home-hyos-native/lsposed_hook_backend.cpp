@@ -4,6 +4,7 @@
 #include <android/log.h>
 #include <elf.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <link.h>
 #include <vector>
 #include <lsplt.hpp>
@@ -18,6 +19,7 @@
 namespace {
 
 constexpr char kLogTag[] = "MiuiHomeHyosMadvise";
+constexpr char kHyperRuntimeName[] = "libhyper_os_flutter.so";
 constexpr char kHyperRuntimePath[] =
         "/system_ext/lib64/libhyper_os_flutter.so";
 constexpr size_t kMaxSegments = 16u;
@@ -29,7 +31,11 @@ constexpr size_t kInlinePatchGuardSpan = 32u;
 const NativeAPIEntries* g_lsposed_api = nullptr;
 using MadviseFn = int (*)(void*, size_t, int);
 MadviseFn g_original_madvise = madvise;
+MadviseFn g_direct_madvise_backup = nullptr;
+MadviseFn g_archive_madvise_backup = nullptr;
 volatile uint32_t g_madvise_guard_state = 0u;
+volatile uint32_t g_direct_madvise_guard_state = 0u;
+volatile uint32_t g_archive_madvise_guard_state = 0u;
 volatile uint32_t g_protected_page_lock = 0u;
 uintptr_t g_protected_pages[kMaxProtectedPages]{};
 size_t g_protected_page_count = 0u;
@@ -158,27 +164,6 @@ int GuardedMadvise(void* address, size_t length, int advice) {
     return 0;
 }
 
-bool install_madvise_hook() {
-    struct stat library_stat {};
-    if (stat(kHyperRuntimePath, &library_stat) != 0) {
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "cannot stat %s",
-                            kHyperRuntimePath);
-        return false;
-    }
-    if (!lsplt::RegisterHook(
-                library_stat.st_dev, library_stat.st_ino, "madvise",
-                reinterpret_cast<void*>(GuardedMadvise),
-                reinterpret_cast<void**>(&g_original_madvise)) ||
-            !lsplt::CommitHook() || g_original_madvise == nullptr) {
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
-                            "failed to hook %s madvise", kHyperRuntimePath);
-        return false;
-    }
-    __android_log_print(ANDROID_LOG_INFO, kLogTag, "hooked %s madvise",
-                        kHyperRuntimePath);
-    return true;
-}
-
 bool RangeInImage(const Image& image, uintptr_t address, size_t size,
                   uint32_t required_flags = 0u) {
     if (size > UINTPTR_MAX - address) return false;
@@ -252,6 +237,208 @@ bool FindImage(const char* path, uintptr_t base, Image* output) {
     }
     *output = request.result;
     return true;
+}
+
+struct ArchiveHookTarget {
+    dev_t dev;
+    ino_t inode;
+    uintptr_t offset;
+    size_t size;
+    char path[512];
+};
+
+bool IsArchiveImage(const Image& image) {
+    return strstr(image.path, "!/") != nullptr;
+}
+
+bool MapPathEquals(const std::string& mapped_path, const char* expected,
+                   size_t expected_length) {
+    return mapped_path.size() == expected_length &&
+            memcmp(mapped_path.data(), expected, expected_length) == 0;
+}
+
+bool ResolveArchiveHookTarget(const Image& image, ArchiveHookTarget* output) {
+    if (output == nullptr) return false;
+    const char* archive_end = strstr(image.path, "!/");
+    if (archive_end == nullptr || archive_end == image.path) return false;
+    const size_t archive_path_length =
+            static_cast<size_t>(archive_end - image.path);
+    if (archive_path_length >= sizeof(output->path)) return false;
+
+    const size_t page_size = PageSize();
+    uintptr_t archive_offset = 0u;
+    uint64_t maximum_file_end = 0u;
+    dev_t archive_dev = 0;
+    ino_t archive_inode = 0;
+    bool resolved = false;
+    const std::vector<lsplt::MapInfo> maps = lsplt::MapInfo::Scan();
+    for (size_t index = 0u; index < image.phnum; ++index) {
+        const ElfW(Phdr)& phdr = image.phdr[index];
+        if (phdr.p_type != PT_LOAD || phdr.p_memsz == 0u ||
+                phdr.p_vaddr > UINTPTR_MAX - image.base) {
+            continue;
+        }
+        if (phdr.p_filesz > UINT64_MAX - phdr.p_offset) return false;
+        const uint64_t file_end = phdr.p_offset + phdr.p_filesz;
+        if (file_end > maximum_file_end) maximum_file_end = file_end;
+
+        const uintptr_t segment_page = PageStart(image.base + phdr.p_vaddr);
+        const uintptr_t segment_file_page =
+                static_cast<uintptr_t>(phdr.p_offset) &
+                ~(static_cast<uintptr_t>(page_size) - 1u);
+        bool segment_resolved = false;
+        for (const lsplt::MapInfo& map : maps) {
+            if (segment_page < map.start || segment_page >= map.end ||
+                    map.inode == 0 ||
+                    !MapPathEquals(map.path, image.path,
+                                   archive_path_length)) {
+                continue;
+            }
+            const uintptr_t in_map = segment_page - map.start;
+            if (in_map > UINTPTR_MAX - map.offset) return false;
+            const uintptr_t mapped_file_page = map.offset + in_map;
+            if (mapped_file_page < segment_file_page) return false;
+            const uintptr_t candidate_offset =
+                    mapped_file_page - segment_file_page;
+            if (!resolved) {
+                archive_offset = candidate_offset;
+                archive_dev = map.dev;
+                archive_inode = map.inode;
+                resolved = true;
+            } else if (archive_offset != candidate_offset ||
+                    archive_dev != map.dev || archive_inode != map.inode) {
+                return false;
+            }
+            segment_resolved = true;
+            break;
+        }
+        if (!segment_resolved) return false;
+    }
+    if (!resolved || maximum_file_end == 0u ||
+            maximum_file_end > SIZE_MAX - (page_size - 1u) ||
+            archive_offset % page_size != 0u) {
+        return false;
+    }
+    const size_t image_size = static_cast<size_t>(
+            (maximum_file_end + page_size - 1u) &
+            ~(static_cast<uint64_t>(page_size) - 1u));
+    if (image_size == 0u || image_size > UINTPTR_MAX - archive_offset) {
+        return false;
+    }
+    output->dev = archive_dev;
+    output->inode = archive_inode;
+    output->offset = archive_offset;
+    output->size = image_size;
+    memcpy(output->path, image.path, archive_path_length);
+    output->path[archive_path_length] = '\0';
+    return true;
+}
+
+bool ResolveDirectHookIdentity(const Image& image, dev_t* dev, ino_t* inode) {
+    if (dev == nullptr || inode == nullptr || image.path[0] == '\0' ||
+            IsArchiveImage(image)) {
+        return false;
+    }
+    struct stat library_stat {};
+    if (stat(image.path, &library_stat) == 0) {
+        *dev = library_stat.st_dev;
+        *inode = library_stat.st_ino;
+        return library_stat.st_ino != 0;
+    }
+    const std::vector<lsplt::MapInfo> maps = lsplt::MapInfo::Scan();
+    for (const lsplt::MapInfo& map : maps) {
+        if (image.base >= map.start && image.base < map.end && map.inode != 0) {
+            *dev = map.dev;
+            *inode = map.inode;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool RegisterDirectMadviseGuard(const Image& image) {
+    const uint32_t state = __atomic_load_n(
+            &g_direct_madvise_guard_state, __ATOMIC_ACQUIRE);
+    if (state == 2u) return true;
+    if (state == 1u || state == 3u) return false;
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_direct_madvise_guard_state, &expected, uint32_t{1}, false,
+                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return expected == 2u;
+    }
+    dev_t dev = 0;
+    ino_t inode = 0;
+    g_direct_madvise_backup = nullptr;
+    if (!ResolveDirectHookIdentity(image, &dev, &inode) ||
+            !lsplt::RegisterHook(
+                    dev, inode, "madvise",
+                    reinterpret_cast<void*>(GuardedMadvise),
+                    reinterpret_cast<void**>(&g_direct_madvise_backup)) ||
+            !lsplt::CommitHook() || g_direct_madvise_backup == nullptr) {
+        __atomic_store_n(&g_direct_madvise_guard_state, uint32_t{3},
+                         __ATOMIC_RELEASE);
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                            "failed to hook direct runtime %s madvise",
+                            image.path[0] == '\0' ? kHyperRuntimePath
+                                                  : image.path);
+        return false;
+    }
+    __atomic_store_n(&g_direct_madvise_guard_state, uint32_t{2},
+                     __ATOMIC_RELEASE);
+    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                        "hooked direct runtime %s madvise", image.path);
+    return true;
+}
+
+bool RegisterArchiveMadviseGuard(const Image& image) {
+    const uint32_t state = __atomic_load_n(
+            &g_archive_madvise_guard_state, __ATOMIC_ACQUIRE);
+    if (state == 2u) return true;
+    if (state == 1u || state == 3u) return false;
+    uint32_t expected = 0u;
+    if (!__atomic_compare_exchange_n(
+                &g_archive_madvise_guard_state, &expected, uint32_t{1}, false,
+                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        return expected == 2u;
+    }
+    ArchiveHookTarget target{};
+    g_archive_madvise_backup = nullptr;
+    if (!ResolveArchiveHookTarget(image, &target) ||
+            !lsplt::RegisterHook(
+                    target.dev, target.inode, target.offset, target.size,
+                    "madvise", reinterpret_cast<void*>(GuardedMadvise),
+                    reinterpret_cast<void**>(&g_archive_madvise_backup)) ||
+            !lsplt::CommitHook() || g_archive_madvise_backup == nullptr) {
+        __atomic_store_n(&g_archive_madvise_guard_state, uint32_t{3},
+                         __ATOMIC_RELEASE);
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                            "failed to hook archive runtime %s madvise",
+                            image.path);
+        return false;
+    }
+    __atomic_store_n(&g_archive_madvise_guard_state, uint32_t{2},
+                     __ATOMIC_RELEASE);
+    __android_log_print(
+            ANDROID_LOG_INFO, kLogTag,
+            "hooked archive runtime %s offset=%" PRIxPTR " size=%zu madvise",
+            target.path, target.offset, target.size);
+    return true;
+}
+
+bool install_madvise_hook(const char* runtime_name) {
+    Image image{};
+    const char* requested = runtime_name == nullptr
+            ? kHyperRuntimeName : runtime_name;
+    if (!FindImage(requested, 0u, &image) &&
+            (runtime_name == nullptr ||
+             !FindImage(kHyperRuntimeName, 0u, &image))) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                            "cannot resolve loaded %s", requested);
+        return false;
+    }
+    return IsArchiveImage(image) ? RegisterArchiveMadviseGuard(image)
+                                 : RegisterDirectMadviseGuard(image);
 }
 
 uintptr_t RuntimeAddress(const Image& image, ElfW(Addr) value) {
@@ -587,17 +774,8 @@ void* LookupNativeSymbol(NativeSymbolResolver* resolver, const char* name,
     return nullptr;
 }
 
-bool EnsureLsposedMadviseGuard() {
-    uint32_t state = __atomic_load_n(&g_madvise_guard_state, __ATOMIC_ACQUIRE);
-    if (state == 2u) return true;
-    if (state == 1u || state == 3u) return false;
-    uint32_t expected = 0u;
-    if (!__atomic_compare_exchange_n(&g_madvise_guard_state, &expected,
-                                     uint32_t{1}, false, __ATOMIC_ACQ_REL,
-                                     __ATOMIC_ACQUIRE)) {
-        return expected == 2u;
-    }
-    if (!install_madvise_hook()) {
+bool EnsureLsposedMadviseGuard(const char* runtime_name) {
+    if (!install_madvise_hook(runtime_name)) {
         __atomic_store_n(&g_madvise_guard_state, uint32_t{3}, __ATOMIC_RELEASE);
         return false;
     }

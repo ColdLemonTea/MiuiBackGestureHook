@@ -3715,7 +3715,7 @@ void OnLsposedLibraryLoaded(const char* name, void* handle) {
     if (name == nullptr || handle == nullptr) return;
 
     if (EndsWith(name, kHyperRuntimeName)) {
-        EnsureLsposedMadviseGuard();
+        EnsureLsposedMadviseGuard(name);
     }
     ObserveLauncherHandle(name, handle);
     if (IsLauncherLibraryPath(name) && IsLauncherProcess()) {
