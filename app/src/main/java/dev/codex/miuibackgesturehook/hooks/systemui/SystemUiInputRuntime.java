@@ -2181,10 +2181,20 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             AtomicBoolean ready = new AtomicBoolean();
             AtomicReference<String> state = new AtomicReference<>("not-run");
             boolean completed = executeShellBlocking(owner.executor, () -> {
-                state.set(describeShellStateOnOwner(owner.controller));
                 try {
+                    Object transitionHandler = readField(owner.controller,
+                            "mBackTransitionHandler");
+                    recoverStaleCloseTransitionRequest(
+                            owner.controller,
+                            readField(owner.controller, "mCurrentTracker"),
+                            readField(owner.controller, "mQueuedTracker"),
+                            readField(transitionHandler,
+                                    "mOnAnimationFinishCallback"),
+                            0L);
+                    state.set(describeShellStateOnOwner(owner.controller));
                     ready.set(isShellStartReadyOnOwner(owner.controller));
                 } catch (Throwable throwable) {
+                    state.set(describeShellStateOnOwner(owner.controller));
                     moduleLog(Log.WARN, TAG,
                             "Failed Shell readiness check before pilfer",
                             throwable);
@@ -3340,6 +3350,11 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return null;
             }
             return () -> {
+                if (exactIdentity) {
+                    recoverStaleCloseTransitionRequest(
+                            finishedController, currentTracker, queuedTracker,
+                            finishCallback, session.id);
+                }
                 if (!exactIdentity) {
                     boolean quiescent = false;
                     try {
@@ -3461,6 +3476,81 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             clearSystemUiReturnHomeCommitIdentity(
                     session.controller, session.id,
                     "shellFinished:" + reason);
+        }
+
+        /**
+         * Xiaomi's Android 17 Shell can finish the predictive animation without ever entering
+         * BackTransitionHandler.handleCloseTransition(). In that case the normal finish callback
+         * is already gone, both trackers are reset, and only mCloseTransitionRequested remains
+         * set. That flag blocks every subsequent startBackNavigation(). Clear it only after the
+         * exact stock-finish quiescence boundary has been observed on the Shell owner executor.
+         */
+        protected void recoverStaleCloseTransitionRequest(
+                Object stateController, Object capturedCurrentTracker,
+                Object capturedQueuedTracker, Object capturedFinishCallback,
+                long shellSessionId) {
+            try {
+                Object transitionHandler = readField(stateController,
+                        "mBackTransitionHandler");
+                boolean stale = Boolean.TRUE.equals(readField(transitionHandler,
+                        "mCloseTransitionRequested"))
+                        && !Boolean.TRUE.equals(readField(stateController,
+                        "mPostCommitAnimationInProgress"))
+                        && !Boolean.TRUE.equals(readField(stateController,
+                        "mBackGestureStarted"))
+                        && !Boolean.TRUE.equals(readField(stateController,
+                        "mReceivedNullNavigationInfo"))
+                        && readField(stateController, "mBackNavigationInfo") == null
+                        && readField(stateController,
+                        "mBackAnimationFinishedCallback") == null
+                        && readField(transitionHandler,
+                        "mOnAnimationFinishCallback") == null
+                        && readField(transitionHandler,
+                        "mPrepareOpenTransition") == null
+                        && readField(transitionHandler,
+                        "mClosePrepareTransition") == null
+                        && readField(transitionHandler,
+                        "mOpenTransitionInfo") == null
+                        && readField(transitionHandler,
+                        "mFinishOpenTransaction") == null
+                        && readField(transitionHandler,
+                        "mFinishOpenTransitionCallback") == null
+                        && readField(transitionHandler,
+                        "mTakeoverHandler") == null
+                        && isTrackerInitial(readField(stateController,
+                        "mCurrentTracker"))
+                        && isTrackerInitial(readField(stateController,
+                        "mQueuedTracker"))
+                        && capturedFinishCallback == null;
+                if (!stale) {
+                    return;
+                }
+                Object currentAfter = readField(stateController, "mCurrentTracker");
+                Object queuedAfter = readField(stateController, "mQueuedTracker");
+                if (currentAfter != capturedCurrentTracker
+                        || queuedAfter != capturedQueuedTracker) {
+                    moduleLog(Log.WARN, TAG,
+                            "Skipped stale Shell close-request recovery after tracker identity changed"
+                                    + ", shellSessionId=" + shellSessionId);
+                    return;
+                }
+                writeField(transitionHandler, "mCloseTransitionRequested",
+                        Boolean.FALSE);
+                if (!isShellStartReadyOnOwner(stateController)) {
+                    moduleLog(Log.WARN, TAG,
+                            "Shell close-request recovery did not reach ready state"
+                                    + ", shellSessionId=" + shellSessionId
+                                    + ", state=" + describeShellStateOnOwner(stateController));
+                    return;
+                }
+                moduleLog(Log.WARN, TAG,
+                        "Recovered orphaned Shell close-transition request"
+                                + ", shellSessionId=" + shellSessionId);
+            } catch (Throwable throwable) {
+                moduleLog(Log.WARN, TAG,
+                        "Failed to recover orphaned Shell close-transition request",
+                        throwable);
+            }
         }
 
         protected boolean queueShellReleaseTransaction(ShellGestureSession session,
