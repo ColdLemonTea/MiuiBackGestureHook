@@ -278,10 +278,33 @@ bool MatchOverviewEnter(const ElfView& view, uintptr_t offset,
             !DecodeBlTarget(offset + 24u * 4u, code[24], &publish) ||
             code[25] != 0xaa1603e0u || code[26] != 0xaa1d03efu ||
             code[27] != 0xa8c179fdu || code[28] != 0xd65f03c0u) {
-        return false;
+        // Newer AOT snapshots retain the same state/animation call graph but
+        // insert two pool loads and use relocated field offsets. Keep the
+        // structural ABI checks while allowing those compiler-generated
+        // immediates to move.
+        if (code[0] != 0xa9bf79fdu || code[1] != 0xaa0f03fdu ||
+                code[2] != 0xd10041efu || code[3] != 0xaa0103e2u ||
+                code[4] != 0xf81f83a1u || code[5] != 0xf9403f40u ||
+                !IsLoadX0FromX0(code[6], nullptr) ||
+                code[7] != 0xf9402370u || code[8] != 0x6b10001fu ||
+                code[9] != 0x54000061u || !DecodeBlTarget(
+                        offset + 11u * 4u, code[11], &unbox) ||
+                unbox != unbox_target || code[14] != 0xf90001f0u ||
+                code[15] != 0xf9402b64u ||
+                !DecodeBlTarget(offset + 16u * 4u, code[16], &prepare) ||
+                code[17] != 0xaa0003e1u || code[18] != 0xf85f83a2u ||
+                !DecodePoolObject(code[19], code[20], 3u, &argument) ||
+                !DecodePoolObject(code[21], code[22], 5u, &shared) ||
+                (code[23] & 0xffc003ffu) != 0xf9400364u ||
+                !DecodeBlTarget(offset + 24u * 4u, code[24], &publish) ||
+                code[25] != 0xaa1603e0u ||
+                code[26] != 0xaa1d03efu || code[27] != 0xa8c179fdu ||
+                code[28] != 0xd65f03c0u) {
+            return false;
+        }
     }
-    *candidate = {offset, state_slot, shared, prepare, publish};
-    return true;
+        *candidate = {offset, state_slot, shared, prepare, publish};
+        return true;
 }
 
 bool MatchOverviewExit(const ElfView& view, uintptr_t offset,
@@ -311,7 +334,39 @@ bool MatchOverviewExit(const ElfView& view, uintptr_t offset,
             !DecodeBlTarget(offset + 39u * 4u, code[39], &publish) ||
             code[40] != 0xaa1603e0u || code[41] != 0xaa1d03efu ||
             code[42] != 0xa8c179fdu || code[43] != 0xd65f03c0u) {
-        return false;
+        // 6144's exit callback has a longer state-index preamble. Its
+        // animation tail remains uniquely identifiable by the same unbox,
+        // prepare/publish and pool-object relationships.
+        uintptr_t modern_unbox = 0u;
+        uintptr_t modern_prepare = 0u;
+        uintptr_t modern_publish = 0u;
+        uintptr_t modern_state = 0u;
+        uintptr_t modern_shared = 0u;
+        if (code[0] != 0xa9bf79fdu || code[1] != 0xaa0f03fdu ||
+                code[2] != 0xd10041efu || code[3] != 0xb8413080u ||
+                code[4] != 0xb841f081u || code[5] != 0x8b1c8021u ||
+                !IsLoadX0FromX0(code[21], &modern_state) ||
+                code[22] != 0xf9402370u || code[23] != 0x6b10001fu ||
+                code[24] != 0x54000061u ||
+                !DecodeBlTarget(offset + 26u * 4u, code[26], &modern_unbox) ||
+                !(modern_unbox == unbox_target ||
+                  (unbox_target >= 0x3cu &&
+                   modern_unbox == unbox_target - 0x3cu)) ||
+                code[29] != 0xf90001f0u ||
+                code[30] != 0xf9402b64u ||
+                !DecodeBlTarget(offset + 31u * 4u, code[31], &modern_prepare) ||
+                code[32] != 0xaa0003e1u ||
+                (code[33] & 0xffffffe0u) != 0xf85f83a0u ||
+                !DecodePoolObject(code[34], code[35], 2u, &modern_shared) ||
+                (code[38] & 0xffc003ffu) != 0xf9400364u ||
+                !DecodeBlTarget(offset + 39u * 4u, code[39], &modern_publish) ||
+                code[40] != 0xaa1603e0u || code[41] != 0xaa1d03efu ||
+                code[42] != 0xa8c179fdu || code[43] != 0xd65f03c0u) {
+            return false;
+        }
+        *candidate = {offset, modern_state, modern_shared, modern_prepare,
+                      modern_publish};
+        return true;
     }
     *candidate = {offset, state_slot, shared, prepare, publish};
     return true;
@@ -319,7 +374,7 @@ bool MatchOverviewExit(const ElfView& view, uintptr_t offset,
 
 bool MatchEditingQuery(const ElfView& view, uintptr_t offset) {
     uint32_t code[16]{};
-    return ReadInstructions(view, offset, code, 16u) &&
+    if (ReadInstructions(view, offset, code, 16u) &&
             code[0] == 0xa9bf79fdu && code[1] == 0xaa0f03fdu &&
             code[2] == 0xd10041efu && code[3] == 0xf81f83a1u &&
             code[4] == 0xf9403f40u && code[5] == 0xf95ae800u &&
@@ -328,7 +383,21 @@ bool MatchEditingQuery(const ElfView& view, uintptr_t offset) {
             code[10] == 0xf9402370u && code[11] == 0x6b10001fu &&
             code[12] == 0x54000061u &&
             (code[13] & 0xffc003ffu) == 0xf9400362u &&
-            IsBl(code[14]) && code[15] == 0x91403b70u;
+            IsBl(code[14]) && code[15] == 0x91403b70u) {
+        return true;
+    }
+    // 6144 changes only the two field-load immediates and the final add
+    // immediate in this tiny query; the compare/branch/call ABI is stable.
+    const bool modern = ReadInstructions(view, offset, code, 16u) &&
+            code[0] == 0xa9bf79fdu && code[1] == 0xaa0f03fdu &&
+            code[2] == 0xd10041efu && code[3] == 0xf81f83a1u &&
+            (code[4] & 0xffc00000u) == 0xf9400000u &&
+            code[6] == 0x6b16001fu && code[7] == 0x540001a1u &&
+            code[8] == 0xf9403f40u &&
+            (code[9] & 0xffc00000u) == 0xf9400000u &&
+            code[10] == 0xf9402370u && code[11] == 0x6b10001fu &&
+            code[12] == 0x54000061u && IsBl(code[14]);
+    return modern;
 }
 
 bool MatchNotifyBackStatus(const ElfView& view, uintptr_t offset,
@@ -471,6 +540,21 @@ bool ResolveDartFeatureProfile(
                 exit = candidate;
             }
             offset += 4u;
+        }
+    }
+    if (launcher_profile.id != nullptr &&
+            strcmp(launcher_profile.id, "6144") == 0 &&
+            instructions_offset == 0x826940u) {
+        OverviewCandidate modern_enter{};
+        OverviewCandidate modern_exit{};
+        if (MatchOverviewEnter(view, 0x16c543cu, drawer.unbox_target,
+                               &modern_enter) &&
+                MatchOverviewExit(view, 0xdb8a70u, drawer.unbox_target,
+                                  &modern_exit)) {
+            enter = modern_enter;
+            exit = modern_exit;
+            diagnostics->overview_enter_candidate_count = 1u;
+            diagnostics->overview_exit_candidate_count = 1u;
         }
     }
     if (diagnostics->overview_enter_candidate_count != 1u ||

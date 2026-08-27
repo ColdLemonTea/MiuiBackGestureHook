@@ -24,6 +24,7 @@ set(MIUI_HOME_NATIVE_SOURCES
     runtime_profile_resolver.cpp
     dart_runtime_resolver.cpp
     broadcast_options_tail_hook.S
+    broadcast_send_capture_hook.S
     dart_state_hooks.S
     input_monitor_pilfer_hook.S
 )

@@ -2,6 +2,44 @@
   "schema_version": 1,
   "profiles": [
     {
+      "id": "6144",
+      "version_code": 801026144,
+      "version_name": "RELEASE-8.01.02.6144-260818-08251107-R",
+      "library_sha256": "4fc22fd1aece08daf02cf73a36058a28385499a41c80c7f62a52feb57ee63d2b",
+      "image_span": "0xe80000",
+      "entry_offset": "0x91def8",
+      "identity_fingerprints": [
+        {
+          "name": "app_entry_point",
+          "offset": "0x91def8",
+          "bytes": "ff 43 02 d1 fd 7b 05 a9 f8 5f 06 a9 f6 57 07 a9 f4 4f 08 a9 fd 43 01 91 f3 03 08 aa 07 71 f3 97 c0 00 00 36 71 71 f3 97 80 00 00 34 e8 2a 00 b0"
+        }
+      ],
+      "hook_topology": "side_boundary_only",
+      "side_handler": {
+        "offset": "0x654804",
+        "bytes": "eb 2b b8 6d e9 23 01 6d fd 7b 02 a9 fc 6f 03 a9 fa 67 04 a9 f8 5f 05 a9 f6 57 06 a9 f4 4f 07 a9",
+        "edge_field_offset": "0xf4"
+      },
+      "contextual_search": {
+        "long_press_handler_offset": "0x5ce920",
+        "long_press_handler_bytes": "ff 83 01 d1 fd 7b 04 a9 f4 4f 05 a9 fd 03 01 91 88 45 00 b0 f3 03 01 2a f4 03 00 aa 08 b9 40 f9",
+        "invoke_offset": "0x807208",
+        "invoke_bytes": "ff 03 04 d1 fd 7b 0c a9 f7 6b 00 f9 f6 57 0e a9 f4 4f 0f a9 fd 03 03 91 f3 03 00 2a f4 e3 00 91"
+      },
+      "pilfer": {
+        "accepted_return_offset": "0x0",
+        "home_return_offset": "0x0",
+        "accepted_caller_bytes": ""
+      },
+      "abi": {
+        "rstring_vtable_offset": "0xe0d838",
+        "runtime_pointer_offset": "0xe77338",
+        "runtime_state_offset": "0xe77340",
+        "runtime_ready_value": 3
+      }
+    },
+    {
       "id": "4371",
       "version_code": 801024371,
       "version_name": "RELEASE-8.01.02.4371-260727-08131546-R",

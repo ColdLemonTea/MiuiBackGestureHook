@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <link.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -97,6 +98,8 @@ constexpr char kBroadcastReceiverOnReceiveSymbol[] =
         "_RNvMs3_NtNtCslLvADlVgqlk_26hyper_os_broadcast_private13dyn_"
         "broadcast23BroadcastReceiver_traitINtB5_20BroadcastReceiver_TOINtNtNtNt"
         "Cs9Neji4M1weT_10abi_stable9std_types5boxed7private4RBoxuEE10on_receiveB9_";
+constexpr char kBroadcastSendSymbol[] =
+        "_RNvNtNtCslLvADlVgqlk_26hyper_os_broadcast_private5scene5impls14send_broadcast";
 constexpr char kBroadcastIntentWithFeatureSymbol[] =
         "_RNvXs_NtCslLvADlVgqlk_26hyper_os_broadcast_private8sys_implNtB4_31"
         "ActivityManagerServiceProxyImplNtB4_27ActivityManagerServiceProxy26"
@@ -168,6 +171,8 @@ struct NativeI64Option {
 using IntentGetActionFn = BorrowedROptionRString (*)(void*);
 using IntentGetSenderPackageFn = BorrowedROptionRString (*)(void*);
 using BroadcastReceiverOnReceiveFn = void (*)(void*, void*, void*);
+extern "C" void MiuiHomeHyosBroadcastSendHook();
+extern "C" void MiuiHomeHyosCaptureBroadcastRuntime(void* runtime);
 using BroadcastSendFn = NativeResult (*)(void*, void*);
 using IntentDefaultFn = void* (*)();
 using IntentDropFn = void (*)(void*);
@@ -216,6 +221,8 @@ void* g_motion_get_y = nullptr;
 uint8_t* g_launcher_base = nullptr;
 const miui_home_profiles::LauncherProfile* g_launcher_profile = nullptr;
 miui_home_runtime_profile::ResolutionStorage g_dynamic_profile_storage{};
+miui_home_runtime_profile::ResolutionStorage g_contextual_overlay_storage{};
+__attribute__((used)) volatile uint32_t g_contextual_overlay_state = 0;
 miui_home_dart_profile::ResolutionStorage g_dart_profile_storage{};
 __attribute__((used)) miui_home_dart_profile::ResolutionDiagnostics
         g_dart_profile_diagnostics{};
@@ -369,6 +376,13 @@ __attribute__((used)) volatile uint32_t g_runtime_status_query_count = 0;
 __attribute__((used)) volatile uint32_t g_runtime_status_response_count = 0;
 __attribute__((used)) volatile uint64_t g_runtime_status_last_nonce = 0;
 __attribute__((used)) volatile uint32_t g_runtime_status_last_state = 0;
+// Captured from the private Rust send_broadcast ABI (the Shared holder in x1).  The launcher no
+// longer publishes this singleton through a stable global, so retain the
+// live object observed on a legitimate native send and reuse it with the
+// existing strong-count guard.
+__attribute__((used)) void* g_last_broadcast_runtime = nullptr;
+extern "C" __attribute__((used, visibility("default")))
+        void* g_original_broadcast_send = nullptr;
 // Runtime profile state is the numeric ResolveStage value. It is published
 // last, after the immutable offsets and candidate counts below.
 __attribute__((used)) volatile uint32_t g_dynamic_profile_state = 0;
@@ -592,6 +606,15 @@ bool IsHyosSpawnerProcessFamily() {
     return StringsEqual(executable, kSpawnerPath);
 }
 
+// LSPosed's HYOS entry is initialized in the root spawner (whose cmdline is
+// currently `usap64`) before it forks the package process.  The old check
+// required the spawner itself to already advertise com.miui.home, which is no
+// longer true after the launcher update.  Keep the executable identity as the
+// hard boundary and accept the actual launcher child as well.
+bool IsLauncherHookProcess() {
+    return IsLauncherProcess() || IsHyosSpawnerProcessFamily();
+}
+
 void MarkLsposedLauncherSpecialized() {
     if (__atomic_exchange_n(&g_hyos_launcher_specialized, uint32_t{1},
                             __ATOMIC_ACQ_REL) != 0u) {
@@ -719,6 +742,73 @@ const miui_home_profiles::LauncherProfile* ResolveLauncherProfile(
             matched = profile;
         }
     }
+    if (matched != nullptr) {
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                "launcher static profile matched: id=%s entry=0x%zx base=%p",
+                matched->id, matched->entry_offset, base);
+
+        // Static profiles intentionally contain only immutable launcher
+        // identity and the side boundary. New Xiaomi builds may retain the
+        // contextual-search graph while changing its offsets, so resolve the
+        // optional graph independently and overlay it without weakening the
+        // already validated static profile.
+        const bool contextual_missing =
+                matched->contextual_long_press_handler_offset == 0u &&
+                matched->contextual_search_invoke_offset == 0u;
+        if (contextual_missing) {
+            uint32_t expected_overlay = 0u;
+            if (__atomic_compare_exchange_n(
+                        &g_contextual_overlay_state, &expected_overlay,
+                        uint32_t{1}, false, __ATOMIC_ACQ_REL,
+                        __ATOMIC_ACQUIRE)) {
+                miui_home_runtime_profile::ResolutionDiagnostics diagnostics{};
+                const bool overlay =
+                        miui_home_runtime_profile::ResolveContextualSearchOverlay(
+                                base, matched, &g_contextual_overlay_storage,
+                                &diagnostics);
+                __atomic_store_n(&g_dynamic_contextual_support_candidate_count,
+                        diagnostics.contextual_support_candidate_count,
+                        __ATOMIC_RELAXED);
+                __atomic_store_n(&g_dynamic_contextual_invoke_candidate_count,
+                        diagnostics.contextual_invoke_candidate_count,
+                        __ATOMIC_RELAXED);
+                __atomic_store_n(
+                        &g_dynamic_contextual_long_press_candidate_count,
+                        diagnostics.contextual_long_press_candidate_count,
+                        __ATOMIC_RELAXED);
+                __atomic_store_n(&g_dynamic_contextual_resolved,
+                        diagnostics.contextual_resolved, __ATOMIC_RELAXED);
+                __atomic_store_n(&g_dynamic_contextual_search_invoke_offset,
+                        diagnostics.contextual_search_invoke_offset,
+                        __ATOMIC_RELAXED);
+                __atomic_store_n(
+                        &g_dynamic_contextual_long_press_handler_offset,
+                        diagnostics.contextual_long_press_handler_offset,
+                        __ATOMIC_RELAXED);
+                __atomic_store_n(&g_contextual_overlay_state,
+                        static_cast<uint32_t>(diagnostics.stage),
+                        __ATOMIC_RELEASE);
+                if (overlay) {
+                    matched = &g_contextual_overlay_storage.profile;
+                    Log(ANDROID_LOG_INFO,
+                        "resolved contextual-search overlay for static launcher profile");
+                } else {
+                    __android_log_print(
+                            ANDROID_LOG_WARN, kLogTag,
+                            "contextual-search overlay unavailable: stage=%u support=%u invoke=%u long_press=%u",
+                            static_cast<uint32_t>(diagnostics.stage),
+                            diagnostics.contextual_support_candidate_count,
+                            diagnostics.contextual_invoke_candidate_count,
+                            diagnostics.contextual_long_press_candidate_count);
+                }
+            } else if (__atomic_load_n(&g_contextual_overlay_state,
+                                       __ATOMIC_ACQUIRE) ==
+                    static_cast<uint32_t>(
+                            miui_home_runtime_profile::ResolveStage::kComplete)) {
+                matched = &g_contextual_overlay_storage.profile;
+            }
+        }
+    }
     const auto* current = AtomicLoad(&g_launcher_profile);
     if (matched == nullptr && current == nullptr) {
         uint32_t expected_state = static_cast<uint32_t>(
@@ -784,8 +874,19 @@ const miui_home_profiles::LauncherProfile* ResolveLauncherProfile(
                 Log(ANDROID_LOG_INFO,
                     "resolved unique runtime side-boundary launcher profile");
             } else {
-                Log(ANDROID_LOG_ERROR,
-                    "runtime side-boundary launcher profile rejected");
+                __android_log_print(
+                        ANDROID_LOG_ERROR, kLogTag,
+                        "runtime side-boundary launcher profile rejected: "
+                        "stage=%u side=%u runtime=%u rstring=%u "
+                        "contextual=%u/%u/%u xiaoai=%u",
+                        static_cast<uint32_t>(diagnostics.stage),
+                        diagnostics.side_candidate_count,
+                        diagnostics.runtime_confirmation_count,
+                        diagnostics.rstring_candidate_count,
+                        diagnostics.contextual_support_candidate_count,
+                        diagnostics.contextual_invoke_candidate_count,
+                        diagnostics.contextual_long_press_candidate_count,
+                        diagnostics.xiaoai_candidate_count);
             }
         }
     }
@@ -1021,6 +1122,24 @@ bool IntentActionEquals(void* intent, const char* expected) {
             action.length == ConstStringLength(expected) &&
             memcmp(action.data, expected, action.length) == 0;
     return matches;
+}
+
+extern "C" void MiuiHomeHyosCaptureBroadcastRuntime(void* runtime) {
+    void* holder = runtime;
+    void* shared = nullptr;
+    if (reinterpret_cast<uintptr_t>(holder) >= 0x100000000ull) {
+        shared = *reinterpret_cast<void**>(holder);
+    }
+    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                        "private broadcast send runtime_holder=%p shared=%p",
+                        holder, shared);
+    // The private bridge occasionally invokes this symbol for an error path
+    // with a small tagged value in x0.  Never retain such a value as an Arc
+    // object; raw_inc_strong would deliberately trap on it.
+    if (reinterpret_cast<uintptr_t>(shared) >= 0x100000000ull) {
+        __atomic_store_n(&g_last_broadcast_runtime, shared,
+                         __ATOMIC_RELEASE);
+    }
 }
 
 bool HasArbiterStateMarker(void* intent) {
@@ -1272,10 +1391,19 @@ bool SendNativeBroadcast(const char* action, void* extras) {
     BundleDropFn bundle_drop = ResolveLauncherSymbol<BundleDropFn>(
             "Bundle_drop");
     const auto* profile = CurrentLauncherProfile();
+    void* captured_runtime = __atomic_load_n(&g_last_broadcast_runtime,
+                                             __ATOMIC_ACQUIRE);
+    const uint32_t runtime_state = g_launcher_base != nullptr && profile != nullptr
+            ? AtomicLoad(reinterpret_cast<uint32_t*>(
+                    g_launcher_base + profile->runtime_state_offset))
+            : 0u;
     if (g_launcher_base == nullptr || profile == nullptr ||
-            AtomicLoad(reinterpret_cast<uint32_t*>(
-                    g_launcher_base + profile->runtime_state_offset)) !=
-                    profile->runtime_ready_value) {
+            (captured_runtime == nullptr &&
+             runtime_state != profile->runtime_ready_value)) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                "native broadcast rejected: base=%p profile=%p state=0x%x expected=0x%x",
+                g_launcher_base, profile, runtime_state,
+                profile != nullptr ? profile->runtime_ready_value : 0u);
         AtomicStore(&g_native_broadcast_send_state, uint32_t{2});
         return false;
     }
@@ -1309,9 +1437,18 @@ bool SendNativeBroadcast(const char* action, void* extras) {
         }
         set_extras(intent, extras);
     }
-    void* runtime = AtomicLoad(reinterpret_cast<void**>(
-            g_launcher_base + profile->runtime_pointer_offset));
+    void* runtime = captured_runtime;
+    if (reinterpret_cast<uintptr_t>(runtime) < 0x100000000ull) {
+        runtime = nullptr;
+    }
     if (runtime == nullptr) {
+        runtime = AtomicLoad(reinterpret_cast<void**>(
+                g_launcher_base + profile->runtime_pointer_offset));
+    }
+    if (runtime == nullptr) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                "native broadcast rejected: runtime pointer null offset=0x%zx state=0x%x",
+                profile->runtime_pointer_offset, runtime_state);
         AtomicStore(&g_native_broadcast_send_state, uint32_t{7});
         intent_drop(intent);
         return false;
@@ -1579,12 +1716,19 @@ bool HandleRuntimeStatusQuery(void* intent) {
     IntentGetExtrasFn get_extras = ResolveLauncherSymbol<IntentGetExtrasFn>(
             "Intent_get_extras");
     if (intent == nullptr || get_sender == nullptr || get_extras == nullptr) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                "runtime status query rejected: symbols intent=%p sender=%p extras=%p",
+                intent, reinterpret_cast<void*>(get_sender),
+                reinterpret_cast<void*>(get_extras));
         return false;
     }
     const BorrowedROptionRString sender = get_sender(intent);
     if (sender.tag != 0u || sender.data == nullptr ||
             sender.length != ConstStringLength(kSystemUiPackage) ||
             memcmp(sender.data, kSystemUiPackage, sender.length) != 0) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                "runtime status query rejected: sender tag=%u data=%p length=%zu",
+                sender.tag, sender.data, sender.length);
         return false;
     }
     void* extras = get_extras(intent);
@@ -1595,6 +1739,10 @@ bool HandleRuntimeStatusQuery(void* intent) {
             !ReadNativeI32(extras, "sender_uid", &sender_uid) ||
             !ReadNativeI64(extras, kRuntimeStatusNonceExtra, &nonce) ||
             nonce <= 0 || !VerifySystemUiUid(sender_uid)) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                "runtime status query rejected: extras=%p query=%u uid=%d nonce=%lld",
+                extras, query ? 1u : 0u, sender_uid,
+                static_cast<long long>(nonce));
         return false;
     }
     __atomic_fetch_add(&g_runtime_status_query_count, uint32_t{1},
@@ -1605,6 +1753,10 @@ bool HandleRuntimeStatusQuery(void* intent) {
     const bool profile_resolved = profile != nullptr && g_launcher_base != nullptr;
     const bool dynamic_profile = profile_resolved &&
             StringsEqual(profile->id, "runtime-side-v1");
+    const bool contextual_dynamic = profile_resolved &&
+            profile->contextual_long_press_handler_offset != 0u &&
+            profile->contextual_search_invoke_offset != 0u &&
+            (dynamic_profile || profile == &g_contextual_overlay_storage.profile);
     const uint32_t business_state = AtomicLoad(&g_business_hook_state);
     const uint32_t bridge_state = AtomicLoad(&g_arbiter_bridge_hook_state);
     const auto* feature_profile = CurrentDartFeatureProfile();
@@ -1633,6 +1785,12 @@ bool HandleRuntimeStatusQuery(void* intent) {
     const bool native_ready = profile_resolved && business_state == 3u &&
             bridge_state == 3u && drawer_ready && overview_ready &&
             editing_ready;
+    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+            "runtime status query accepted: nonce=%lld profile=%u native=%u business=%u bridge=%u drawer=%u overview=%u editing=%u",
+            static_cast<long long>(nonce), profile_resolved ? 1u : 0u,
+            native_ready ? 1u : 0u, business_state, bridge_state,
+            drawer_ready ? 1u : 0u, overview_ready ? 1u : 0u,
+            editing_ready ? 1u : 0u);
     BundleDefaultFn bundle_default = ResolveLauncherSymbol<BundleDefaultFn>(
             "Bundle_default");
     if (bundle_default == nullptr) {
@@ -1648,10 +1806,7 @@ bool HandleRuntimeStatusQuery(void* intent) {
             !AddBundleBool(response, "status_native_profile_dynamic",
                            dynamic_profile) ||
             !AddBundleBool(response, "status_native_contextual_dynamic",
-                           dynamic_profile &&
-                                   profile->contextual_long_press_handler_offset !=
-                                           0u &&
-                                   profile->contextual_search_invoke_offset != 0u) ||
+                           contextual_dynamic) ||
             !AddBundleBool(response, "status_native_drawer_state_ready",
                            drawer_ready) ||
             !AddBundleBool(response, "status_native_overview_state_ready",
@@ -1716,6 +1871,13 @@ bool HandleRuntimeStatusQuery(void* intent) {
         __atomic_fetch_add(&g_runtime_status_response_count, uint32_t{1},
                            __ATOMIC_RELAXED);
     }
+    __android_log_print(sent ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, kLogTag,
+            "runtime status response sent=%u nonce=%lld state=%u send_state=%u result=%u options=%u",
+            sent ? 1u : 0u, static_cast<long long>(nonce),
+            AtomicLoad(&g_runtime_status_last_state),
+            AtomicLoad(&g_native_broadcast_send_state),
+            AtomicLoad(&g_native_broadcast_result_tag),
+            AtomicLoad(&g_native_broadcast_options_consumed));
     return sent;
 }
 
@@ -1743,7 +1905,7 @@ bool TryQuerySystemUiArbiter(uint32_t maximum_attempts) {
 }
 
 void TryInstallArbiterBridge() {
-    if (!IsLauncherProcess() ||
+    if (!IsLauncherHookProcess() ||
             AtomicLoad(&g_business_hook_state) != uint32_t{3}) {
         return;
     }
@@ -1760,15 +1922,20 @@ void TryInstallArbiterBridge() {
             kBroadcastPrivatePath, nullptr);
     size_t receiver_size = 0u;
     size_t broadcast_size = 0u;
+    size_t send_size = 0u;
     void* receiver_on_receive = resolver == nullptr ? nullptr
             : LookupNativeSymbol(resolver, kBroadcastReceiverOnReceiveSymbol,
                                  false, &receiver_size);
     void* broadcast_intent_with_feature = resolver == nullptr ? nullptr
             : LookupNativeSymbol(resolver, kBroadcastIntentWithFeatureSymbol,
                                  false, &broadcast_size);
+    void* broadcast_send = resolver == nullptr ? nullptr
+            : LookupNativeSymbol(resolver, kBroadcastSendSymbol, false,
+                                 &send_size);
     if (resolver != nullptr) FreeNativeSymbolResolver(resolver);
     if (receiver_on_receive == nullptr || broadcast_intent_with_feature == nullptr ||
-            receiver_size == 0u || broadcast_size == 0u) {
+            broadcast_send == nullptr || receiver_size == 0u ||
+            broadcast_size == 0u || send_size == 0u) {
         // The broadcast dylib is not a guaranteed dependency at launcher
         // entry. HookDlopen/HookDlsym will retry after later native loading.
         AtomicStore(&g_native_receiver_state, uint32_t{98});
@@ -1785,6 +1952,20 @@ void TryInstallArbiterBridge() {
                 AtomicLoad(&g_native_receiver_state) == uint32_t{102}
                         ? uint32_t{2} : uint32_t{4});
         return;
+    }
+    if (AtomicLoad(&g_original_broadcast_send) == nullptr) {
+        if (InstallInlineHook(
+                    broadcast_send,
+                    reinterpret_cast<void*>(MiuiHomeHyosBroadcastSendHook),
+                    &g_original_broadcast_send) != kHookSuccess ||
+                AtomicLoad(&g_original_broadcast_send) == nullptr) {
+            RestoreBroadcastIntentWithFeatureGot();
+            AtomicStore(&g_native_receiver_state, uint32_t{107});
+            AtomicStore(&g_arbiter_bridge_hook_state, uint32_t{4});
+            return;
+        }
+        Log(ANDROID_LOG_INFO,
+            "capturing private broadcast runtime from send_broadcast");
     }
     if (InstallInlineHook(
                 receiver_on_receive,
@@ -3750,6 +3931,10 @@ bool InstallClaimedBusinessHooksForProfile(void* app_entry_point, bool repair) {
              MatchesCode(base, profile->touch_processor_offset,
                          profile->touch_processor_prologue,
                          profile->touch_processor_prologue_size));
+    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+            "launcher profile fingerprints: id=%s side=0x%zx match=%d legacy=%d",
+            profile->id, profile->side_handler_offset,
+            side_matches ? 1 : 0, legacy_matches ? 1 : 0);
     if (!side_matches || !legacy_matches) {
         AtomicStore(&g_business_hook_state, uint32_t{5});
         Log(ANDROID_LOG_ERROR,
@@ -4018,7 +4203,7 @@ void RecordLauncherEntryObservation() {
 
 void ObserveLauncherHandle(const char* filename, void* result) {
     if (result != nullptr && IsLauncherLibraryPath(filename) &&
-            IsLauncherProcess()) {
+            IsLauncherHookProcess()) {
         RecordLauncherLibraryObservation();
         AtomicStore(&g_launcher_handle, result);
         Log(ANDROID_LOG_INFO, "matched MiuiHome libapp_launcher.so");
@@ -4036,6 +4221,32 @@ void ObserveLauncherSymbol(void* handle, const char* symbol, void* result) {
     }
 }
 
+void OnLsposedLibraryLoaded(const char* name, void* handle);
+
+// The HYOS launcher can preload its native images before LSPosed invokes the
+// module's native_init entry.  LSPosed's on-library-loaded callback only
+// covers subsequent loads, so explicitly replay the small set of library
+// identities used by this payload.  RTLD_NOLOAD is intentional: this must not
+// cause any new native dependency to be loaded merely because the module was
+// initialized.
+void BackfillLoadedLibrary(const char* name) {
+    if (name == nullptr) return;
+    void* handle = dlopen(name, RTLD_NOW | RTLD_NOLOAD);
+    if (handle == nullptr) return;
+    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                        "backfilling already-loaded native image: %s", name);
+    OnLsposedLibraryLoaded(name, handle);
+    dlclose(handle);
+}
+
+void BackfillLoadedLibraries() {
+    if (!IsLauncherHookProcess()) return;
+    BackfillLoadedLibrary("libapp_launcher.so");
+    BackfillLoadedLibrary(kHyperRuntimeName);
+    BackfillLoadedLibrary("libapp.so");
+    BackfillLoadedLibrary(kBroadcastPrivatePath);
+}
+
 void OnLsposedLibraryLoaded(const char* name, void* handle) {
     if (name == nullptr || handle == nullptr) return;
 
@@ -4043,7 +4254,7 @@ void OnLsposedLibraryLoaded(const char* name, void* handle) {
         EnsureLsposedMadviseGuard(name);
     }
     ObserveLauncherHandle(name, handle);
-    if (IsLauncherLibraryPath(name) && IsLauncherProcess()) {
+    if (IsLauncherLibraryPath(name) && IsLauncherHookProcess()) {
         if (!EnsureLsposedMadviseGuard()) {
             Log(ANDROID_LOG_ERROR,
                 "LSPosed launcher hooks rejected without madvise guard");
@@ -4062,7 +4273,7 @@ void OnLsposedLibraryLoaded(const char* name, void* handle) {
         }
     }
 
-    if (IsDartLibraryPath(name) && IsLauncherProcess()) {
+    if (IsDartLibraryPath(name) && IsLauncherHookProcess()) {
         const auto* profile = ResolveDartFeatureProfile(handle);
         if (profile != nullptr) {
             TryInstallDartDrawerStateHook(handle, profile);
@@ -4100,10 +4311,22 @@ void MiuiHomeHyosInputMonitorPilferImpl(void* monitor, uintptr_t return_pc) {
 
 extern "C" __attribute__((visibility("default"), unused))
 NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
-    if (!InitializeLsposedHookBackend(entries)) {
+    const bool backend_ready = InitializeLsposedHookBackend(entries);
+    const bool hyos_process = IsHyosSpawnerProcessFamily();
+    const bool launcher_process = IsLauncherProcess();
+    __android_log_print(
+            ANDROID_LOG_INFO, kLogTag,
+            "native_init checks: entries=%u hook=%u unhook=%u backend=%u "
+            "hyos_exe=%u launcher_cmdline=%u",
+            entries != nullptr ? 1u : 0u,
+            entries != nullptr && entries->hookFunc != nullptr ? 1u : 0u,
+            entries != nullptr && entries->unhookFunc != nullptr ? 1u : 0u,
+            backend_ready ? 1u : 0u, hyos_process ? 1u : 0u,
+            launcher_process ? 1u : 0u);
+    if (!backend_ready) {
         return nullptr;
     }
-    if (!IsHyosSpawnerProcessFamily() || !IsLauncherProcess()) {
+    if (!hyos_process) {
         Log(ANDROID_LOG_WARN,
             "LSPosed native entry rejected a non-launcher HYOS process");
         return nullptr;
@@ -4111,5 +4334,6 @@ NativeOnModuleLoaded native_init(const NativeAPIEntries* entries) {
     MarkLsposedLauncherSpecialized();
     Log(ANDROID_LOG_INFO,
         "LSPosed native hook initialized in MiuiHome HYOS child");
+    BackfillLoadedLibraries();
     return OnLsposedLibraryLoaded;
 }

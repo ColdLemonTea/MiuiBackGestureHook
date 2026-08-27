@@ -28,6 +28,17 @@ SIDE_PROLOGUE = struct.pack(
     0xA9155FF8,
     0xA91657F6,
 )
+SIDE_6144_PROLOGUE = struct.pack(
+    "<8I",
+    0x6DB82BEB,
+    0x6D0123E9,
+    0xA9027BFD,
+    0xA9036FFC,
+    0xA90467FA,
+    0xA9055FF8,
+    0xA90657F6,
+    0xA9074FF4,
+)
 ENTRY_PREFIX = struct.pack(
     "<9I",
     0xD104C3FF,
@@ -57,6 +68,7 @@ IMPORT_NAMES = (
     "PackageManager_has_system_feature",
     "malloc",
     "memcpy",
+    "Intent_set_action",
 )
 
 
@@ -212,29 +224,28 @@ def call_targets(image: LoadedElf, offset: int, import_name: str) -> bool:
 
 def resolve_side(image: LoadedElf) -> tuple[int, int, int]:
     matches: list[tuple[int, int]] = []
-    for offset in image.executable_offsets(0x108):
-        if image.image[offset : offset + len(SIDE_PROLOGUE)] != SIDE_PROLOGUE:
+    expected_imports = (
+        IMPORT_NAMES[0], IMPORT_NAMES[1], IMPORT_NAMES[2],
+        IMPORT_NAMES[1], IMPORT_NAMES[3],
+    )
+    for offset in image.executable_offsets(0x1C4):
+        prologue = image.image[offset : offset + len(SIDE_PROLOGUE)]
+        if prologue not in (SIDE_PROLOGUE, SIDE_6144_PROLOGUE):
             continue
-        edge_instruction = image.u32(offset + 0x30)
-        edge = (edge_instruction >> 10) & 0xFFF
-        if (
-            edge_instruction & 0xFFC003FF != 0x39400014
-            or edge < 0x40
-            or edge > 0x400
-            or edge & 3
-            or image.u32(offset + 0x60) != 0xAA1503E0
-            or not call_targets(image, offset + 0x64, IMPORT_NAMES[0])
-            or image.u32(offset + 0xD8) != 0xAA1503E0
-            or not call_targets(image, offset + 0xDC, IMPORT_NAMES[1])
-            or image.u32(offset + 0xE4) != 0xAA1503E0
-            or not call_targets(image, offset + 0xE8, IMPORT_NAMES[2])
-            or image.u32(offset + 0xEC) != 0xAA1503E0
-            or not call_targets(image, offset + 0xF8, IMPORT_NAMES[1])
-            or image.u32(offset + 0x100) != 0xAA1503E0
-            or not call_targets(image, offset + 0x104, IMPORT_NAMES[3])
-        ):
-            continue
-        matches.append((offset, edge))
+        edge = None
+        call_index = 0
+        for cursor in range(0x20, 0x1C4, 4):
+            instruction = image.u32(offset + cursor)
+            if edge is None and instruction & 0xFFC003FF == 0x39400014:
+                candidate_edge = (instruction >> 10) & 0xFFF
+                if 0x40 <= candidate_edge <= 0x400 and not candidate_edge & 3:
+                    edge = candidate_edge
+            if call_index < len(expected_imports) and call_targets(
+                image, offset + cursor, expected_imports[call_index]
+            ):
+                call_index += 1
+        if edge is not None and call_index == len(expected_imports):
+            matches.append((offset, edge))
     if len(matches) != 1:
         raise ValueError(f"expected one side boundary, found {len(matches)}")
     return matches[0][0], matches[0][1], len(matches)
@@ -266,9 +277,69 @@ def resolve_runtime(image: LoadedElf) -> tuple[int, int, int]:
         ):
             continue
         matches.append((pointer, state))
-    if not matches or len(set(matches)) != 1:
-        raise ValueError(f"runtime graph is not unique: {matches}")
-    return matches[0][0], matches[0][1], len(matches)
+    if matches and len(set(matches)) == 1:
+        return matches[0][0], matches[0][1], len(matches)
+
+    modern_helpers: list[tuple[int, int, int]] = []
+    for offset in image.executable_offsets(0x3C):
+        words = [image.u32(offset + index) for index in range(0, 0x3C, 4)]
+        if words[:3] != [0xA9BE7BFD, 0xF9000BF3, 0x910003FD]:
+            continue
+        state = decode_address_pair(image, offset + 0x0C, 8)
+        pointer_page = decode_adrp(image.u32(offset + 0x1C), offset + 0x1C, 8)
+        pointer_immediate = decode_ldr(image.u32(offset + 0x20), 19, 8)
+        if (
+            state is None
+            or pointer_page is None
+            or pointer_immediate is None
+            or image.u32(offset + 0x14) != 0x88DFFD08
+            or image.u32(offset + 0x18) & 0xFF00001F != 0x35000008
+            or image.u32(offset + 0x24) != 0xAA1303E0
+            or not call_targets(image, offset + 0x28, "Runtime_inc_strong")
+            or image.u32(offset + 0x2C) != 0xAA1303E0
+            or image.u32(offset + 0x30) != 0xF9400BF3
+            or image.u32(offset + 0x34) != 0xA8C27BFD
+            or image.u32(offset + 0x38) != 0xD65F03C0
+        ):
+            continue
+        pointer = pointer_page + pointer_immediate
+        if (
+            state != pointer + 8
+            or not image.contains(pointer, 8, PF_R | PF_W, PF_X)
+            or not image.contains(state, 4, PF_R | PF_W, PF_X)
+        ):
+            continue
+        modern_helpers.append((offset, pointer, state))
+    if len(modern_helpers) != 1:
+        raise ValueError(f"modern runtime helper is not unique: {modern_helpers}")
+    helper, pointer, state = modern_helpers[0]
+
+    def mov_from_x0(instruction: int) -> int | None:
+        if instruction & 0xFFE0FFE0 != 0xAA0003E0:
+            return None
+        return instruction & 0x1F
+
+    modern_confirmations = 0
+    for offset in image.executable_offsets(0x10):
+        if (
+            not call_targets(image, offset, "Runtime_get_application_thread_binder")
+            or offset < 8
+            or decode_bl(image, offset - 8) != helper
+        ):
+            continue
+        saved = mov_from_x0(image.u32(offset - 4))
+        if saved is None:
+            continue
+        if image.u32(offset + 8) & 0xFFFFFFE0 != 0xAA0003E0 | saved << 16:
+            continue
+        if not call_targets(image, offset + 0x0C, "Runtime_dec_strong"):
+            continue
+        modern_confirmations += 1
+    if modern_confirmations < 2:
+        raise ValueError(
+            f"modern runtime graph confirmations too low: {modern_confirmations}"
+        )
+    return pointer, state, modern_confirmations
 
 
 def resolve_rstring(image: LoadedElf) -> tuple[int, int]:
@@ -293,44 +364,101 @@ def resolve_rstring(image: LoadedElf) -> tuple[int, int]:
         ):
             continue
         matches.append(first)
-    if len(matches) != 1:
+    if len(matches) == 1:
+        return matches[0], len(matches)
+    action_calls = [
+        offset
+        for offset in image.executable_offsets(4)
+        if call_targets(image, offset, "Intent_set_action")
+    ]
+    counts: dict[int, int] = {}
+    for call in action_calls:
+        seen: set[int] = set()
+        for offset in range(max(0, call - 0x120), call, 4):
+            instruction = image.u32(offset)
+            if instruction & 0x9F000000 != 0x90000000:
+                continue
+            register = instruction & 0x1F
+            target = decode_address_pair(image, offset, register)
+            if target is None or not image.contains(target, 8, PF_R, PF_X):
+                continue
+            if target not in seen:
+                seen.add(target)
+                counts[target] = counts.get(target, 0) + 1
+    if not action_calls or not counts:
         raise ValueError(f"expected one RString constructor, found {len(matches)}")
-    return matches[0], len(matches)
+    winner_count = max(counts.values())
+    winners = [target for target, count in counts.items() if count == winner_count]
+    if len(winners) != 1 or winner_count * 10 < len(action_calls) * 7:
+        raise ValueError(f"RString action anchor is ambiguous: {counts}")
+    return winners[0], winner_count
 
 
 def resolve_contextual_support(image: LoadedElf) -> int:
+    def feature_helper_6144(offset: int) -> bool:
+        prologue = (
+            0xD10203FF, 0xA9067BFD, 0xA9074FF4,
+            0x910183FD, 0xAA0003F3, 0x9100C3E8,
+        )
+        return (
+            image.image[offset : offset + 24] == struct.pack("<6I", *prologue)
+            and image.u32(offset + 0x18) == 0xAA0103E0
+            and image.u32(offset + 0x1C) == 0xAA0203E1
+            and image.u32(offset + 0x20) == 0xAA0303E2
+            and image.u32(offset + 0x24) == 0x2A1F03E3
+            and call_targets(image, offset + 0x28,
+                             "PackageManager_has_system_feature")
+        )
+
+    modern_prologue = (
+        0xD10243FF, 0xA9067BFD, 0xF9003BF5,
+        0xA9084FF4, 0x910183FD,
+    )
     prologue = (0xD10383FF, 0xA90C7BFD, 0xA90D4FF4, 0x910303FD)
     prologue_bytes = struct.pack("<4I", *prologue)
     matches: list[int] = []
     for offset in image.executable_offsets(0xD4):
-        if image.image[offset : offset + len(prologue_bytes)] != prologue_bytes:
+        if image.image[offset : offset + len(prologue_bytes)] == prologue_bytes:
+            first_page = decode_adrp(image.u32(offset + 0x14), offset + 0x14, 1)
+            first_add = decode_add(image.u32(offset + 0x18), 1, 1)
+            second_page = decode_adrp(image.u32(offset + 0xB4), offset + 0xB4, 1)
+            second_add = decode_add(image.u32(offset + 0xB8), 1, 1)
+            if (
+                call_targets(image, offset + 0x10, "PackageManager_default")
+                and first_page is not None and first_add is not None
+                and image.contains(first_page + first_add, 33, PF_R, PF_X)
+                and image.u32(offset + 0x1C) == 0x910143E8
+                and image.u32(offset + 0x20) == 0x52800422
+                and image.u32(offset + 0x24) == 0x2A1F03E3
+                and image.u32(offset + 0x28) == 0xAA0003F3
+                and call_targets(image, offset + 0x2C,
+                                 "PackageManager_has_system_feature")
+                and second_page is not None and second_add is not None
+                and image.contains(second_page + second_add, 44, PF_R, PF_X)
+                and image.u32(offset + 0xC0) == 0x910143E8
+                and image.u32(offset + 0xC4) == 0xAA1303E0
+                and image.u32(offset + 0xC8) == 0x52800582
+                and image.u32(offset + 0xCC) == 0x2A1F03E3
+                and call_targets(image, offset + 0xD0,
+                                 "PackageManager_has_system_feature")
+            ):
+                matches.append(offset)
             continue
-        first_page = decode_adrp(image.u32(offset + 0x14), offset + 0x14, 1)
-        first_add = decode_add(image.u32(offset + 0x18), 1, 1)
-        second_page = decode_adrp(image.u32(offset + 0xB4), offset + 0xB4, 1)
-        second_add = decode_add(image.u32(offset + 0xB8), 1, 1)
+        modern_bytes = struct.pack("<5I", *modern_prologue)
+        if image.image[offset : offset + len(modern_bytes)] != modern_bytes:
+            continue
+        first = decode_address_pair(image, offset + 0x1C, 2)
+        second = decode_address_pair(image, offset + 0x58, 2)
+        helper = decode_bl(image, offset + 0x30)
         if (
-            not call_targets(image, offset + 0x10, "PackageManager_default")
-            or first_page is None
-            or first_add is None
-            or not image.contains(first_page + first_add, 33, PF_R, PF_X)
-            or image.u32(offset + 0x1C) != 0x910143E8
-            or image.u32(offset + 0x20) != 0x52800422
-            or image.u32(offset + 0x24) != 0x2A1F03E3
-            or image.u32(offset + 0x28) != 0xAA0003F3
-            or not call_targets(
-                image, offset + 0x2C, "PackageManager_has_system_feature"
-            )
-            or second_page is None
-            or second_add is None
-            or not image.contains(second_page + second_add, 44, PF_R, PF_X)
-            or image.u32(offset + 0xC0) != 0x910143E8
-            or image.u32(offset + 0xC4) != 0xAA1303E0
-            or image.u32(offset + 0xC8) != 0x52800582
-            or image.u32(offset + 0xCC) != 0x2A1F03E3
-            or not call_targets(
-                image, offset + 0xD0, "PackageManager_has_system_feature"
-            )
+            not call_targets(image, offset + 0x14, "PackageManager_default")
+            or first is None or second is None
+            or image.image[first : first + 33] != b"android.software.contextualsearch"
+            or image.image[second : second + 44]
+            != b"com.google.android.feature.CONTEXTUAL_SEARCH"
+            or helper is None
+            or decode_bl(image, offset + 0x70) != helper
+            or not feature_helper_6144(helper)
         ):
             continue
         matches.append(offset)
@@ -352,15 +480,21 @@ def resolve_contextual_invoke(image: LoadedElf, support: int) -> int:
     )
     prologue_bytes = struct.pack("<8I", *prologue)
     matches: list[int] = []
+    modern = struct.pack(
+        "<7I", 0xD10403FF, 0xA90C7BFD, 0xF9006BF7,
+        0xA90E57F6, 0xA90F4FF4, 0x910303FD, 0x2A0003F3
+    )
     for offset in image.executable_offsets(0x2C):
-        if image.image[offset : offset + len(prologue_bytes)] != prologue_bytes:
-            continue
-        if (
-            decode_bl(image, offset + 0x20) != support
-            or image.u32(offset + 0x28) & 0xFFF8001F != 0x36000000
-        ):
-            continue
-        matches.append(offset)
+        if image.image[offset : offset + len(prologue_bytes)] == prologue_bytes:
+            if (decode_bl(image, offset + 0x20) == support
+                    and image.u32(offset + 0x28) & 0xFFF8001F
+                    == 0x36000000):
+                matches.append(offset)
+        elif (image.image[offset : offset + len(modern)] == modern
+              and image.u32(offset + 0x1C) == 0x9100E3F4
+              and image.u32(offset + 0x20) == 0xB9000FE0
+              and decode_bl(image, offset + 0x24) == support):
+            matches.append(offset)
     if len(matches) != 1:
         raise ValueError(f"expected one contextual invoke function, found {len(matches)}")
     return matches[0]
@@ -388,9 +522,38 @@ def resolve_contextual_long_press(image: LoadedElf) -> int:
         0x118: 0x91004100,
         0x11C: 0xD63F0120,
     }
+    modern_prologue = struct.pack(
+        "<4I", 0xD10183FF, 0xA9047BFD, 0xA9054FF4, 0x910103FD
+    )
     matches: list[int] = []
     for offset in image.executable_offsets(0x140):
         if image.image[offset : offset + len(prologue_bytes)] != prologue_bytes:
+            if image.image[offset : offset + len(modern_prologue)] != modern_prologue:
+                continue
+            if (
+                image.u32(offset + 0x14) != 0x2A0103F3
+                or image.u32(offset + 0x18) != 0xAA0003F4
+                or image.u32(offset + 0x74) != 0xF9400288
+                or image.u32(offset + 0x78) != 0x52800029
+                or image.u32(offset + 0x7C) != 0x91004108
+                or image.u32(offset + 0x80) != 0x089FFD09
+                or image.u32(offset + 0x84) != 0xF9400688
+                or image.u32(offset + 0x88) & 0xFF00001F != 0xB4000008
+                or image.u32(offset + 0x8C) != 0xF9400A89
+                or image.u32(offset + 0x90) != 0x2A1303E1
+                or image.u32(offset + 0x94) != 0xF940092A
+                or image.u32(offset + 0x98) != 0xF9401529
+                or image.u32(offset + 0x9C) != 0xD100054A
+                or image.u32(offset + 0xA0) != 0x927CED4A
+                or image.u32(offset + 0xA4) != 0x8B0A0108
+                or image.u32(offset + 0xA8) != 0x91004100
+                or image.u32(offset + 0xAC) != 0xD63F0120
+                or decode_bl(image, offset + 0xB8) is None
+                or image.u32(offset + 0xBC) & 0xFF00001F != 0xB4000000
+                or not call_targets(image, offset + 0xC0, "Bundle_drop")
+            ):
+                continue
+            matches.append(offset)
             continue
         fallback = decode_bl(image, offset + 0x134)
         if (
@@ -473,10 +636,22 @@ def resolve_xiaoai_visibility(image: LoadedElf) -> int:
 
 
 def resolve(image: LoadedElf, entry: int) -> Resolution:
-    if (
-        not image.contains(entry, 48, PF_R | PF_X)
-        or image.image[entry : entry + len(ENTRY_PREFIX)] != ENTRY_PREFIX
-    ):
+    exact_entry = image.contains(entry, 48, PF_R | PF_X) and (
+        image.image[entry : entry + len(ENTRY_PREFIX)] == ENTRY_PREFIX
+    )
+    if not exact_entry:
+        words = [image.u32(entry + index * 4) for index in range(8)]
+        saves = sum(
+            1 for word in words[1:]
+            if word & 0xFFC00000 == 0xA9000000
+            and (word >> 5) & 0x1F == 31
+        )
+        exact_entry = (
+            image.contains(entry, 48, PF_R | PF_X)
+            and words[0] & 0xFFC003FF == 0xD10003FF
+            and saves >= 2
+        )
+    if not exact_entry:
         raise ValueError("app_entry_point is outside the side-boundary family")
     side, edge, _ = resolve_side(image)
     pointer, state, confirmations = resolve_runtime(image)
@@ -553,8 +728,14 @@ def verify(profile: dict, path: Path) -> None:
         image.image[result.side] = original
 
     if result.contextual_long_press != 0:
-        original = image.image[result.contextual_long_press + 0xF4]
-        image.image[result.contextual_long_press + 0xF4] ^= 1
+        contextual_tail = (
+            0x80
+            if image.image[result.contextual_long_press : result.contextual_long_press + 4]
+            == struct.pack("<I", 0xD10183FF)
+            else 0xF4
+        )
+        original = image.image[result.contextual_long_press + contextual_tail]
+        image.image[result.contextual_long_press + contextual_tail] ^= 1
         try:
             without_contextual = resolve(image, entry)
             if (
@@ -569,7 +750,7 @@ def verify(profile: dict, path: Path) -> None:
                     f"{profile['id']} optional contextual failure damaged base profile"
                 )
         finally:
-            image.image[result.contextual_long_press + 0xF4] = original
+            image.image[result.contextual_long_press + contextual_tail] = original
 
     if result.xiaoai_boolean_return != 0:
         original = image.image[result.xiaoai_boolean_return]

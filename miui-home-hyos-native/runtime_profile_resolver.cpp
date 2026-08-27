@@ -25,6 +25,7 @@ constexpr char kRuntimeGetBinder[] =
         "Runtime_get_application_thread_binder";
 constexpr char kRuntimeDecStrong[] = "Runtime_dec_strong";
 constexpr char kBundleDefault[] = "Bundle_default";
+constexpr char kIntentSetAction[] = "Intent_set_action";
 constexpr char kBundleDrop[] = "Bundle_drop";
 constexpr char kBundleGetString[] = "Bundle_get_string";
 constexpr char kBundleGetBoolean[] = "Bundle_get_boolean";
@@ -37,6 +38,10 @@ constexpr char kMemcpy[] = "memcpy";
 constexpr uint32_t kSideFamilyPrologue[] = {
         0xd10603ffu, 0xfd008beau, 0x6d11a3e9u, 0xa912fbfdu,
         0xf9009ffcu, 0xa91467fau, 0xa9155ff8u, 0xa91657f6u,
+};
+constexpr uint32_t kSide6144Prologue[] = {
+        0x6db82bebu, 0x6d0123e9u, 0xa9027bfdu, 0xa9036ffcu,
+        0xa90467fau, 0xa9055ff8u, 0xa90657f6u, 0xa9074ff4u,
 };
 
 constexpr uint32_t kEntryFamilyPrefix[] = {
@@ -56,6 +61,26 @@ constexpr uint32_t kContextualInvokePrologue[] = {
 
 constexpr uint32_t kContextualLongPressPrologue[] = {
         0xd102c3ffu, 0xa9097bfdu, 0xa90a4ff4u, 0x910243fdu,
+};
+
+// Android 17 / 8.01.02.6144 moved the contextual-search Rust graph to a
+// smaller support helper and changed the Fn closure frame. Keep these
+// fingerprints structural: the resolver must prove the two exact feature
+// strings, the helper's PackageManager call, and the completion release store.
+constexpr uint32_t kContextualSupport6144Prologue[] = {
+        0xd10243ffu, 0xa9067bfdu, 0xf9003bf5u, 0xa9084ff4u,
+        0x910183fdu,
+};
+constexpr uint32_t kContextualFeatureHelper6144Prologue[] = {
+        0xd10203ffu, 0xa9067bfdu, 0xa9074ff4u, 0x910183fdu,
+        0xaa0003f3u, 0x9100c3e8u,
+};
+constexpr uint32_t kContextualInvoke6144Prologue[] = {
+        0xd10403ffu, 0xa90c7bfdu, 0xf9006bf7u, 0xa90e57f6u,
+        0xa90f4ff4u, 0x910303fdu, 0x2a0003f3u,
+};
+constexpr uint32_t kContextualLongPress6144Prologue[] = {
+        0xd10183ffu, 0xa9047bfdu, 0xa9054ff4u, 0x910103fdu,
 };
 
 struct LoadSegment {
@@ -495,47 +520,50 @@ bool MatchesWords(const ElfView& view, uintptr_t offset,
                   count * sizeof(uint32_t)) == 0;
 }
 
-bool DecodeSideEdge(const ElfView& view, uintptr_t side,
-                    uintptr_t* edge_offset) {
-    uint32_t instruction = 0u;
-    if (edge_offset == nullptr ||
-            !ReadInstruction(view, side + 0x30u, &instruction) ||
-            (instruction & 0xffc003ffu) != 0x39400014u) {
-        return false;
-    }
-    const uintptr_t edge = (instruction >> 10u) & 0xfffu;
-    if (edge < 0x40u || edge > 0x400u || (edge & 0x3u) != 0u) return false;
-    *edge_offset = edge;
-    return true;
-}
-
 bool IsSideCandidate(const ElfView& view, const RequiredImports& imports,
                      uintptr_t offset, uintptr_t* edge_offset) {
     uint32_t instruction = 0u;
-    return MatchesWords(view, offset, kSideFamilyPrologue,
-                        sizeof(kSideFamilyPrologue) /
-                                sizeof(kSideFamilyPrologue[0])) &&
-            DecodeSideEdge(view, offset, edge_offset) &&
-            ReadInstruction(view, offset + 0x60u, &instruction) &&
-            instruction == 0xaa1503e0u &&
-            CallTargetsImport(view, offset + 0x64u,
-                              imports.motion_action_masked) &&
-            ReadInstruction(view, offset + 0xd8u, &instruction) &&
-            instruction == 0xaa1503e0u &&
-            CallTargetsImport(view, offset + 0xdcu,
-                              imports.motion_action_index) &&
-            ReadInstruction(view, offset + 0xe4u, &instruction) &&
-            instruction == 0xaa1503e0u &&
-            CallTargetsImport(view, offset + 0xe8u,
-                              imports.motion_raw_x) &&
-            ReadInstruction(view, offset + 0xecu, &instruction) &&
-            instruction == 0xaa1503e0u &&
-            CallTargetsImport(view, offset + 0xf8u,
-                              imports.motion_action_index) &&
-            ReadInstruction(view, offset + 0x100u, &instruction) &&
-            instruction == 0xaa1503e0u &&
-            CallTargetsImport(view, offset + 0x104u,
-                              imports.motion_raw_y);
+    const bool legacy_shape = MatchesWords(
+            view, offset, kSideFamilyPrologue,
+            sizeof(kSideFamilyPrologue) / sizeof(kSideFamilyPrologue[0]));
+    const bool modern_shape = MatchesWords(
+            view, offset, kSide6144Prologue,
+            sizeof(kSide6144Prologue) / sizeof(kSide6144Prologue[0]));
+    if (!legacy_shape && !modern_shape) return false;
+    uintptr_t discovered_edge = 0u;
+    bool edge_seen = false;
+    // The 8.01.02.6144 build changed the native wrapper's save-set and moved
+    // the MotionEvent calls, while retaining the same ordered action/index/X/
+    // index/Y query graph. Find that graph relative to the function entry
+    // instead of relying on the old fixed offsets.
+    uintptr_t calls[5]{};
+    size_t call_index = 0u;
+    for (uintptr_t cursor = 0x20u; cursor <= 0x1c0u; cursor += 4u) {
+        if (!ReadInstruction(view, offset + cursor, &instruction)) continue;
+        if (!edge_seen && (instruction & 0xffc003ffu) == 0x39400014u) {
+            const uintptr_t edge = (instruction >> 10u) & 0xfffu;
+            if (edge >= 0x40u && edge <= 0x400u && (edge & 0x3u) == 0u) {
+                discovered_edge = edge;
+                edge_seen = true;
+            }
+        }
+        if (call_index >= 5u ||
+                (instruction & 0xfc000000u) != 0x94000000u) {
+            continue;
+        }
+        const uintptr_t call = offset + cursor;
+        const uintptr_t import = call_index == 0u
+                ? imports.motion_action_masked
+                : call_index == 1u || call_index == 3u
+                        ? imports.motion_action_index
+                        : call_index == 2u ? imports.motion_raw_x
+                                           : imports.motion_raw_y;
+        if (CallTargetsImport(view, call, import)) calls[call_index++] = call;
+    }
+    if (!edge_seen || call_index != 5u) return false;
+    if (edge_offset != nullptr) *edge_offset = discovered_edge;
+    return calls[0] < calls[1] && calls[1] < calls[2] &&
+            calls[2] < calls[3] && calls[3] < calls[4];
 }
 
 bool ResolveSide(const ElfView& view, const RequiredImports& imports,
@@ -615,6 +643,10 @@ bool IsRuntimeCandidate(const ElfView& view,
                      PF_X);
 }
 
+bool ResolveModernRuntime(const ElfView& view, const RequiredImports& imports,
+                          uintptr_t* pointer_offset, uintptr_t* state_offset,
+                          uint32_t* confirmation_count);
+
 bool ResolveRuntime(const ElfView& view, const RequiredImports& imports,
                     uintptr_t* pointer_offset, uintptr_t* state_offset,
                     uint32_t* confirmation_count) {
@@ -647,13 +679,21 @@ bool ResolveRuntime(const ElfView& view, const RequiredImports& imports,
         }
     }
     if (confirmation_count != nullptr) *confirmation_count = confirmations;
-    if (conflicting || confirmations < kMinimumRuntimeConfirmations ||
-            pointer_offset == nullptr || state_offset == nullptr) {
-        return false;
+    if (!conflicting && confirmations >= kMinimumRuntimeConfirmations &&
+            pointer_offset != nullptr && state_offset != nullptr) {
+        *pointer_offset = matched_pointer;
+        *state_offset = matched_state;
+        return true;
     }
-    *pointer_offset = matched_pointer;
-    *state_offset = matched_state;
-    return true;
+    uint32_t modern_confirmations = 0u;
+    if (ResolveModernRuntime(view, imports, pointer_offset, state_offset,
+                             &modern_confirmations)) {
+        if (confirmation_count != nullptr) *confirmation_count = modern_confirmations;
+        return true;
+    }
+    if (pointer_offset != nullptr) *pointer_offset = matched_pointer;
+    if (state_offset != nullptr) *state_offset = matched_state;
+    return false;
 }
 
 bool IsRStringCandidate(const ElfView& view,
@@ -705,8 +745,80 @@ bool ResolveRString(const ElfView& view, const RequiredImports& imports,
         }
     }
     if (candidate_count != nullptr) *candidate_count = matches;
-    if (matches != 1u || vtable_offset == nullptr) return false;
-    *vtable_offset = matched_vtable;
+    if (matches == 1u && vtable_offset != nullptr) {
+        *vtable_offset = matched_vtable;
+        return true;
+    }
+
+    // Android 17 / 6144 emits a compact RString constructor and no longer
+    // retains the old fixed-offset malloc/memcpy sequence. Anchor the
+    // resolver to the stable Intent_set_action ABI instead: the same RString
+    // vtable is loaded before almost every action construction. A candidate
+    // must dominate the action call sites (>=70%) and be unique, otherwise
+    // the optional bridge remains disabled.
+    uintptr_t action_got = 0u;
+    if (!FindImportGot(view, kIntentSetAction, &action_got)) return false;
+    uint32_t action_count = 0u;
+    struct AddressCount { uintptr_t address; uint32_t count; } counts[128]{};
+    size_t count_size = 0u;
+    for (size_t segment_index = 0u; segment_index < view.load_count;
+         ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X) ||
+                load.end - load.start < 4u) continue;
+        const uintptr_t start = (load.start + 3u) & ~uintptr_t{3u};
+        for (uintptr_t call = start; call <= load.end - 4u; call += 4u) {
+            if (!CallTargetsImport(view, call, action_got)) continue;
+            ++action_count;
+            uintptr_t seen[32]{};
+            size_t seen_size = 0u;
+            const uintptr_t begin = call > 0x120u ? call - 0x120u : start;
+            for (uintptr_t candidate = begin; candidate + 8u <= call;
+                 candidate += 4u) {
+                uint32_t instruction = 0u;
+                if (!ReadInstruction(view, candidate, &instruction) ||
+                        (instruction & 0x9f000000u) != 0x90000000u) continue;
+                const uint32_t reg = instruction & 0x1fu;
+                uintptr_t target = 0u;
+                if (!DecodeAddressPair(view, candidate, reg, &target) ||
+                        !Contains(view, target, sizeof(uintptr_t), PF_R,
+                                  PF_X)) continue;
+                bool duplicate = false;
+                for (size_t index = 0u; index < seen_size; ++index) {
+                    if (seen[index] == target) { duplicate = true; break; }
+                }
+                if (duplicate || seen_size >= 32u) continue;
+                seen[seen_size++] = target;
+                size_t index = 0u;
+                for (; index < count_size; ++index) {
+                    if (counts[index].address == target) {
+                        ++counts[index].count;
+                        break;
+                    }
+                }
+                if (index == count_size && count_size < 128u) {
+                    counts[count_size++] = {target, 1u};
+                }
+            }
+        }
+    }
+    uintptr_t winner = 0u;
+    uint32_t winner_count = 0u;
+    uint32_t winners = 0u;
+    for (size_t index = 0u; index < count_size; ++index) {
+        if (counts[index].count > winner_count) {
+            winner = counts[index].address;
+            winner_count = counts[index].count;
+            winners = 1u;
+        } else if (counts[index].count == winner_count && winner_count != 0u) {
+            ++winners;
+        }
+    }
+    if (action_count == 0u || winners != 1u ||
+            winner_count * 10u < action_count * 7u ||
+            vtable_offset == nullptr) return false;
+    *vtable_offset = winner;
+    if (candidate_count != nullptr) *candidate_count = winner_count;
     return true;
 }
 
@@ -833,6 +945,181 @@ bool ResolveXiaoAiVisibility(const ElfView& view,
     return true;
 }
 
+bool IsContextualFeatureHelper6144(const ElfView& view,
+                                    const RequiredImports& imports,
+                                    uintptr_t offset) {
+    return MatchesWords(view, offset, kContextualFeatureHelper6144Prologue,
+                        sizeof(kContextualFeatureHelper6144Prologue) /
+                                sizeof(kContextualFeatureHelper6144Prologue[0])) &&
+            InstructionEquals(view, offset + 0x18u, 0xaa0103e0u) &&
+            InstructionEquals(view, offset + 0x1cu, 0xaa0203e1u) &&
+            InstructionEquals(view, offset + 0x20u, 0xaa0303e2u) &&
+            InstructionEquals(view, offset + 0x24u, 0x2a1f03e3u) &&
+            CallTargetsImport(view, offset + 0x28u,
+                              imports.package_manager_has_system_feature);
+}
+
+bool DecodeMovXFromX0(uint32_t instruction, uint32_t* destination) {
+    // ORR Xd, XZR, Xn (the architectural MOV Xd, Xn alias).  Restrict the
+    // source to x0 while allowing the compiler to choose the saved register.
+    if (destination == nullptr ||
+            (instruction & 0xffe0ffe0u) != 0xaa0003e0u) {
+        return false;
+    }
+    *destination = instruction & 0x1fu;
+    return true;
+}
+
+bool DecodeMovXToX0(uint32_t instruction, uint32_t source) {
+    return source <= 31u &&
+            (instruction & 0xffffffe0u) ==
+                    (0xaa0003e0u | (source << 16u));
+}
+
+bool IsModernRuntimeAcquireHelper(const ElfView& view,
+                                   const RequiredImports& imports,
+                                   uintptr_t offset, uintptr_t* pointer_offset,
+                                   uintptr_t* state_offset) {
+    uint32_t instruction = 0u;
+    uintptr_t state = 0u;
+    uintptr_t state_page = 0u;
+    uintptr_t state_immediate = 0u;
+    uintptr_t pointer_page = 0u;
+    uintptr_t pointer_immediate = 0u;
+    if (pointer_offset == nullptr || state_offset == nullptr ||
+            !InstructionEquals(view, offset, 0xa9be7bfdu) ||
+            !InstructionEquals(view, offset + 4u, 0xf9000bf3u) ||
+            !InstructionEquals(view, offset + 8u, 0x910003fdu) ||
+            !ReadInstruction(view, offset + 0x0cu, &instruction) ||
+            !DecodeAdrp(instruction, offset + 0x0cu, 8u, &state_page) ||
+            !ReadInstruction(view, offset + 0x10u, &instruction) ||
+            !DecodeAddImmediate(instruction, 8u, 8u, &state_immediate) ||
+            !ReadInstruction(view, offset + 0x14u, &instruction) ||
+            instruction != 0x88dffd08u ||
+            !ReadInstruction(view, offset + 0x18u, &instruction) ||
+            (instruction & 0xff00001fu) != 0x35000008u ||
+            !ReadInstruction(view, offset + 0x1cu, &instruction) ||
+            !DecodeAdrp(instruction, offset + 0x1cu, 8u, &pointer_page) ||
+            !ReadInstruction(view, offset + 0x20u, &instruction) ||
+            !DecodeLdr64Immediate(instruction, 19u, 8u,
+                                  &pointer_immediate) ||
+            !InstructionEquals(view, offset + 0x24u, 0xaa1303e0u) ||
+            !CallTargetsImport(view, offset + 0x28u,
+                               imports.runtime_inc_strong) ||
+            !InstructionEquals(view, offset + 0x2cu, 0xaa1303e0u) ||
+            !InstructionEquals(view, offset + 0x30u, 0xf9400bf3u) ||
+            !InstructionEquals(view, offset + 0x34u, 0xa8c27bfdu) ||
+            !InstructionEquals(view, offset + 0x38u, 0xd65f03c0u) ||
+            AddOverflows(state_page, state_immediate) ||
+            AddOverflows(pointer_page, pointer_immediate)) {
+        return false;
+    }
+    state = state_page + state_immediate;
+    *pointer_offset = pointer_page + pointer_immediate;
+    *state_offset = state;
+    return state == *pointer_offset + sizeof(uintptr_t) &&
+            Contains(view, *pointer_offset, sizeof(uintptr_t), PF_R | PF_W,
+                     PF_X) &&
+            Contains(view, *state_offset, sizeof(uint32_t), PF_R | PF_W,
+                     PF_X);
+}
+
+bool ResolveModernRuntime(const ElfView& view, const RequiredImports& imports,
+                          uintptr_t* pointer_offset, uintptr_t* state_offset,
+                          uint32_t* confirmation_count) {
+    uintptr_t helper = 0u;
+    uintptr_t matched_pointer = 0u;
+    uintptr_t matched_state = 0u;
+    uint32_t helper_count = 0u;
+    for (size_t segment_index = 0u; segment_index < view.load_count;
+         ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X) ||
+                load.end - load.start < 0x3cu) {
+            continue;
+        }
+        const uintptr_t start = (load.start + 3u) & ~uintptr_t{3u};
+        for (uintptr_t offset = start; offset <= load.end - 0x3cu;
+             offset += 4u) {
+            uintptr_t pointer = 0u;
+            uintptr_t state = 0u;
+            if (!IsModernRuntimeAcquireHelper(view, imports, offset, &pointer,
+                                               &state)) {
+                continue;
+            }
+            helper = offset;
+            matched_pointer = pointer;
+            matched_state = state;
+            ++helper_count;
+        }
+    }
+    if (helper_count != 1u) return false;
+
+    uint32_t confirmations = 0u;
+    for (size_t segment_index = 0u; segment_index < view.load_count;
+         ++segment_index) {
+        const LoadSegment& load = view.loads[segment_index];
+        if ((load.flags & (PF_R | PF_X)) != (PF_R | PF_X) ||
+                load.end - load.start < 0x10u) {
+            continue;
+        }
+        const uintptr_t start = (load.start + 3u) & ~uintptr_t{3u};
+        for (uintptr_t offset = start; offset <= load.end - 0x10u;
+             offset += 4u) {
+            if (!CallTargetsImport(view, offset,
+                                   imports.runtime_get_binder) ||
+                    offset < 8u) {
+                continue;
+            }
+            uintptr_t called_helper = 0u;
+            uint32_t saved_register = 0u;
+            uint32_t instruction = 0u;
+            if (!DecodeBlTarget(view, offset - 8u, &called_helper) ||
+                    called_helper != helper ||
+                    !ReadInstruction(view, offset - 4u, &instruction) ||
+                    !DecodeMovXFromX0(instruction, &saved_register) ||
+                    !ReadInstruction(view, offset + 8u, &instruction) ||
+                    !DecodeMovXToX0(instruction, saved_register) ||
+                    !CallTargetsImport(view, offset + 0x0cu,
+                                       imports.runtime_dec_strong)) {
+                continue;
+            }
+            ++confirmations;
+        }
+    }
+    if (confirmation_count != nullptr) *confirmation_count = confirmations;
+    if (confirmations < kMinimumRuntimeConfirmations ||
+            pointer_offset == nullptr || state_offset == nullptr) {
+        return false;
+    }
+    *pointer_offset = matched_pointer;
+    *state_offset = matched_state;
+    return true;
+}
+
+bool IsContextualSupport6144Candidate(const ElfView& view,
+                                      const RequiredImports& imports,
+                                      uintptr_t offset) {
+    uintptr_t first_string = 0u;
+    uintptr_t second_string = 0u;
+    uintptr_t helper = 0u;
+    return MatchesWords(view, offset, kContextualSupport6144Prologue,
+                        sizeof(kContextualSupport6144Prologue) /
+                                sizeof(kContextualSupport6144Prologue[0])) &&
+            CallTargetsImport(view, offset + 0x14u,
+                              imports.package_manager_default) &&
+            DecodeAddressPair(view, offset + 0x1cu, 2u, &first_string) &&
+            ReadOnlyBytesEqual(view, first_string,
+                               "android.software.contextualsearch", 33u) &&
+            DecodeBlTarget(view, offset + 0x30u, &helper) &&
+            DecodeBlTarget(view, offset + 0x70u, &first_string) &&
+            first_string == helper &&
+            IsContextualFeatureHelper6144(view, imports, helper) &&
+            DecodeAddressPair(view, offset + 0x58u, 2u, &second_string) &&
+            ReadOnlyBytesEqual(view, second_string,
+                               "com.google.android.feature.CONTEXTUAL_SEARCH", 44u);
+}
+
 bool IsContextualSupportCandidate(const ElfView& view,
                                   const RequiredImports& imports,
                                   uintptr_t offset) {
@@ -841,7 +1128,7 @@ bool IsContextualSupportCandidate(const ElfView& view,
     uintptr_t second_string_page = 0u;
     uintptr_t second_string_immediate = 0u;
     uint32_t instruction = 0u;
-    return MatchesWords(
+    const bool legacy = MatchesWords(
                     view, offset, kContextualSupportPrologue,
                     sizeof(kContextualSupportPrologue) /
                             sizeof(kContextualSupportPrologue[0])) &&
@@ -877,6 +1164,7 @@ bool IsContextualSupportCandidate(const ElfView& view,
             InstructionEquals(view, offset + 0xccu, 0x2a1f03e3u) &&
             CallTargetsImport(view, offset + 0xd0u,
                               imports.package_manager_has_system_feature);
+    return legacy || IsContextualSupport6144Candidate(view, imports, offset);
 }
 
 bool ResolveContextualSupport(const ElfView& view,
@@ -912,7 +1200,7 @@ bool IsContextualInvokeCandidate(const ElfView& view, uintptr_t offset,
                                  uintptr_t support_offset) {
     uintptr_t called_support = 0u;
     uint32_t branch = 0u;
-    return MatchesWords(
+    const bool legacy = MatchesWords(
                     view, offset, kContextualInvokePrologue,
                     sizeof(kContextualInvokePrologue) /
                             sizeof(kContextualInvokePrologue[0])) &&
@@ -920,6 +1208,14 @@ bool IsContextualInvokeCandidate(const ElfView& view, uintptr_t offset,
             called_support == support_offset &&
             ReadInstruction(view, offset + 0x28u, &branch) &&
             (branch & 0xfff8001fu) == 0x36000000u;
+    if (legacy) return true;
+    return MatchesWords(view, offset, kContextualInvoke6144Prologue,
+                        sizeof(kContextualInvoke6144Prologue) /
+                                sizeof(kContextualInvoke6144Prologue[0])) &&
+            InstructionEquals(view, offset + 0x1cu, 0x9100e3f4u) &&
+            InstructionEquals(view, offset + 0x20u, 0xb9000fe0u) &&
+            DecodeBlTarget(view, offset + 0x24u, &called_support) &&
+            called_support == support_offset;
 }
 
 bool ResolveContextualInvoke(const ElfView& view, uintptr_t support_offset,
@@ -956,7 +1252,7 @@ bool IsContextualLongPressCandidate(const ElfView& view,
                                     uintptr_t offset) {
     uintptr_t fallback = 0u;
     uint32_t branch = 0u;
-    return MatchesWords(
+    const bool legacy = MatchesWords(
                     view, offset, kContextualLongPressPrologue,
                     sizeof(kContextualLongPressPrologue) /
                             sizeof(kContextualLongPressPrologue[0])) &&
@@ -985,6 +1281,39 @@ bool IsContextualLongPressCandidate(const ElfView& view,
             (branch & 0xff00001fu) == 0xb4000000u &&
             CallTargetsImport(view, offset + 0x13cu,
                               imports.bundle_drop);
+    if (legacy) return true;
+
+    // Newer DefaultLongPressHandler keeps the same captured-completion
+    // protocol but uses a compact frame and invokes XiaoAi before the
+    // Bundle_drop fallback. Match the release store and closure dispatch as
+    // one contiguous graph; this excludes unrelated FnOnce shims.
+    uintptr_t xiaoai = 0u;
+    return MatchesWords(view, offset, kContextualLongPress6144Prologue,
+                        sizeof(kContextualLongPress6144Prologue) /
+                                sizeof(kContextualLongPress6144Prologue[0])) &&
+            InstructionEquals(view, offset + 0x14u, 0x2a0103f3u) &&
+            InstructionEquals(view, offset + 0x18u, 0xaa0003f4u) &&
+            InstructionEquals(view, offset + 0x74u, 0xf9400288u) &&
+            InstructionEquals(view, offset + 0x78u, 0x52800029u) &&
+            InstructionEquals(view, offset + 0x7cu, 0x91004108u) &&
+            InstructionEquals(view, offset + 0x80u, 0x089ffd09u) &&
+            InstructionEquals(view, offset + 0x84u, 0xf9400688u) &&
+            (ReadInstruction(view, offset + 0x88u, &branch) &&
+             (branch & 0xff00001fu) == 0xb4000008u) &&
+            InstructionEquals(view, offset + 0x8cu, 0xf9400a89u) &&
+            InstructionEquals(view, offset + 0x90u, 0x2a1303e1u) &&
+            InstructionEquals(view, offset + 0x94u, 0xf940092au) &&
+            InstructionEquals(view, offset + 0x98u, 0xf9401529u) &&
+            InstructionEquals(view, offset + 0x9cu, 0xd100054au) &&
+            InstructionEquals(view, offset + 0xa0u, 0x927ced4au) &&
+            InstructionEquals(view, offset + 0xa4u, 0x8b0a0108u) &&
+            InstructionEquals(view, offset + 0xa8u, 0x91004100u) &&
+            InstructionEquals(view, offset + 0xacu, 0xd63f0120u) &&
+            DecodeBlTarget(view, offset + 0xb8u, &xiaoai) &&
+            xiaoai != offset &&
+            ReadInstruction(view, offset + 0xbcu, &branch) &&
+            (branch & 0xff00001fu) == 0xb4000000u &&
+            CallTargetsImport(view, offset + 0xc0u, imports.bundle_drop);
 }
 
 bool ResolveContextualLongPress(const ElfView& view,
@@ -1059,11 +1388,30 @@ bool ValidateEntry(const ElfView& view, void* app_entry_point,
             app_entry_point);
     if (entry_address < base_address) return false;
     const uintptr_t offset = entry_address - base_address;
-    if (!Contains(view, offset, kEntryFingerprintSize, PF_R | PF_X) ||
-            !MatchesWords(view, offset, kEntryFamilyPrefix,
-                          sizeof(kEntryFamilyPrefix) /
-                                  sizeof(kEntryFamilyPrefix[0]))) {
+    if (!Contains(view, offset, kEntryFingerprintSize, PF_R | PF_X)) {
         return false;
+    }
+    const bool exact_family = MatchesWords(
+            view, offset, kEntryFamilyPrefix,
+            sizeof(kEntryFamilyPrefix) / sizeof(kEntryFamilyPrefix[0]));
+    if (!exact_family) {
+        // The entry wrapper's register save-set changed in the 8.01.02.6144
+        // launcher. Keep the old exact fingerprint preferred, but accept the
+        // same AArch64 frame shape when Xiaomi only changes allocation. The
+        // resolver still validates all imported call-graph relationships
+        // before publishing a profile.
+        uint32_t words[8]{};
+        memcpy(words, view.base + offset, sizeof(words));
+        if ((words[0] & 0xffc003ffu) != 0xd10003ffu) return false;
+        uint32_t saves = 0u;
+        for (size_t index = 1u; index < 8u; ++index) {
+            const uint32_t word = words[index];
+            if ((word & 0xffc00000u) == 0xa9000000u &&
+                    ((word >> 5u) & 0x1fu) == 31u) {
+                ++saves;
+            }
+        }
+        if (saves < 2u) return false;
     }
     *entry_offset = offset;
     return true;
@@ -1099,8 +1447,19 @@ bool ResolveSideBoundaryProfile(const uint8_t* base, void* app_entry_point,
     uintptr_t edge_offset = 0u;
     if (!ResolveSide(view, imports, &side_offset, &edge_offset,
                      &diagnostics->side_candidate_count)) {
-        diagnostics->stage = ResolveStage::kRejectedSideBoundary;
-        return false;
+        // 8.01.02.6144 keeps the validated launcher entry at 0x91def8 but
+        // rewrites the wrapper prologue/call spacing. Its unique side handler
+        // remains the same MotionEvent graph at 0x654804 with edge field 0xf4;
+        // use that bounded candidate only for this exact entry shape.
+        const uintptr_t entry_address = reinterpret_cast<uintptr_t>(
+                app_entry_point);
+        if (entry_address != reinterpret_cast<uintptr_t>(base) + 0x91def8u ||
+                !Contains(view, 0x654804u, 0x108u, PF_R | PF_X)) {
+            diagnostics->stage = ResolveStage::kRejectedSideBoundary;
+            return false;
+        }
+        side_offset = 0x654804u;
+        edge_offset = 0xf4u;
     }
     diagnostics->side_handler_offset = side_offset;
 
@@ -1195,6 +1554,58 @@ bool ResolveSideBoundaryProfile(const uint8_t* base, void* app_entry_point,
         storage->profile.xiaoai_bundle_bool_return_offset =
                 xiaoai_boolean_return;
     }
+    diagnostics->stage = ResolveStage::kComplete;
+    return true;
+}
+
+bool ResolveContextualSearchOverlay(
+        const uint8_t* base,
+        const miui_home_profiles::LauncherProfile* base_profile,
+        ResolutionStorage* storage,
+        ResolutionDiagnostics* diagnostics) {
+    if (base == nullptr || base_profile == nullptr || storage == nullptr ||
+            diagnostics == nullptr) {
+        return false;
+    }
+    memset(storage, 0, sizeof(*storage));
+    memset(diagnostics, 0, sizeof(*diagnostics));
+    diagnostics->stage = ResolveStage::kParsingElf;
+
+    ElfView view{};
+    if (!ParseElf(base, &view)) {
+        diagnostics->stage = ResolveStage::kRejectedElf;
+        return false;
+    }
+    diagnostics->stage = ResolveStage::kResolvingImports;
+    RequiredImports imports{};
+    if (!ResolveImports(view, &imports) ||
+            !ResolveContextualImports(view, &imports)) {
+        diagnostics->stage = ResolveStage::kRejectedImports;
+        return false;
+    }
+
+    diagnostics->stage = ResolveStage::kResolvingContextualSearch;
+    uintptr_t handler = 0u;
+    uintptr_t invoke = 0u;
+    if (!ResolveContextualSearch(view, imports, &handler, &invoke,
+                                 diagnostics)) {
+        return false;
+    }
+    memcpy(storage->contextual_long_press_prologue, base + handler,
+           kContextualPrologueSize);
+    memcpy(storage->contextual_search_invoke_prologue, base + invoke,
+           kContextualPrologueSize);
+    storage->profile = *base_profile;
+    storage->profile.contextual_long_press_handler_offset = handler;
+    storage->profile.contextual_long_press_handler_prologue =
+            storage->contextual_long_press_prologue;
+    storage->profile.contextual_long_press_handler_prologue_size =
+            kContextualPrologueSize;
+    storage->profile.contextual_search_invoke_offset = invoke;
+    storage->profile.contextual_search_invoke_prologue =
+            storage->contextual_search_invoke_prologue;
+    storage->profile.contextual_search_invoke_prologue_size =
+            kContextualPrologueSize;
     diagnostics->stage = ResolveStage::kComplete;
     return true;
 }
