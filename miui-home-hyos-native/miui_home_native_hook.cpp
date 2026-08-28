@@ -952,8 +952,8 @@ bool InstallDrawerStateHook(
 void TryInstallLoadedDartDrawerStateHook(
         const miui_home_profiles::LauncherProfile* profile);
 const miui_home_profiles::LauncherProfile* ResolveDartFeatureProfile(
-        void* dart_handle);
-void TryResolveAndInstallLoadedDartProfile();
+        void* dart_handle, bool retry_rejected = false);
+void TryResolveAndInstallLoadedDartProfile(bool retry_rejected = false);
 void RepairDartDrawerStateHookIfRemapped(
         const miui_home_profiles::LauncherProfile* profile);
 void RepairDartOverviewStateHookIfRemapped(
@@ -1752,6 +1752,19 @@ bool HandleRuntimeStatusQuery(void* intent) {
                        __ATOMIC_RELAXED);
     __atomic_store_n(&g_runtime_status_last_nonce,
                      static_cast<uint64_t>(nonce), __ATOMIC_RELEASE);
+    // A Xiaomi desktop update can remap Flutter's libapp.so inside the
+    // framework-owned HYOS process without recreating the native entry.  If
+    // the first scan ran against an intermediate image, retry once from the
+    // already-loaded image when the module asks for status.  The resolver
+    // still requires the complete structural family and never loads a second
+    // Dart owner.
+    const uint32_t dart_stage = AtomicLoad(&g_dart_profile_resolve_state);
+    if (dart_stage >= static_cast<uint32_t>(
+                              miui_home_dart_profile::ResolveStage::
+                                      kRejectedElf) &&
+            AtomicLoad(&g_resolved_dart_profile) == nullptr) {
+        TryResolveAndInstallLoadedDartProfile(true);
+    }
     const auto* profile = CurrentLauncherProfile();
     const bool profile_resolved = profile != nullptr && g_launcher_base != nullptr;
     const bool dynamic_profile = profile_resolved &&
@@ -2540,7 +2553,7 @@ DEFINE_XIAOAI_BOOLEAN_HOOK(3)
 #undef DEFINE_XIAOAI_BOOLEAN_HOOK
 
 const miui_home_profiles::LauncherProfile* ResolveDartFeatureProfile(
-        void* dart_handle) {
+        void* dart_handle, bool retry_rejected) {
     const auto* current = AtomicLoad(&g_resolved_dart_profile);
     if (current != nullptr) return current;
     const auto* launcher = CurrentLauncherProfile();
@@ -2548,6 +2561,15 @@ const miui_home_profiles::LauncherProfile* ResolveDartFeatureProfile(
         return nullptr;
     }
     uint32_t expected = 0u;
+    if (retry_rejected) {
+        const uint32_t state = AtomicLoad(&g_dart_profile_resolve_state);
+        if (state < static_cast<uint32_t>(
+                           miui_home_dart_profile::ResolveStage::
+                                   kRejectedElf)) {
+            return nullptr;
+        }
+        expected = state;
+    }
     if (!__atomic_compare_exchange_n(&g_dart_profile_resolve_state, &expected,
                                      uint32_t{1}, false,
                                      __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
@@ -3619,13 +3641,14 @@ void TryInstallLoadedDartDrawerStateHook(
     }
 }
 
-void TryResolveAndInstallLoadedDartProfile() {
+void TryResolveAndInstallLoadedDartProfile(bool retry_rejected) {
     // Acquire only an existing AOT mapping. Resolution is performed after the
     // loader has published both Dart snapshot symbols and never loads a second
     // copy merely to search it.
     void* dart_handle = dlopen(kDartLibraryName, RTLD_NOW | RTLD_NOLOAD);
     if (dart_handle == nullptr) return;
-    const auto* profile = ResolveDartFeatureProfile(dart_handle);
+    const auto* profile = ResolveDartFeatureProfile(dart_handle,
+                                                    retry_rejected);
     bool retained = false;
     if (profile != nullptr) {
         retained = TryInstallDartDrawerStateHook(dart_handle, profile);
