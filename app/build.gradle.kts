@@ -56,7 +56,7 @@ val hasEnvSigningConfig = listOf(
 android {
     namespace = "dev.codex.miuibackgesturehook"
     compileSdk = 37
-    ndkVersion = "30.0.14904198"
+    ndkVersion = "30.0.16138531"
 
     buildFeatures {
         buildConfig = true
