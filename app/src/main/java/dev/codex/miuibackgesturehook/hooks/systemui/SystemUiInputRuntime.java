@@ -735,6 +735,49 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
         }
     }
 
+    /**
+     * Adds the optional committed-release haptic while the native AOSP indicator remains
+     * visible. HyperOS indicator mode already dispatches this stage from its arrow driver.
+     */
+    protected boolean playAospIndicatorHandUpHaptic(Object panelViewOrController) {
+        if (isHyperOsIndicatorEnabled()
+                || !isHyperOsHapticsEnabled()
+                || !isHyperOsHapticsEnhancedEnabled()) {
+            return false;
+        }
+        try {
+            MiuiHapticFeedbackHelper helper = hyperOsBackHapticHelper;
+            if (helper == null) {
+                Object panelView = panelViewOrController instanceof View
+                        ? panelViewOrController
+                        : readField(panelViewOrController, "mView");
+                if (!(panelView instanceof View)) {
+                    return false;
+                }
+                Context panelContext = ((View) panelView).getContext();
+                helper = new MiuiHapticFeedbackHelper(panelContext,
+                        (priority, message, throwable) -> {
+                            if (throwable == null) {
+                                moduleLog(priority, TAG, message);
+                            } else {
+                                moduleLog(priority, TAG, message, throwable);
+                            }
+                        });
+                hyperOsBackHapticHelper = helper;
+            }
+            if (!helper.isSupported()) {
+                return false;
+            }
+            helper.setEnhancedMode(true);
+            helper.performHandUp();
+            return true;
+        } catch (Throwable throwable) {
+            moduleLog(Log.WARN, TAG,
+                    "Failed to play AOSP-indicator hand-up haptic", throwable);
+            return false;
+        }
+    }
+
     protected void closeHyperOsBackHapticHelper() {
         MiuiHapticFeedbackHelper helper = hyperOsBackHapticHelper;
         hyperOsBackHapticHelper = null;
@@ -2531,6 +2574,8 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 float releaseDistance = activeEdge == EDGE_LEFT
                         ? event.getRawX() - downX
                         : downX - event.getRawX();
+                maybePlayAospIndicatorHandUpHaptic(
+                        readNativePanelState(), allowTrigger && thresholdCrossed);
                 clearControllerTriggerAfterVisualOnlyGesture();
                 moduleLog(Log.INFO, TAG, "Finished visual-only Recents edge gesture"
                         + ", releaseDistance=" + releaseDistance
@@ -2544,6 +2589,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 return true;
             }
             dispatchToEdgePlugin(event, activeEdge);
+            String panelStateAfterRelease = readNativePanelState();
             float releaseDistance = activeEdge == EDGE_LEFT
                     ? event.getRawX() - downX
                     : downX - event.getRawX();
@@ -2569,6 +2615,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                                 + ", currentInputEpoch="
                                 + inputMonitorEpoch.get());
             }
+            maybePlayAospIndicatorHandUpHaptic(panelStateAfterRelease, releaseAllowed);
             MiuiHomeAcceptedInputToken releaseInputIdentity =
                     session.inputIdentity.get();
             boolean queued = queueShellReleaseTransaction(
@@ -2614,6 +2661,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             boolean trigger = releaseAllowed
                     && exactReleaseOwner
                     && Boolean.TRUE.equals(nativePanelTrigger);
+            if (trigger) {
+                maybePlayAospIndicatorHandUpHaptic(panelStateAfterRelease, true);
+            }
             if (trigger) {
                 // A normal BACK creates the incoming CLOSE/TO_BACK transition. Xiaomi's
                 // TransitionControllerImpl tags a consecutive inverse transition pair and
@@ -2673,6 +2723,9 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             boolean trigger = releaseAllowed
                     && exactReleaseOwner
                     && Boolean.TRUE.equals(nativePanelTrigger);
+            if (trigger) {
+                maybePlayAospIndicatorHandUpHaptic(panelStateAfterRelease, true);
+            }
             // This gesture never starts a Shell tracker. Clear any trigger value posted by
             // BackPanelController after its release event, then hand a committed gesture to
             // MiuiHome's own BackGestureBreakController.
@@ -4297,6 +4350,21 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         "Failed to read native BackPanelController state",
                         throwable);
                 return null;
+            }
+        }
+
+        protected void maybePlayAospIndicatorHandUpHaptic(
+                String panelStateAfterRelease, boolean releaseAllowed) {
+            if (!releaseAllowed || !("FLUNG".equals(panelStateAfterRelease)
+                    || "COMMITTED".equals(panelStateAfterRelease))) {
+                return;
+            }
+            try {
+                Object plugin = findNativeEdgeBackPlugin(edgeBackGestureHandler);
+                playAospIndicatorHandUpHaptic(plugin);
+            } catch (Throwable throwable) {
+                moduleLog(Log.WARN, TAG,
+                        "Failed to prepare AOSP-indicator hand-up haptic", throwable);
             }
         }
 

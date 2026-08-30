@@ -61,6 +61,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import dev.codex.miuibackgesturehook.BuildConfig
 import dev.codex.miuibackgesturehook.ModuleApplication
 import dev.codex.miuibackgesturehook.PredictiveBackPreferences
@@ -76,6 +77,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -89,6 +91,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.preference.WindowSpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
@@ -129,8 +132,8 @@ class PredictiveBackSettingsActivity :
             if (intent.action != NativeHookStatusProtocol.ACTION_REPLY) {
                 return
             }
-            val senderUid = getSentFromUid()
-            val senderPackage = getSentFromPackage()
+            val senderUid = sentFromUid
+            val senderPackage = sentFromPackage
             if (senderUid == Process.INVALID_UID
                 || senderPackage != NativeHookStatusProtocol.SYSTEM_UI_PACKAGE
                 || !isUidOwner(senderUid, NativeHookStatusProtocol.SYSTEM_UI_PACKAGE)
@@ -574,10 +577,12 @@ private fun PredictiveBackSettingsScreen(
                     storedHyperOsHaptics
                 } else {
                     try {
-                        val migrated = remotePreferences.edit()
-                            .putBoolean(PredictiveBackPreferences.KEY_HYPEROS_HAPTICS, true)
-                            .remove(PredictiveBackPreferences.LEGACY_KEY_AOSP_HYPEROS_HAPTICS)
-                            .commit()
+                        var migrated = false
+                        remotePreferences.edit(commit = true) {
+                            putBoolean(PredictiveBackPreferences.KEY_HYPEROS_HAPTICS, true)
+                            remove(PredictiveBackPreferences.LEGACY_KEY_AOSP_HYPEROS_HAPTICS)
+                            migrated = commit()
+                        }
                         if (migrated) true else storedHyperOsHaptics
                     } catch (_: Throwable) {
                         storedHyperOsHaptics
@@ -643,18 +648,21 @@ private fun PredictiveBackSettingsScreen(
                 val saved = writeMutex.withLock {
                     val fallbackEnabled = getConfirmed()
                     val commitSucceeded = withContext(Dispatchers.IO) {
-                        val succeeded = try {
-                            activePreferences.edit()
-                                .putBoolean(key, requestedEnabled)
-                                .commit()
+                        var succeeded = false
+                        try {
+                            activePreferences.edit(commit = true) {
+                                putBoolean(key, requestedEnabled)
+                                succeeded = commit()
+                            }
                         } catch (_: Throwable) {
-                            false
+                            succeeded = false
                         }
                         if (!succeeded) {
                             try {
-                                activePreferences.edit()
-                                    .putBoolean(key, fallbackEnabled)
-                                    .commit()
+                                activePreferences.edit(commit = true) {
+                                    putBoolean(key, fallbackEnabled)
+                                    commit()
+                                }
                             } catch (_: Throwable) {
                                 // Restore the RemotePreferences cache where possible.
                             }
@@ -919,25 +927,67 @@ private fun HyperOsSwitchGroupCard(
         modifier = modifier.fillMaxWidth(),
         insideMargin = PaddingValues(0.dp),
     ) {
-        SwitchPreference(
-            title = stringResource(R.string.hyperos_indicator_title),
-            summary = stringResource(R.string.hyperos_indicator_summary),
-            checked = hyperOsIndicator,
+        WindowSpinnerPreference(
+            items = listOf(
+                DropdownItem(
+                    text = stringResource(R.string.back_indicator_style_aosp),
+                    summary = stringResource(R.string.back_indicator_style_aosp_summary),
+                ),
+                DropdownItem(
+                    text = stringResource(R.string.back_indicator_style_hyperos),
+                    summary = stringResource(R.string.back_indicator_style_hyperos_summary),
+                ),
+            ),
+            selectedIndex = if (hyperOsIndicator) 1 else 0,
+            title = stringResource(R.string.back_indicator_style_title),
+            summary = stringResource(
+                if (hyperOsIndicator) {
+                    R.string.back_indicator_style_hyperos_summary
+                } else {
+                    R.string.back_indicator_style_aosp_summary
+                },
+            ),
             enabled = configurationEnabled,
-            onCheckedChange = onHyperOsIndicatorToggle,
+            onSelectedIndexChange = { selectedIndex ->
+                onHyperOsIndicatorToggle(selectedIndex == 1)
+            },
         )
-        SwitchPreference(
-            title = stringResource(R.string.hyperos_haptics_title),
-            summary = stringResource(R.string.hyperos_haptics_summary),
-            checked = hyperOsHaptics,
+        WindowSpinnerPreference(
+            items = listOf(
+                DropdownItem(
+                    text = stringResource(R.string.haptic_feedback_effect_aosp),
+                    summary = stringResource(R.string.haptic_feedback_effect_aosp_summary),
+                ),
+                DropdownItem(
+                    text = stringResource(R.string.haptic_feedback_effect_hyperos),
+                    summary = stringResource(R.string.haptic_feedback_effect_hyperos_summary),
+                ),
+            ),
+            selectedIndex = if (hyperOsHaptics) 1 else 0,
+            title = stringResource(R.string.haptic_feedback_effect_title),
+            summary = stringResource(
+                if (hyperOsHaptics) {
+                    R.string.haptic_feedback_effect_hyperos_summary
+                } else {
+                    R.string.haptic_feedback_effect_aosp_summary
+                },
+            ),
             enabled = configurationEnabled,
-            onCheckedChange = onHyperOsHapticsToggle,
+            onSelectedIndexChange = { selectedIndex ->
+                onHyperOsHapticsToggle(selectedIndex == 1)
+            },
         )
         SwitchPreference(
             title = stringResource(R.string.hyperos_haptics_enhanced_title),
-            summary = stringResource(R.string.hyperos_haptics_enhanced_summary),
+            summary = stringResource(
+                if (configurationEnabled && !hyperOsHaptics) {
+                    R.string.hyperos_haptics_enhanced_disabled_summary
+                } else {
+                    R.string.hyperos_haptics_enhanced_summary
+                },
+            ),
             checked = hyperOsHapticsEnhanced,
-            enabled = configurationEnabled && hyperOsIndicator && hyperOsHaptics,
+            enabled = configurationEnabled && hyperOsHaptics,
             onCheckedChange = onHyperOsHapticsEnhancedToggle,
         )
         SwitchPreference(
