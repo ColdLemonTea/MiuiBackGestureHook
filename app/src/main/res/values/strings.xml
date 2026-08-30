@@ -46,6 +46,7 @@
     <string name="native_hook_status_lsposed_unavailable_title">LSPosed service unavailable</string>
     <string name="native_hook_status_lsposed_unavailable_summary">The module UI cannot verify the running hooks</string>
     <string name="predictive_back_apps_error">Could not load the installed app list.</string>
+    <string name="predictive_back_apps_permission_required">Allow “Get installed apps” in system settings to load the complete app list.</string>
     <string name="predictive_back_loading_apps">Loading apps…</string>
     <string name="predictive_back_no_apps">No matching apps</string>
     <string name="predictive_back_unavailable_app">Saved selection; app is currently unavailable</string>

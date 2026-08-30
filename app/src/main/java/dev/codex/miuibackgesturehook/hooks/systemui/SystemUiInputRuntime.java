@@ -438,7 +438,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
 
         private void onLongPressTimeout() {
             if (!tracking || pilfered || hasUpwardGestureIntent()
-                    || !isEligibleForLongPress()) {
+                    || shouldRejectLongPress()) {
                 cancelTracking(false);
                 return;
             }
@@ -522,7 +522,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     cancelTracking(true);
-                    if (!isEligibleForLongPress()
+                    if (shouldRejectLongPress()
                             || !containsGestureHandle(event.getX(), event.getY())) {
                         return false;
                     }
@@ -579,16 +579,16 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                     && upward >= Math.abs(deltaX) * 0.5f;
         }
 
-        private boolean isEligibleForLongPress() {
+        private boolean shouldRejectLongPress() {
             // HyperOS 3 / Android 16 does not expose
             // NavigationBar.shouldDisableNavbarGestures().  The observer is attached only to
             // the live default-display NavigationBar and the DOWN must still hit its visible
             // home handle, so keep the stable ownership checks here instead of failing every
             // stream on a version-specific helper.
-            return isContextualSearchLongPressEnabled()
-                    && (keyguardManager == null || !keyguardManager.isKeyguardLocked())
-                    && navigationView.isAttachedToWindow()
-                    && navigationView.isShown();
+            return !isContextualSearchLongPressEnabled()
+                    || (keyguardManager != null && keyguardManager.isKeyguardLocked())
+                    || !navigationView.isAttachedToWindow()
+                    || !navigationView.isShown();
         }
 
         private boolean containsGestureHandle(float x, float y) {
@@ -739,11 +739,11 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
      * Adds the optional committed-release haptic while the native AOSP indicator remains
      * visible. HyperOS indicator mode already dispatches this stage from its arrow driver.
      */
-    protected boolean playAospIndicatorHandUpHaptic(Object panelViewOrController) {
+    protected void playAospIndicatorHandUpHaptic(Object panelViewOrController) {
         if (isHyperOsIndicatorEnabled()
                 || !isHyperOsHapticsEnabled()
                 || !isHyperOsHapticsEnhancedEnabled()) {
-            return false;
+            return;
         }
         try {
             MiuiHapticFeedbackHelper helper = hyperOsBackHapticHelper;
@@ -752,7 +752,7 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                         ? panelViewOrController
                         : readField(panelViewOrController, "mView");
                 if (!(panelView instanceof View)) {
-                    return false;
+                    return;
                 }
                 Context panelContext = ((View) panelView).getContext();
                 helper = new MiuiHapticFeedbackHelper(panelContext,
@@ -766,15 +766,13 @@ public abstract class SystemUiInputRuntime extends HookRuntimeCore {
                 hyperOsBackHapticHelper = helper;
             }
             if (!helper.isSupported()) {
-                return false;
+                return;
             }
             helper.setEnhancedMode(true);
             helper.performHandUp();
-            return true;
         } catch (Throwable throwable) {
             moduleLog(Log.WARN, TAG,
                     "Failed to play AOSP-indicator hand-up haptic", throwable);
-            return false;
         }
     }
 

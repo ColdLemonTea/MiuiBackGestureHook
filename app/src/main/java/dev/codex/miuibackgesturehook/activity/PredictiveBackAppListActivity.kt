@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.LruCache
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
@@ -131,11 +132,22 @@ import kotlin.time.Duration.Companion.milliseconds
 class PredictiveBackAppListActivity :
     ComponentActivity(),
     ModuleApplication.ServiceStateListener {
+    private var appListPermissionGranted by mutableStateOf(true)
+    private var appListPermissionSupported by mutableStateOf(false)
+    private val appListPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        appListPermissionGranted = granted
+    }
     private var xposedService: XposedService? by mutableStateOf(null)
     private var serviceStateObserved by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appListPermissionSupported = supportsMiuiAppListPermission()
+        appListPermissionGranted = !appListPermissionSupported ||
+                checkSelfPermission(GET_INSTALLED_APPS_PERMISSION) ==
+                PackageManager.PERMISSION_GRANTED
         enableEdgeToEdge()
         setContent {
             val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
@@ -143,8 +155,15 @@ class PredictiveBackAppListActivity :
                 PredictiveBackAppListScreen(
                     service = xposedService,
                     serviceStateObserved = serviceStateObserved,
+                    appListPermissionGranted = appListPermissionGranted,
+                    appListPermissionSupported = appListPermissionSupported,
                     onClose = { finish() },
                 )
+            }
+        }
+        if (appListPermissionSupported && !appListPermissionGranted) {
+            window.decorView.post {
+                appListPermissionLauncher.launch(GET_INSTALLED_APPS_PERMISSION)
             }
         }
     }
@@ -201,6 +220,8 @@ private const val UI_KEY_ORDER_REVERSED = "order_reversed"
 private const val UI_KEY_SELECTED_FIRST = "selected_first"
 private const val UI_KEY_SHOW_SYSTEM_APPS = "show_system_apps"
 private const val UI_KEY_SHOW_PACKAGE_NAME = "show_package_name"
+private const val GET_INSTALLED_APPS_PERMISSION =
+    "com.android.permission.GET_INSTALLED_APPS"
 private const val APPLICATION_PREDICTIVE_BACK_ENABLE_FLAG = 1 shl 3
 private const val APPLICATION_PREDICTIVE_BACK_DUMP_PREFIX =
     "enableOnBackInvokedCallback="
@@ -209,16 +230,26 @@ private val applicationPrivateFlagsExtField by lazy(LazyThreadSafetyMode.PUBLICA
     runCatching { ApplicationInfo::class.java.getField("privateFlagsExt") }.getOrNull()
 }
 
+private fun ComponentActivity.supportsMiuiAppListPermission(): Boolean =
+    runCatching {
+        packageManager.getPermissionInfo(GET_INSTALLED_APPS_PERMISSION, 0).packageName ==
+                "com.lbe.security.miui"
+    }.getOrDefault(false)
+
 @Composable
 @SuppressLint("ApplySharedPref")
 private fun PredictiveBackAppListScreen(
     service: XposedService?,
     serviceStateObserved: Boolean,
+    appListPermissionGranted: Boolean,
+    appListPermissionSupported: Boolean,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
     val iconSize = with(LocalDensity.current) { 48.dp.roundToPx() }
     val appsErrorMessage = stringResource(R.string.predictive_back_apps_error)
+    val appListPermissionRequiredMessage =
+        stringResource(R.string.predictive_back_apps_permission_required)
     val configurationErrorMessage = stringResource(R.string.predictive_back_config_error)
     val saveErrorMessage = stringResource(R.string.predictive_back_save_error)
     val serviceLoadingMessage = stringResource(R.string.predictive_back_service_loading)
@@ -281,7 +312,23 @@ private fun PredictiveBackAppListScreen(
         .asPaddingValues()
     val topBarBackdrop = rememberMiuixBlurBackdrop()
 
-    LaunchedEffect(appLoadGeneration, appsErrorMessage) {
+    LaunchedEffect(
+        appLoadGeneration,
+        appsErrorMessage,
+        appListPermissionGranted,
+        appListPermissionSupported,
+    ) {
+        if (!appListPermissionGranted) {
+            apps = emptyList()
+            applicationOptInPackages = emptySet()
+            appsLoading = false
+            appsError = if (appListPermissionSupported) {
+                appListPermissionRequiredMessage
+            } else {
+                appsErrorMessage
+            }
+            return@LaunchedEffect
+        }
         val refreshingExistingList = apps.isNotEmpty()
         appsLoading = true
         appsError = null
@@ -1150,29 +1197,36 @@ private fun loadLaunchableApps(
     packageManager: PackageManager,
     ownPackageName: String,
 ): AppLoadResult {
-    val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-    val resolvedActivities = packageManager.queryIntentActivities(
-        launcherIntent,
-        PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong()),
+    val installedApplications = packageManager.getInstalledApplications(
+        PackageManager.ApplicationInfoFlags.of(PackageManager.MATCH_ALL.toLong()),
     )
     val entries = LinkedHashMap<String, AppEntry>()
     val applicationOptInPackages = HashSet<String>()
-    resolvedActivities.forEach { resolved ->
-        val activityInfo = resolved.activityInfo ?: return@forEach
-        val applicationInfo = activityInfo.applicationInfo ?: return@forEach
-        val packageName = activityInfo.packageName ?: return@forEach
+    installedApplications.forEach { applicationInfo ->
+        val packageName = applicationInfo.packageName ?: return@forEach
         if (packageName == ownPackageName) {
-            return@forEach
-        }
-        if (isApplicationPredictiveBackOptedIn(applicationInfo)) {
-            applicationOptInPackages.add(packageName)
-            entries.remove(packageName)
             return@forEach
         }
         if (packageName in applicationOptInPackages || entries.containsKey(packageName)) {
             return@forEach
         }
-        val label = runCatching { resolved.loadLabel(packageManager).toString() }
+        val launcherActivity = resolveMainActivity(
+            packageManager = packageManager,
+            packageName = packageName,
+            launcherOnly = true,
+        )
+        if (launcherActivity != null && isApplicationPredictiveBackOptedIn(applicationInfo)) {
+            applicationOptInPackages.add(packageName)
+            return@forEach
+        }
+
+        val selectedActivity = launcherActivity ?: resolveMainActivity(
+            packageManager = packageManager,
+            packageName = packageName,
+            launcherOnly = false,
+        )
+            ?: return@forEach
+        val label = runCatching { applicationInfo.loadLabel(packageManager).toString() }
             .getOrNull()
             .orEmpty()
             .ifBlank { packageName }
@@ -1185,7 +1239,9 @@ private fun loadLaunchableApps(
         entries[packageName] = AppEntry(
             packageName = packageName,
             label = label,
-            launcherActivity = ComponentName(packageName, activityInfo.name),
+            launcherActivity = selectedActivity.let {
+                ComponentName(packageName, it.name)
+            },
             firstInstallTime = firstInstallTime,
             isSystem = applicationInfo.flags and (
                     ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP
@@ -1197,6 +1253,21 @@ private fun loadLaunchableApps(
         apps = entries.values.toList(),
         applicationOptInPackages = applicationOptInPackages.toSet(),
     )
+}
+
+private fun resolveMainActivity(
+    packageManager: PackageManager,
+    packageName: String,
+    launcherOnly: Boolean,
+): android.content.pm.ActivityInfo? {
+    val intent = Intent(Intent.ACTION_MAIN).setPackage(packageName)
+    if (launcherOnly) {
+        intent.addCategory(Intent.CATEGORY_LAUNCHER)
+    }
+    return packageManager.queryIntentActivities(
+        intent,
+        PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong()),
+    ).firstOrNull()?.activityInfo
 }
 
 private fun isApplicationPredictiveBackOptedIn(applicationInfo: ApplicationInfo): Boolean {
