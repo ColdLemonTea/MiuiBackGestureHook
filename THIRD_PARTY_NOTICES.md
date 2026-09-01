@@ -16,3 +16,11 @@ The library is not modified. This repository contains the application source and
 instructions needed to rebuild the APK against a compatible modified DexKit library.
 The Apache License applied to the application does not prohibit reverse engineering for
 debugging modifications to DexKit.
+
+## LSPosed hook-page protection
+
+The general-purpose LSPosed architecture used to protect hooked pages from memory cleanup
+was adapted from the implementation tested in the Dr-TSNG's MiCTS fork repository. This project applies
+that architecture to Xiaomi's `MADV_DONTNEED` cleanup behavior.
+
+- Reference implementation and test repository: <https://github.com/Dr-TSNG/MiCTS>

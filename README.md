@@ -35,6 +35,14 @@ hook fingerprints remain fail-closed.
 
 Build the LSPosed release APK:
 
+Linux/macOS:
+
+```shell
+./gradlew :app:assembleRelease
+```
+
+Windows:
+
 ```powershell
 .\gradlew.bat :app:assembleRelease
 ```
