@@ -349,6 +349,22 @@ Recents ownership rules:
   SystemUI arbiter generation must force MiuiHome to republish the current editing state; idle Home
   remains ignored.
 
+- On Android 17, mirror the complete `LauncherOverlayStateManager.notifyBackGestureStatus()`
+  decision for Home children, including caller-generated false, source adjustment and early
+  ineligibility. A true child state requires the final native `interactable=true` and exact
+  `typefrom_home_sub`; all other completed results clear it. Preserve native state/input policy
+  and use the existing authenticated, arbiter-generation and Dart-owner-bound channel.
+  Resolve the notifier's frame, complete forwarding call and String layout from the same mapped
+  AOT image before reading its live frame; never call Dart or C++ from the assembly observer.
+  Replace the partial editing-query observation, retire/repair both notifier exits together,
+  and invalidate owner state across remaps. Android 17 must ignore legacy `launcher_editing`
+  broadcasts and restored editing booleans. Do not infer completion from a timeout or clear
+  state merely because one BACK finished; native menus may still have another level to close.
+- Serialize native Dart-state broadcasts through their existing publisher. Cache the exact
+  snapshot successfully sent, including its owner and arbiter generation, even when live
+  state changed during the send. Compare that receipt with current state before draining;
+  an `A -> B -> A` change must not suppress the corrective A after B was delivered.
+
 Remote-animation rules:
 
 - Restore the whole AOSP WM Shell behavior, not only `TYPE_CROSS_ACTIVITY`.
@@ -363,6 +379,14 @@ Remote-animation rules:
   to `CHANGE`, preserve the opening Task as `TO_FRONT`, and restate the two native predictive
   leash layers in the existing start transaction. Do not swap targets, transform either leash,
   or apply this rule to freeform, return-to-home, cross-activity, or ambiguous shapes.
+- That Android 17 cross-task correction may include one additional full-task embedded
+  TaskFragment only when it belongs directly to the opening Task and the exact native
+  fragment token, container token, originally hidden state, prepared flags, unanimated
+  fragment Surface, default-display root and unrotated fullscreen bounds all match.
+  Retain both Task predictive adaptors and absolute leash-layer checks. Preserve the child
+  Change's opening mode, parent, flags, leash and stock Shell handling; correct only the
+  closing Task's role. Additional children, independent runners, partial bounds, rotation,
+  reparenting and uncertain identities must preserve the original transition.
 - On Android 17, preserve its mandatory prepared transition for an exact fullscreen
   cross-Activity quarter-turn on the default display. Extend the existing closing-role
   correction only when both immutable Activity/Task identities, native predictive adaptors,

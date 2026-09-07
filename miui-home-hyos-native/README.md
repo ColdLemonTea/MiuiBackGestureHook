@@ -30,6 +30,14 @@ adjacent pool-object member only after it uniquely shares the exit callback's
 state slot, shared object, and prepare/publish call targets. Missing, oversized,
 or multiply paired candidate families reject the whole Dart state profile.
 
+Home child surfaces use the complete native `notifyBackGestureStatus()` decision.
+Two dynamically resolved return epilogues observe early ineligibility and the final
+`interactable`/`typeFrom` pair after the normal forwarding call. The same mapped
+image must prove the frame and OneByteString layout. The observer copies only a
+boolean with its owner epoch; the existing publisher sends authenticated state.
+The native readiness protocol retains its `editing` group name for compatibility,
+while Android 17 consumes the distinct `launcher_home_surface_visible` state key.
+
 ## Build
 
 Use the application build; there is no separate native-module package task:
