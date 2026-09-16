@@ -374,6 +374,10 @@ Recents ownership rules:
   snapshot successfully sent, including its owner and arbiter generation, even when live
   state changed during the send. Compare that receipt with current state before draining;
   an `A -> B -> A` change must not suppress the corrective A after B was delivered.
+- A completed native `interactable=false / typefrom_home` publication also clears the
+  same Dart owner's Overview observation, including when a task-card launch skips its
+  scene-animation exit signal. Publish that exit even if the Home-child value was already
+  false. Unreadable frames, early ineligibility, and other sources must not imply an Overview exit.
 
 Remote-animation rules:
 
